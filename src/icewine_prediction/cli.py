@@ -1,3 +1,5 @@
+from datetime import date
+
 import typer
 from sqlalchemy import text
 
@@ -6,6 +8,7 @@ from icewine_prediction.database import (
     create_session_factory,
     initialize_database,
 )
+from icewine_prediction.sync_runner import run_sync_odds, run_sync_results, run_sync_upcoming
 
 app = typer.Typer(help="冰酒足球预测模型 CLI")
 sync_app = typer.Typer(help="数据同步命令")
@@ -41,22 +44,23 @@ def sync_leagues():
 
 @sync_app.command("upcoming")
 def sync_upcoming(days: int = 3):
-    typer.echo(f"计划同步未来 {days} 天赛程")
+    typer.echo(run_sync_upcoming(days))
 
 
 @sync_app.command("odds")
 def sync_odds(days: int = 2):
-    typer.echo(f"计划同步未来 {days} 天赔率")
+    typer.echo(run_sync_odds(days))
 
 
 @sync_app.command("results")
 def sync_results(from_date: str, to_date: str):
-    typer.echo(f"计划同步赛果：{from_date} 至 {to_date}")
+    typer.echo(run_sync_results(date.fromisoformat(from_date), date.fromisoformat(to_date)))
 
 
 @sync_app.command("all")
 def sync_all(days: int = 3):
-    typer.echo(f"计划同步全部数据，未来 {days} 天")
+    typer.echo(run_sync_upcoming(days))
+    typer.echo(run_sync_odds(days))
 
 
 if __name__ == "__main__":

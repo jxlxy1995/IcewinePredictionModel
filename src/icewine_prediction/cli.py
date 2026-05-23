@@ -190,11 +190,31 @@ def _format_recommendation_part(recommendation: Recommendation) -> str:
     risk_text = ""
     if recommendation.risk_tags:
         risk_text = f" 风险 {','.join(recommendation.risk_tags)}"
+    explanation_parts = []
+    if recommendation.market_line is not None:
+        explanation_parts.append(f"线 {recommendation.market_line}")
+    if recommendation.model_probability is not None:
+        explanation_parts.append(f"模型概率 {recommendation.model_probability}")
+    if recommendation.market_implied_probability is not None:
+        explanation_parts.append(f"隐含概率 {recommendation.market_implied_probability}")
+    if recommendation.model_probability is not None:
+        explanation_parts.append(f"edge {recommendation.edge}")
+    if (
+        recommendation.home_expected_goals is not None
+        and recommendation.away_expected_goals is not None
+    ):
+        explanation_parts.append(
+            f"期望进球 {recommendation.home_expected_goals}-{recommendation.away_expected_goals}"
+        )
+    explanation_text = ""
+    if explanation_parts:
+        explanation_text = f" {' '.join(explanation_parts)}"
     return (
         f"{_display_market_type(recommendation.market_type)} "
         f"{_display_side(recommendation.side)} "
         f"{recommendation.confidence_grade} "
         f"{recommendation.stake_units}手"
+        f"{explanation_text}"
         f"{risk_text}"
     )
 

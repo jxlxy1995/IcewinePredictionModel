@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_HALF_UP
 
 from icewine_prediction.feature_service import MatchOddsFeatures
@@ -20,6 +20,12 @@ class Recommendation:
     should_bet: bool
     edge: Decimal
     risk_tags: list[str]
+    model_probability: Decimal | None = None
+    market_implied_probability: Decimal | None = None
+    similar_backtest_roi: Decimal | None = None
+    home_expected_goals: Decimal | None = None
+    away_expected_goals: Decimal | None = None
+    market_line: Decimal | None = None
 
 
 GRADE_ORDER = ["D", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+", "S-", "S", "S+"]
@@ -78,6 +84,9 @@ def build_recommendation_from_signal(
         should_bet=stake_units >= Decimal("0.50"),
         edge=edge,
         risk_tags=risk_tags,
+        model_probability=model_probability,
+        market_implied_probability=market_implied_probability,
+        similar_backtest_roi=similar_backtest_roi,
     )
 
 
@@ -221,21 +230,29 @@ def _build_model_handicap_recommendation(
         side="away",
     )
     if home_probability >= away_probability:
-        return build_recommendation_from_signal(
+        return _with_model_context(
+            build_recommendation_from_signal(
+                market_type="asian_handicap",
+                side="home",
+                model_probability=home_probability,
+                market_implied_probability=_implied_probability(features.home_odds.mean),
+                similar_backtest_roi=Decimal("0.05"),
+                risk_tags=[],
+            ),
+            model,
+            features.asian_handicap.mean,
+        )
+    return _with_model_context(
+        build_recommendation_from_signal(
             market_type="asian_handicap",
-            side="home",
-            model_probability=home_probability,
-            market_implied_probability=_implied_probability(features.home_odds.mean),
+            side="away",
+            model_probability=away_probability,
+            market_implied_probability=_implied_probability(features.away_odds.mean),
             similar_backtest_roi=Decimal("0.05"),
             risk_tags=[],
-        )
-    return build_recommendation_from_signal(
-        market_type="asian_handicap",
-        side="away",
-        model_probability=away_probability,
-        market_implied_probability=_implied_probability(features.away_odds.mean),
-        similar_backtest_roi=Decimal("0.05"),
-        risk_tags=[],
+        ),
+        model,
+        features.asian_handicap.mean,
     )
 
 
@@ -267,21 +284,42 @@ def _build_model_total_recommendation(
         side="under",
     )
     if over_probability >= under_probability:
-        return build_recommendation_from_signal(
+        return _with_model_context(
+            build_recommendation_from_signal(
+                market_type="total_goals",
+                side="over",
+                model_probability=over_probability,
+                market_implied_probability=_implied_probability(features.over_odds.mean),
+                similar_backtest_roi=Decimal("0.05"),
+                risk_tags=[],
+            ),
+            model,
+            features.total_line.mean,
+        )
+    return _with_model_context(
+        build_recommendation_from_signal(
             market_type="total_goals",
-            side="over",
-            model_probability=over_probability,
-            market_implied_probability=_implied_probability(features.over_odds.mean),
+            side="under",
+            model_probability=under_probability,
+            market_implied_probability=_implied_probability(features.under_odds.mean),
             similar_backtest_roi=Decimal("0.05"),
             risk_tags=[],
-        )
-    return build_recommendation_from_signal(
-        market_type="total_goals",
-        side="under",
-        model_probability=under_probability,
-        market_implied_probability=_implied_probability(features.under_odds.mean),
-        similar_backtest_roi=Decimal("0.05"),
-        risk_tags=[],
+        ),
+        model,
+        features.total_line.mean,
+    )
+
+
+def _with_model_context(
+    recommendation: Recommendation,
+    model: BaselineResultModel,
+    market_line: Decimal,
+) -> Recommendation:
+    return replace(
+        recommendation,
+        home_expected_goals=model.home_expected_goals,
+        away_expected_goals=model.away_expected_goals,
+        market_line=market_line,
     )
 
 

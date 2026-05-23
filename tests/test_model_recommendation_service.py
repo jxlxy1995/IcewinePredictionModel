@@ -86,8 +86,14 @@ def test_model_recommendations_generate_handicap_and_total_markets():
     assert recommendations[0].market_type == "asian_handicap"
     assert recommendations[0].side == "home"
     assert recommendations[0].edge > Decimal("0")
+    assert recommendations[0].home_expected_goals == Decimal("1.80")
+    assert recommendations[0].away_expected_goals == Decimal("1.00")
+    assert recommendations[0].market_line == Decimal("-0.25")
+    assert recommendations[0].model_probability is not None
+    assert recommendations[0].market_implied_probability is not None
     assert recommendations[1].market_type == "total_goals"
     assert recommendations[1].side in {"over", "under", "watch"}
+    assert recommendations[1].market_line == Decimal("2.5")
 
 
 def test_model_recommendations_watch_when_market_line_is_missing():

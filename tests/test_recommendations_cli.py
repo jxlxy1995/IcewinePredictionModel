@@ -41,6 +41,12 @@ def test_format_recommendation_line_uses_chinese_match_and_recommendation_text()
             should_bet=True,
             edge=Decimal("0.063"),
             risk_tags=[],
+            model_probability=Decimal("0.5700"),
+            market_implied_probability=Decimal("0.5070"),
+            similar_backtest_roi=Decimal("0.05"),
+            home_expected_goals=Decimal("1.80"),
+            away_expected_goals=Decimal("1.00"),
+            market_line=Decimal("-0.25"),
         ),
         Recommendation(
             market_type="total_goals",
@@ -54,6 +60,11 @@ def test_format_recommendation_line_uses_chinese_match_and_recommendation_text()
     ]
 
     line = format_recommendation_line(match, recommendations, display_service)
+    assert "线 -0.25" in line
+    assert "模型概率 0.5700" in line
+    assert "隐含概率 0.5070" in line
+    assert "edge 0.063" in line
+    assert "期望进球 1.80-1.00" in line
 
     assert "意甲 2026-05-24 00:00 博洛尼亚 vs 国际米兰" in line
     assert "亚盘 主队 B 1.25手" in line

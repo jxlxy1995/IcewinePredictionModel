@@ -31,6 +31,9 @@ def test_medium_edge_generates_b_grade_recommendation():
     assert recommendation.confidence_grade == "B"
     assert recommendation.stake_units == Decimal("1.25")
     assert recommendation.should_bet is True
+    assert recommendation.model_probability == Decimal("0.570")
+    assert recommendation.market_implied_probability == Decimal("0.505")
+    assert recommendation.similar_backtest_roi == Decimal("0.06")
 
 
 def test_risk_tag_downgrades_recommendation():

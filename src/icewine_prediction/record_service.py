@@ -26,6 +26,7 @@ class RecordReport:
     total_stake_units: Decimal
     total_profit_units: Decimal
     roi: Decimal
+    by_edge_bucket: dict[str, RecordGroupSummary]
     by_settlement_result: dict[str, RecordGroupSummary]
     by_market_type: dict[str, RecordGroupSummary]
     by_confidence_grade: dict[str, RecordGroupSummary]
@@ -211,6 +212,25 @@ def _group_records(
     return {key: _summarize_records(value) for key, value in grouped.items()}
 
 
+def edge_bucket_for_value(edge: Decimal) -> str:
+    if edge < Decimal("0.03"):
+        return "0.00-0.03"
+    if edge < Decimal("0.06"):
+        return "0.03-0.06"
+    if edge < Decimal("0.10"):
+        return "0.06-0.10"
+    return "0.10+"
+
+
+def _group_records_by_edge_bucket(
+    records: list[RecommendationRecord],
+) -> dict[str, RecordGroupSummary]:
+    grouped: dict[str, list[RecommendationRecord]] = {}
+    for record in records:
+        grouped.setdefault(edge_bucket_for_value(record.edge), []).append(record)
+    return {key: _summarize_records(value) for key, value in grouped.items()}
+
+
 def build_record_report(session: Session) -> RecordReport:
     records = session.query(RecommendationRecord).all()
     settled_records = [record for record in records if record.status == "settled"]
@@ -222,6 +242,7 @@ def build_record_report(session: Session) -> RecordReport:
         total_stake_units=total_summary.stake_units,
         total_profit_units=total_summary.profit_units,
         roi=total_summary.roi,
+        by_edge_bucket=_group_records_by_edge_bucket(settled_records),
         by_settlement_result=_group_records(settled_records, "settlement_result"),
         by_market_type=_group_records(settled_records, "market_type"),
         by_confidence_grade=_group_records(settled_records, "confidence_grade"),

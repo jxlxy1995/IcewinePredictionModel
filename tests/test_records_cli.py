@@ -71,6 +71,7 @@ def test_format_record_report_outputs_summary():
         total_stake_units=Decimal("3.00"),
         total_profit_units=Decimal("0.800"),
         roi=Decimal("0.2667"),
+        by_edge_bucket={"0.10+": summary},
         by_settlement_result={"win": summary},
         by_market_type={"asian_handicap": summary},
         by_confidence_grade={"A+": summary},
@@ -84,6 +85,8 @@ def test_format_record_report_outputs_summary():
     assert "待结算 1" in text
     assert "按结果" in text
     assert "win" in text
+    assert "按edge" in text
+    assert "0.10+" in text
     assert "总盈亏 0.800" in text
     assert "ROI 0.2667" in text
     assert "asian_handicap" in text

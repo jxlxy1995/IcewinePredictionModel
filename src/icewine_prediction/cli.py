@@ -282,6 +282,7 @@ def format_record_report(report: RecordReport) -> str:
             f"总盈亏 {report.total_profit_units}",
             f"ROI {report.roi}",
             _format_record_groups("按结果", report.by_settlement_result),
+            _format_record_groups("按edge", report.by_edge_bucket),
             _format_record_groups("按盘口", report.by_market_type),
             _format_record_groups("按信心", report.by_confidence_grade),
             _format_record_groups("按联赛", report.by_league),

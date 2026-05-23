@@ -35,6 +35,7 @@ def _record(
     stake_units: Decimal,
     profit_units: Decimal | None,
     settlement_result: str | None = None,
+    edge: Decimal = Decimal("0.0737"),
     status: str = "settled",
 ) -> RecommendationRecord:
     return RecommendationRecord(
@@ -50,7 +51,7 @@ def _record(
         odds=Decimal("1.90"),
         model_probability=Decimal("0.6000"),
         market_implied_probability=Decimal("0.5263"),
-        edge=Decimal("0.0737"),
+        edge=edge,
         confidence_grade=confidence_grade,
         stake_units=stake_units,
         home_expected_goals=Decimal("1.40"),
@@ -72,6 +73,7 @@ def test_build_record_report_summarizes_settled_records(session):
                 Decimal("2.00"),
                 Decimal("1.800"),
                 settlement_result="win",
+                edge=Decimal("0.0200"),
             ),
             _record(
                 match,
@@ -80,6 +82,25 @@ def test_build_record_report_summarizes_settled_records(session):
                 Decimal("1.00"),
                 Decimal("-1.000"),
                 settlement_result="loss",
+                edge=Decimal("0.0500"),
+            ),
+            _record(
+                match,
+                "asian_handicap",
+                "B+",
+                Decimal("1.50"),
+                Decimal("0.750"),
+                settlement_result="half_win",
+                edge=Decimal("0.0800"),
+            ),
+            _record(
+                match,
+                "total_goals",
+                "A-",
+                Decimal("1.25"),
+                Decimal("1.000"),
+                settlement_result="win",
+                edge=Decimal("0.1200"),
             ),
             _record(match, "total_goals", "B", Decimal("1.50"), None, status="pending"),
         ]
@@ -88,16 +109,21 @@ def test_build_record_report_summarizes_settled_records(session):
 
     report = build_record_report(session)
 
-    assert report.total_records == 3
-    assert report.settled_records == 2
+    assert report.total_records == 5
+    assert report.settled_records == 4
     assert report.pending_records == 1
-    assert report.total_stake_units == Decimal("3.00")
-    assert report.total_profit_units == Decimal("0.800")
-    assert report.roi == Decimal("0.2667")
-    assert report.by_settlement_result["win"].record_count == 1
+    assert report.total_stake_units == Decimal("5.75")
+    assert report.total_profit_units == Decimal("2.550")
+    assert report.roi == Decimal("0.4435")
+    assert report.by_edge_bucket["0.00-0.03"].record_count == 1
+    assert report.by_edge_bucket["0.03-0.06"].record_count == 1
+    assert report.by_edge_bucket["0.06-0.10"].record_count == 1
+    assert report.by_edge_bucket["0.10+"].record_count == 1
+    assert report.by_settlement_result["win"].record_count == 2
+    assert report.by_settlement_result["half_win"].record_count == 1
     assert report.by_settlement_result["loss"].record_count == 1
-    assert report.by_market_type["asian_handicap"].profit_units == Decimal("1.800")
-    assert report.by_market_type["total_goals"].profit_units == Decimal("-1.000")
+    assert report.by_market_type["asian_handicap"].profit_units == Decimal("2.550")
+    assert report.by_market_type["total_goals"].profit_units == Decimal("0.000")
     assert report.by_confidence_grade["A+"].record_count == 1
     assert report.by_confidence_grade["B"].record_count == 1
-    assert report.by_league["La Liga"].stake_units == Decimal("3.00")
+    assert report.by_league["La Liga"].stake_units == Decimal("5.75")

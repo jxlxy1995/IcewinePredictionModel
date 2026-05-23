@@ -1,0 +1,19 @@
+[project]
+name = "icewine-prediction-model"
+version = "0.1.0"
+description = "足球亚盘和大小球预测推荐系统"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.7",
+  "sqlalchemy>=2.0",
+  "typer>=0.12",
+  "pytest>=8.2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]

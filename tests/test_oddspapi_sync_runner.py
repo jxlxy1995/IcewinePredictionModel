@@ -24,12 +24,19 @@ class FakeOddsPapiClient:
         self.request_count = 0
         self.calls = []
         self.fail_endpoint = fail_endpoint
+        self.failed_historical_fixture_ids = set()
 
     def get(self, endpoint, params=None):
         self.request_count += 1
         self.calls.append((endpoint, params or {}))
         if endpoint == self.fail_endpoint:
             raise OddsPapiApiError("rate limited")
+        if (
+            endpoint == "historical-odds"
+            and params
+            and params.get("fixtureId") in self.failed_historical_fixture_ids
+        ):
+            raise OddsPapiApiError("historical odds unavailable")
         if endpoint == "fixtures":
             return [
                 {
@@ -350,7 +357,84 @@ def test_run_oddspapi_sync_for_session_stops_gracefully_on_api_error(session):
 
     assert result.processed_match_count == 0
     assert result.requests_used == 1
-    assert result.error_message == "rate limited"
+    assert result.failed_match_count == 1
+    assert result.error_message == "1 场比赛失败，已跳过继续"
+
+
+def test_run_oddspapi_sync_for_session_continues_after_single_match_odds_error(session):
+    failed_match = _match(
+        session,
+        source_match_id="failed",
+        league_name="Premier League",
+        source_league_id="39",
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Mallorca",
+        away_team_name="Oviedo",
+    )
+    success_match = _match(
+        session,
+        source_match_id="success",
+        kickoff_time=datetime(2026, 5, 23, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Mallorca B",
+        away_team_name="Oviedo B",
+    )
+    session.add_all(
+        [
+            OddsSourceMatch(
+                match_id=failed_match.id,
+                source_name="oddspapi",
+                source_fixture_id="failed-fixture",
+                matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                match_confidence=Decimal("1.0000"),
+                match_reason="cached",
+            ),
+            OddsSourceMatch(
+                match_id=success_match.id,
+                source_name="oddspapi",
+                source_fixture_id="oddspapi-fixture-1",
+                matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                match_confidence=Decimal("1.0000"),
+                match_reason="cached",
+            ),
+        ]
+    )
+    session.commit()
+    raw_client = FakeOddsPapiClient()
+    raw_client.failed_historical_fixture_ids.add("failed-fixture")
+    client = OddsPapiSyncClient(raw_client)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    assert result.processed_match_count == 1
+    assert result.failed_match_count == 1
+    assert result.matched_count == 2
+    assert result.inserted_snapshot_count == 4
+    assert result.error_message == "1 场比赛失败，已跳过继续"
+    assert session.query(HistoricalOddsSnapshot).count() == 4
+
+
+def test_run_oddspapi_sync_for_session_reports_progress(session):
+    _match(session)
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+    messages = []
+
+    run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+        progress_callback=messages.append,
+    )
+
+    assert messages[0].startswith("[1/1] 开始")
+    assert "Mallorca vs Oviedo" in messages[0]
+    assert messages[-1].startswith("[1/1] 完成")
 
 
 def test_oddspapi_sync_client_requests_fixture_and_historical_odds_payloads():

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import time
-from typing import Any
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -57,6 +57,7 @@ class OddsPapiPlanMatch:
 class OddsPapiSyncResult:
     processed_match_count: int
     matched_count: int
+    failed_match_count: int
     inserted_snapshot_count: int
     skipped_duplicate_snapshot_count: int
     skipped_existing_odds_count: int
@@ -143,6 +144,7 @@ def run_oddspapi_sync(
     request_budget: int,
     timeout_seconds: int = 20,
     max_snapshots_per_match: int = 200,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     settings = load_project_settings()
     raw_client = OddsPapiClient(
@@ -159,6 +161,7 @@ def run_oddspapi_sync(
             season=season,
             max_matches=max_matches,
             max_snapshots_per_match=max_snapshots_per_match,
+            progress_callback=progress_callback,
         )
     return _format_result(result)
 
@@ -203,6 +206,7 @@ def run_oddspapi_sync_for_session(
     season: int,
     max_matches: int,
     max_snapshots_per_match: int = 200,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> OddsPapiSyncResult:
     matches, skipped_existing_odds = select_oddspapi_candidate_matches(
         session=session,
@@ -216,12 +220,19 @@ def run_oddspapi_sync_for_session(
     asian_handicap_count = 0
     total_goals_count = 0
     processed = 0
-    for match in matches:
+    failed = 0
+    total = len(matches)
+    for index, match in enumerate(matches, start=1):
+        _emit_progress(progress_callback, _format_progress_start(index, total, match))
         try:
             tournament_id = API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS.get(
                 str(match.league.source_league_id)
             )
             if tournament_id is None:
+                _emit_progress(
+                    progress_callback,
+                    _format_progress_skip(index, total, match, "未配置 OddsPapi 联赛映射"),
+                )
                 continue
             cached_source_match = _get_odds_source_match(session, match.id)
             if cached_source_match is not None:
@@ -239,6 +250,10 @@ def run_oddspapi_sync_for_session(
                 asian_handicap_count += store_summary.asian_handicap_count
                 total_goals_count += store_summary.total_goals_count
                 processed += 1
+                _emit_progress(
+                    progress_callback,
+                    _format_progress_success(index, total, match, store_summary.inserted_count),
+                )
                 continue
             fixture_cache_key = (tournament_id, match.id)
             if fixture_cache_key not in fixtures_by_tournament_id:
@@ -252,6 +267,10 @@ def run_oddspapi_sync_for_session(
                 api_football_to_oddspapi_tournament_ids=API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS,
             )
             if candidate is None:
+                _emit_progress(
+                    progress_callback,
+                    _format_progress_skip(index, total, match, "未匹配到 OddsPapi 比赛"),
+                )
                 continue
             _store_odds_source_match(session, match, candidate)
             matched += 1
@@ -267,27 +286,27 @@ def run_oddspapi_sync_for_session(
             asian_handicap_count += store_summary.asian_handicap_count
             total_goals_count += store_summary.total_goals_count
             processed += 1
+            _emit_progress(
+                progress_callback,
+                _format_progress_success(index, total, match, store_summary.inserted_count),
+            )
         except OddsPapiApiError as exc:
-            return OddsPapiSyncResult(
-                processed_match_count=processed,
-                matched_count=matched,
-                inserted_snapshot_count=inserted,
-                skipped_duplicate_snapshot_count=skipped_duplicates,
-                skipped_existing_odds_count=skipped_existing_odds,
-                asian_handicap_count=asian_handicap_count,
-                total_goals_count=total_goals_count,
-                requests_used=client.request_count,
-                error_message=str(exc),
+            failed += 1
+            _emit_progress(
+                progress_callback,
+                _format_progress_failure(index, total, match, str(exc)),
             )
     return OddsPapiSyncResult(
         processed_match_count=processed,
         matched_count=matched,
+        failed_match_count=failed,
         inserted_snapshot_count=inserted,
         skipped_duplicate_snapshot_count=skipped_duplicates,
         skipped_existing_odds_count=skipped_existing_odds,
         asian_handicap_count=asian_handicap_count,
         total_goals_count=total_goals_count,
         requests_used=client.request_count,
+        error_message=_format_error_summary(failed),
     )
 
 
@@ -447,6 +466,49 @@ def _team_name(value: Any) -> str:
     return str(value or "")
 
 
+def _emit_progress(
+    progress_callback: Callable[[str], None] | None,
+    message: str,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(message)
+
+
+def _format_progress_start(index: int, total: int, match: Match) -> str:
+    return f"[{index}/{total}] 开始 {_format_match_brief(match)}"
+
+
+def _format_progress_success(
+    index: int,
+    total: int,
+    match: Match,
+    inserted_count: int,
+) -> str:
+    return f"[{index}/{total}] 完成 {_format_match_brief(match)} 写入快照 {inserted_count}"
+
+
+def _format_progress_skip(index: int, total: int, match: Match, reason: str) -> str:
+    return f"[{index}/{total}] 跳过 {_format_match_brief(match)} {reason}"
+
+
+def _format_progress_failure(index: int, total: int, match: Match, reason: str) -> str:
+    return f"[{index}/{total}] 失败 {_format_match_brief(match)} {reason}"
+
+
+def _format_match_brief(match: Match) -> str:
+    kickoff = match.kickoff_time.strftime("%Y-%m-%d %H:%M")
+    return (
+        f"id={match.id} {match.league.name} {kickoff} "
+        f"{match.home_team.canonical_name} vs {match.away_team.canonical_name}"
+    )
+
+
+def _format_error_summary(failed_match_count: int) -> str | None:
+    if failed_match_count <= 0:
+        return None
+    return f"{failed_match_count} 场比赛失败，已跳过继续"
+
+
 def format_oddspapi_sync_plan(plan: OddsPapiSyncPlan) -> str:
     lines = [
         f"候选比赛 {plan.candidate_match_count}",
@@ -471,6 +533,7 @@ def _format_result(result: OddsPapiSyncResult) -> str:
         [
             f"处理比赛 {result.processed_match_count}",
             f"匹配成功 {result.matched_count}",
+            f"失败比赛 {result.failed_match_count}",
             f"写入快照 {result.inserted_snapshot_count}",
             f"跳过重复快照 {result.skipped_duplicate_snapshot_count}",
             f"跳过已有赔率 {result.skipped_existing_odds_count}",

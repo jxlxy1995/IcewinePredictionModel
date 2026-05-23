@@ -611,6 +611,7 @@ def odds_source_oddspapi_fetch(
             request_budget=request_budget,
             timeout_seconds=timeout_seconds,
             max_snapshots_per_match=max_snapshots_per_match,
+            progress_callback=typer.echo,
         )
     )
 

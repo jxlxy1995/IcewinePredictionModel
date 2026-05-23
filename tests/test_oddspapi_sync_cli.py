@@ -37,7 +37,8 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
         max_matches,
         request_budget,
         timeout_seconds,
-        max_snapshots_per_match: (
+        max_snapshots_per_match,
+        progress_callback=None: (
             f"fetch:{season}:{max_matches}:{request_budget}:"
             f"{timeout_seconds}:{max_snapshots_per_match}"
         ),

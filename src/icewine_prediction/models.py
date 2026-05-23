@@ -16,6 +16,7 @@ class League(Base):
     level: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source_name: Mapped[str | None] = mapped_column(String(80))
     source_league_id: Mapped[str | None] = mapped_column(String(120))
     aliases: Mapped[str | None] = mapped_column(Text)
 
@@ -29,6 +30,7 @@ class Team(Base):
     canonical_name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
     english_name: Mapped[str | None] = mapped_column(String(120))
     country_or_region: Mapped[str | None] = mapped_column(String(80))
+    source_name: Mapped[str | None] = mapped_column(String(80))
     source_team_id: Mapped[str | None] = mapped_column(String(120))
     aliases: Mapped[str | None] = mapped_column(Text)
 
@@ -44,6 +46,7 @@ class Match(Base):
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="scheduled")
     home_score: Mapped[int | None] = mapped_column(Integer)
     away_score: Mapped[int | None] = mapped_column(Integer)
+    source_name: Mapped[str | None] = mapped_column(String(80))
     source_match_id: Mapped[str | None] = mapped_column(String(120))
 
     league: Mapped["League"] = relationship(back_populates="matches")

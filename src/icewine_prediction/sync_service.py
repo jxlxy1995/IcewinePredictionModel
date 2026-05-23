@@ -1,0 +1,160 @@
+from dataclasses import dataclass
+
+from sqlalchemy.orm import Session
+
+from icewine_prediction.models import League, Match, OddsSnapshot, Team
+from icewine_prediction.sources.api_football_mapper import ExternalFixture, ExternalOddsSnapshot
+
+
+@dataclass(frozen=True)
+class FixtureSyncResult:
+    created_matches: int = 0
+    updated_matches: int = 0
+
+
+@dataclass(frozen=True)
+class OddsSyncResult:
+    created_odds_snapshots: int = 0
+    skipped_odds_snapshots: int = 0
+
+
+def _get_or_create_league(session: Session, fixture: ExternalFixture) -> League:
+    league = (
+        session.query(League)
+        .filter_by(source_name=fixture.source_name, source_league_id=fixture.source_league_id)
+        .one_or_none()
+    )
+    if league is not None:
+        return league
+    league = League(
+        name=fixture.league_name,
+        country_or_region=fixture.country,
+        level=1,
+        is_enabled=True,
+        priority=0,
+        source_name=fixture.source_name,
+        source_league_id=fixture.source_league_id,
+    )
+    session.add(league)
+    session.flush()
+    return league
+
+
+def _get_or_create_team(
+    session: Session,
+    source_name: str,
+    source_team_id: str,
+    team_name: str,
+    country: str,
+) -> Team:
+    team = (
+        session.query(Team)
+        .filter_by(source_name=source_name, source_team_id=source_team_id)
+        .one_or_none()
+    )
+    if team is not None:
+        return team
+    team = Team(
+        canonical_name=team_name,
+        country_or_region=country,
+        source_name=source_name,
+        source_team_id=source_team_id,
+    )
+    session.add(team)
+    session.flush()
+    return team
+
+
+def upsert_fixtures(session: Session, fixtures: list[ExternalFixture]) -> FixtureSyncResult:
+    created = 0
+    updated = 0
+    for fixture in fixtures:
+        league = _get_or_create_league(session, fixture)
+        home_team = _get_or_create_team(
+            session,
+            fixture.source_name,
+            fixture.home_source_team_id,
+            fixture.home_team_name,
+            fixture.country,
+        )
+        away_team = _get_or_create_team(
+            session,
+            fixture.source_name,
+            fixture.away_source_team_id,
+            fixture.away_team_name,
+            fixture.country,
+        )
+        match = (
+            session.query(Match)
+            .filter_by(source_name=fixture.source_name, source_match_id=fixture.source_match_id)
+            .one_or_none()
+        )
+        if match is None:
+            match = Match(
+                league=league,
+                home_team=home_team,
+                away_team=away_team,
+                kickoff_time=fixture.kickoff_time,
+                status=fixture.status,
+                home_score=fixture.home_score,
+                away_score=fixture.away_score,
+                source_name=fixture.source_name,
+                source_match_id=fixture.source_match_id,
+            )
+            session.add(match)
+            created += 1
+        else:
+            match.league = league
+            match.home_team = home_team
+            match.away_team = away_team
+            match.kickoff_time = fixture.kickoff_time
+            match.status = fixture.status
+            match.home_score = fixture.home_score
+            match.away_score = fixture.away_score
+            updated += 1
+    session.commit()
+    return FixtureSyncResult(created_matches=created, updated_matches=updated)
+
+
+def upsert_odds_snapshots(session: Session, snapshots: list[ExternalOddsSnapshot]) -> OddsSyncResult:
+    created = 0
+    skipped = 0
+    for snapshot in snapshots:
+        match = (
+            session.query(Match)
+            .filter_by(source_name=snapshot.source_name, source_match_id=snapshot.source_match_id)
+            .one_or_none()
+        )
+        if match is None:
+            skipped += 1
+            continue
+        existing = (
+            session.query(OddsSnapshot)
+            .filter_by(
+                match_id=match.id,
+                data_source=snapshot.source_name,
+                bookmaker=snapshot.bookmaker,
+                captured_at=snapshot.captured_at,
+            )
+            .one_or_none()
+        )
+        if existing is not None:
+            skipped += 1
+            continue
+        session.add(
+            OddsSnapshot(
+                match=match,
+                captured_at=snapshot.captured_at,
+                data_source=snapshot.source_name,
+                bookmaker=snapshot.bookmaker,
+                asian_handicap=snapshot.asian_handicap,
+                home_odds=snapshot.home_odds,
+                away_odds=snapshot.away_odds,
+                total_line=snapshot.total_line,
+                over_odds=snapshot.over_odds,
+                under_odds=snapshot.under_odds,
+            )
+        )
+        created += 1
+    session.commit()
+    return OddsSyncResult(created_odds_snapshots=created, skipped_odds_snapshots=skipped)

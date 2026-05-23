@@ -391,14 +391,31 @@ def _format_counter(counter: dict) -> str:
 
 
 def format_training_sample_report(report: TrainingSampleReport) -> str:
+    league_lines = [
+        (
+            f"{league_name}: \u603b\u6837\u672c {coverage.total_samples} "
+            f"\u6709\u8d54\u7387 {coverage.samples_with_odds} "
+            f"\u4e9a\u76d8 {coverage.samples_with_asian_handicap} "
+            f"\u5927\u5c0f\u7403 {coverage.samples_with_total_goals}"
+        )
+        for league_name, coverage in sorted(
+            report.by_league.items(),
+            key=lambda item: item[1].total_samples,
+            reverse=True,
+        )
+    ]
     return "\n".join(
         [
-            f"总样本 {report.total_samples}",
-            f"有赔率样本 {report.samples_with_odds}",
-            f"赔率覆盖率 {report.odds_coverage_ratio}",
-            f"按联赛 {_format_counter(report.by_league)}",
-            f"按赛季 {_format_counter(report.by_season)}",
-            f"按权重 {_format_counter(report.by_weight)}",
+            f"\u603b\u6837\u672c {report.total_samples}"
+            f" / \u6709\u8d54\u7387\u6837\u672c {report.samples_with_odds}"
+            f" / \u4e9a\u76d8\u6837\u672c {report.samples_with_asian_handicap}"
+            f" / \u5927\u5c0f\u7403\u6837\u672c {report.samples_with_total_goals}",
+            f"\u8d54\u7387\u8986\u76d6\u7387 {report.odds_coverage_ratio}"
+            f" / \u4e9a\u76d8\u8986\u76d6\u7387 {report.asian_handicap_coverage_ratio}"
+            f" / \u5927\u5c0f\u7403\u8986\u76d6\u7387 {report.total_goals_coverage_ratio}",
+            f"\u6309\u8054\u8d5b {'; '.join(league_lines)}",
+            f"\u6309\u8d5b\u5b63 {_format_counter(report.by_season)}",
+            f"\u6309\u6743\u91cd {_format_counter(report.by_weight)}",
         ]
     )
 
@@ -588,12 +605,12 @@ def samples_preview(limit: int = 10):
 
 
 @samples_app.command("report")
-def samples_report():
+def samples_report(season: int | None = typer.Option(None, "--season")):
     engine = create_database_engine()
     initialize_database(engine)
     session_factory = create_session_factory(engine)
     with session_factory() as session:
-        report = build_training_sample_report(session)
+        report = build_training_sample_report(session, season=season)
         typer.echo(format_training_sample_report(report))
 
 

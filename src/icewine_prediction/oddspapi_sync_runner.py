@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+import time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -13,7 +14,7 @@ from icewine_prediction.odds_source_match_service import (
     find_best_odds_source_match,
 )
 from icewine_prediction.settings import load_project_settings
-from icewine_prediction.sources.oddspapi_client import OddsPapiClient
+from icewine_prediction.sources.oddspapi_client import OddsPapiApiError, OddsPapiClient
 from icewine_prediction.sources.oddspapi_odds_mapper import map_historical_odds
 from icewine_prediction.time_utils import now_beijing
 
@@ -51,6 +52,7 @@ class OddsPapiSyncResult:
     asian_handicap_count: int
     total_goals_count: int
     requests_used: int
+    error_message: str | None = None
 
 
 @dataclass(frozen=True)
@@ -64,19 +66,28 @@ class HistoricalOddsStoreSummary:
 class OddsPapiSyncClient:
     def __init__(self, client: OddsPapiClient):
         self.client = client
+        self._last_fixture_request_at = 0.0
 
     @property
     def request_count(self) -> int:
         return self.client.request_count
 
-    def fetch_fixtures(self, tournament_id: int) -> list[OddsPapiFixture]:
+    def fetch_fixtures(self, tournament_id: int, kickoff_time: datetime) -> list[OddsPapiFixture]:
+        self._respect_fixture_cooldown()
+        start_time = _as_utc(kickoff_time) - timedelta(hours=2)
+        end_time = _as_utc(kickoff_time) + timedelta(hours=2)
         payload = self.client.get(
             "fixtures",
             {
                 "sportId": SOCCER_SPORT_ID,
                 "tournamentId": tournament_id,
+                "from": _format_utc_time(start_time),
+                "to": _format_utc_time(end_time),
+                "statusId": 2,
+                "hasOdds": True,
             },
         )
+        self._last_fixture_request_at = time.monotonic()
         return [_map_fixture(item) for item in payload]
 
     def fetch_historical_odds(self, source_fixture_id: str) -> list[dict[str, Any]]:
@@ -89,6 +100,21 @@ class OddsPapiSyncClient:
             },
         )
 
+    def fetch_markets(self, source_fixture_id: str) -> list[dict[str, Any]]:
+        return self.client.get(
+            "markets",
+            {
+                "sportId": SOCCER_SPORT_ID,
+                "fixtureId": source_fixture_id,
+                "bookmakers": SELECTED_BOOKMAKERS,
+            },
+        )
+
+    def _respect_fixture_cooldown(self) -> None:
+        elapsed = time.monotonic() - self._last_fixture_request_at
+        if self._last_fixture_request_at > 0 and elapsed < 2:
+            time.sleep(2 - elapsed)
+
 
 def build_oddspapi_sync_plan(season: int, max_matches: int) -> str:
     with _open_session() as session:
@@ -100,11 +126,17 @@ def build_oddspapi_sync_plan(season: int, max_matches: int) -> str:
     return _format_plan(plan)
 
 
-def run_oddspapi_sync(season: int, max_matches: int, request_budget: int) -> str:
+def run_oddspapi_sync(
+    season: int,
+    max_matches: int,
+    request_budget: int,
+    timeout_seconds: int = 20,
+) -> str:
     settings = load_project_settings()
     raw_client = OddsPapiClient(
         base_url=ODDSPAPI_BASE_URL,
         api_key=settings.odds_papi_key,
+        timeout_seconds=timeout_seconds,
         request_budget=request_budget,
     )
     client = OddsPapiSyncClient(raw_client)
@@ -158,50 +190,70 @@ def run_oddspapi_sync_for_session(
     skipped_duplicates = 0
     asian_handicap_count = 0
     total_goals_count = 0
+    processed = 0
     for match in matches:
-        tournament_id = API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS.get(
-            str(match.league.source_league_id)
-        )
-        if tournament_id is None:
-            continue
-        cached_source_match = _get_odds_source_match(session, match.id)
-        if cached_source_match is not None:
-            source_fixture_id = cached_source_match.source_fixture_id
+        try:
+            tournament_id = API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS.get(
+                str(match.league.source_league_id)
+            )
+            if tournament_id is None:
+                continue
+            cached_source_match = _get_odds_source_match(session, match.id)
+            if cached_source_match is not None:
+                source_fixture_id = cached_source_match.source_fixture_id
+                matched += 1
+                store_summary = _fetch_and_store_historical_odds(
+                    session=session,
+                    client=client,
+                    match=match,
+                    source_fixture_id=source_fixture_id,
+                )
+                inserted += store_summary.inserted_count
+                skipped_duplicates += store_summary.skipped_duplicate_count
+                asian_handicap_count += store_summary.asian_handicap_count
+                total_goals_count += store_summary.total_goals_count
+                processed += 1
+                continue
+            fixture_cache_key = (tournament_id, match.id)
+            if fixture_cache_key not in fixtures_by_tournament_id:
+                fixtures_by_tournament_id[fixture_cache_key] = client.fetch_fixtures(
+                    tournament_id=tournament_id,
+                    kickoff_time=match.kickoff_time,
+                )
+            candidate = find_best_odds_source_match(
+                match=match,
+                fixtures=fixtures_by_tournament_id[fixture_cache_key],
+                api_football_to_oddspapi_tournament_ids=API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS,
+            )
+            if candidate is None:
+                continue
+            _store_odds_source_match(session, match, candidate)
             matched += 1
             store_summary = _fetch_and_store_historical_odds(
                 session=session,
                 client=client,
                 match=match,
-                source_fixture_id=source_fixture_id,
+                source_fixture_id=candidate.fixture.fixture_id,
             )
             inserted += store_summary.inserted_count
             skipped_duplicates += store_summary.skipped_duplicate_count
             asian_handicap_count += store_summary.asian_handicap_count
             total_goals_count += store_summary.total_goals_count
-            continue
-        if tournament_id not in fixtures_by_tournament_id:
-            fixtures_by_tournament_id[tournament_id] = client.fetch_fixtures(tournament_id)
-        candidate = find_best_odds_source_match(
-            match=match,
-            fixtures=fixtures_by_tournament_id[tournament_id],
-            api_football_to_oddspapi_tournament_ids=API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS,
-        )
-        if candidate is None:
-            continue
-        _store_odds_source_match(session, match, candidate)
-        matched += 1
-        store_summary = _fetch_and_store_historical_odds(
-            session=session,
-            client=client,
-            match=match,
-            source_fixture_id=candidate.fixture.fixture_id,
-        )
-        inserted += store_summary.inserted_count
-        skipped_duplicates += store_summary.skipped_duplicate_count
-        asian_handicap_count += store_summary.asian_handicap_count
-        total_goals_count += store_summary.total_goals_count
+            processed += 1
+        except OddsPapiApiError as exc:
+            return OddsPapiSyncResult(
+                processed_match_count=processed,
+                matched_count=matched,
+                inserted_snapshot_count=inserted,
+                skipped_duplicate_snapshot_count=skipped_duplicates,
+                skipped_existing_odds_count=skipped_existing_odds,
+                asian_handicap_count=asian_handicap_count,
+                total_goals_count=total_goals_count,
+                requests_used=client.request_count,
+                error_message=str(exc),
+            )
     return OddsPapiSyncResult(
-        processed_match_count=len(matches),
+        processed_match_count=processed,
         matched_count=matched,
         inserted_snapshot_count=inserted,
         skipped_duplicate_snapshot_count=skipped_duplicates,
@@ -219,10 +271,12 @@ def _fetch_and_store_historical_odds(
     source_fixture_id: str,
 ) -> HistoricalOddsStoreSummary:
     raw_odds = client.fetch_historical_odds(source_fixture_id)
+    market_definitions = client.fetch_markets(source_fixture_id)
     snapshots = map_historical_odds(
         raw_odds,
         match_id=match.id,
         source_fixture_id=source_fixture_id,
+        market_definitions=market_definitions,
     )
     store_result = store_historical_odds_snapshots(session, snapshots)
     return HistoricalOddsStoreSummary(
@@ -318,8 +372,8 @@ def _map_fixture(item: dict[str, Any]) -> OddsPapiFixture:
         fixture_id=str(item["fixtureId"]),
         tournament_id=int(item["tournamentId"]),
         start_time=_parse_utc_datetime(item["startTime"]),
-        home_team_name=_team_name(item.get("homeTeam")),
-        away_team_name=_team_name(item.get("awayTeam")),
+        home_team_name=_team_name(item.get("homeTeam") or item.get("participant1Name")),
+        away_team_name=_team_name(item.get("awayTeam") or item.get("participant2Name")),
     )
 
 
@@ -328,6 +382,16 @@ def _parse_utc_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=ZoneInfo("UTC"))
     return parsed.astimezone(ZoneInfo("UTC"))
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+    return value.astimezone(ZoneInfo("UTC"))
+
+
+def _format_utc_time(value: datetime) -> str:
+    return value.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _team_name(value: Any) -> str:
@@ -357,5 +421,6 @@ def _format_result(result: OddsPapiSyncResult) -> str:
             f"亚盘样本 {result.asian_handicap_count}",
             f"大小球样本 {result.total_goals_count}",
             f"实际请求 {result.requests_used}",
+            f"错误 {result.error_message or '-'}",
         ]
     )

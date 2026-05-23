@@ -76,3 +76,24 @@ def test_oddspapi_client_raises_api_error_for_json_error_payload():
 
     with pytest.raises(OddsPapiApiError):
         client.get("fixtures")
+
+
+def test_oddspapi_client_api_error_does_not_expose_api_key_in_url():
+    class UrlLeakingResponse(FakeResponse):
+        def raise_for_status(self):
+            raise RuntimeError(
+                "429 Client Error for url: "
+                "https://api.oddspapi.io/v4/fixtures?apiKey=secret&sportId=10"
+            )
+
+    client = OddsPapiClient(
+        base_url="https://api.oddspapi.io/v4",
+        api_key="secret",
+        session=FakeSession([UrlLeakingResponse({})]),
+    )
+
+    with pytest.raises(OddsPapiApiError) as exc_info:
+        client.get("fixtures")
+
+    assert "secret" not in str(exc_info.value)
+    assert "apiKey" not in str(exc_info.value)

@@ -76,3 +76,107 @@ def test_map_historical_odds_keeps_selected_bookmakers_fulltime_handicap_and_tot
     assert snapshots[0].odds == Decimal("1.91")
     assert snapshots[2].market_line == Decimal("2.25")
     assert {snapshots[2].outcome_side, snapshots[3].outcome_side} == {"over", "under"}
+
+
+def test_map_historical_odds_handles_nested_oddspapi_response_with_market_definitions():
+    payload = {
+        "fixtureId": "oddspapi-fixture",
+        "bookmakers": {
+            "pinnacle": {
+                "markets": {
+                    "1070": {
+                        "outcomes": {
+                            "1070": {
+                                "players": {
+                                    "0": [
+                                        {
+                                            "createdAt": "2026-05-23T18:00:00Z",
+                                            "price": 1.91,
+                                        }
+                                    ]
+                                }
+                            },
+                            "1071": {
+                                "players": {
+                                    "0": [
+                                        {
+                                            "createdAt": "2026-05-23T18:00:00Z",
+                                            "price": 1.99,
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    },
+                    "10170": {
+                        "outcomes": {
+                            "10170": {
+                                "players": {
+                                    "0": [
+                                        {
+                                            "createdAt": "2026-05-23T18:05:00Z",
+                                            "price": 1.88,
+                                        }
+                                    ]
+                                }
+                            },
+                            "10171": {
+                                "players": {
+                                    "0": [
+                                        {
+                                            "createdAt": "2026-05-23T18:05:00Z",
+                                            "price": 2.02,
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    },
+                }
+            }
+        },
+    }
+    markets = [
+        {
+            "marketId": 1070,
+            "marketName": "Asian Handicap",
+            "marketType": "spreads",
+            "handicap": -0.25,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 1070, "outcomeName": "1"},
+                {"outcomeId": 1071, "outcomeName": "2"},
+            ],
+        },
+        {
+            "marketId": 10170,
+            "marketName": "Over Under Full Time",
+            "marketType": "totals",
+            "handicap": 2.25,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 10170, "outcomeName": "Over"},
+                {"outcomeId": 10171, "outcomeName": "Under"},
+            ],
+        },
+    ]
+
+    snapshots = map_historical_odds(
+        payload,
+        match_id=42,
+        source_fixture_id="oddspapi-fixture",
+        market_definitions=markets,
+    )
+
+    assert len(snapshots) == 4
+    assert {snapshot.market_type for snapshot in snapshots} == {
+        "asian_handicap",
+        "total_goals",
+    }
+    assert {snapshot.outcome_side for snapshot in snapshots} == {
+        "home",
+        "away",
+        "over",
+        "under",
+    }
+    assert snapshots[0].snapshot_time.isoformat() == "2026-05-23T18:00:00+00:00"

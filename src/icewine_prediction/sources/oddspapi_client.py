@@ -1,6 +1,7 @@
 from typing import Any
 
 import requests
+from requests import HTTPError
 
 
 class MissingOddsPapiKeyError(RuntimeError):
@@ -47,8 +48,13 @@ class OddsPapiClient:
         self.request_count += 1
         try:
             response.raise_for_status()
+        except HTTPError as exc:
+            status_code = getattr(exc.response, "status_code", "unknown")
+            raise OddsPapiApiError(f"OddsPapi HTTP error: status={status_code}") from exc
         except Exception as exc:
-            raise OddsPapiApiError(f"OddsPapi HTTP error: {exc}") from exc
+            raise OddsPapiApiError(
+                f"OddsPapi HTTP error: {exc.__class__.__name__}"
+            ) from exc
         payload = response.json()
         if isinstance(payload, dict) and payload.get("error"):
             raise OddsPapiApiError(f"OddsPapi returned error: {payload['error']}")

@@ -1,4 +1,4 @@
-from 冰酒预测.命令行 import app
+from icewine_prediction.cli import app
 
 
 if __name__ == "__main__":

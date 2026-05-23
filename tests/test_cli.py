@@ -1,12 +1,12 @@
 from typer.testing import CliRunner
 
-from icewine_cli import app
+from icewine_prediction.cli import app
 
 
-def test_ascii_cli入口_可以输出版本():
+def test_cli_can_output_version():
     runner = CliRunner()
 
-    result = runner.invoke(app, ["版本"])
+    result = runner.invoke(app, ["version"])
 
     assert result.exit_code == 0
     assert "冰酒足球预测模型" in result.stdout

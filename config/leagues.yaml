@@ -8,19 +8,129 @@ leagues:
     country: Spain
     api_football_id: 140
     enabled: true
-    priority: 95
+    priority: 98
   - name: Bundesliga
     country: Germany
     api_football_id: 78
     enabled: true
-    priority: 95
+    priority: 97
   - name: Serie A
     country: Italy
     api_football_id: 135
     enabled: true
-    priority: 95
+    priority: 96
   - name: Ligue 1
     country: France
     api_football_id: 61
     enabled: true
     priority: 95
+  - name: UEFA Champions League
+    country: World
+    api_football_id: 2
+    enabled: true
+    priority: 94
+  - name: UEFA Europa League
+    country: World
+    api_football_id: 3
+    enabled: true
+    priority: 93
+  - name: UEFA Europa Conference League
+    country: World
+    api_football_id: 848
+    enabled: true
+    priority: 92
+  - name: Championship
+    country: England
+    api_football_id: 40
+    enabled: true
+    priority: 88
+  - name: 2. Bundesliga
+    country: Germany
+    api_football_id: 79
+    enabled: true
+    priority: 87
+  - name: Segunda División
+    country: Spain
+    api_football_id: 141
+    enabled: true
+    priority: 86
+  - name: Serie B
+    country: Italy
+    api_football_id: 136
+    enabled: true
+    priority: 85
+  - name: Primeira Liga
+    country: Portugal
+    api_football_id: 94
+    enabled: true
+    priority: 84
+  - name: Eredivisie
+    country: Netherlands
+    api_football_id: 88
+    enabled: true
+    priority: 83
+  - name: Jupiler Pro League
+    country: Belgium
+    api_football_id: 144
+    enabled: true
+    priority: 82
+  - name: Süper Lig
+    country: Turkey
+    api_football_id: 203
+    enabled: true
+    priority: 81
+  - name: Premiership
+    country: Scotland
+    api_football_id: 179
+    enabled: true
+    priority: 80
+  - name: Super League 1
+    country: Greece
+    api_football_id: 197
+    enabled: true
+    priority: 79
+  - name: Bundesliga
+    country: Austria
+    api_football_id: 218
+    enabled: false
+    priority: 78
+  - name: Super League
+    country: Switzerland
+    api_football_id: 207
+    enabled: true
+    priority: 77
+  - name: 3. Liga
+    country: Germany
+    api_football_id: 80
+    enabled: true
+    priority: 68
+  - name: J1 League
+    country: Japan
+    api_football_id: 98
+    enabled: true
+    priority: 75
+  - name: K League 1
+    country: South-Korea
+    api_football_id: 292
+    enabled: true
+    priority: 74
+  - name: A-League
+    country: Australia
+    api_football_id: 188
+    enabled: true
+    priority: 73
+  - name: Pro League
+    country: Saudi-Arabia
+    api_football_id: 307
+    enabled: true
+    priority: 72
+  - name: Super League
+    country: China
+    api_football_id: 169
+    enabled: false
+    priority: 71
+  - name: Major League Soccer
+    country: USA
+    api_football_id: 253
+    enabled: true
+    priority: 70

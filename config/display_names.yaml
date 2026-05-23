@@ -1,9 +1,29 @@
 leagues:
-  Serie A: 意甲
-  La Liga: 西甲
   Premier League: 英超
+  La Liga: 西甲
   Bundesliga: 德甲
+  Serie A: 意甲
   Ligue 1: 法甲
+  UEFA Champions League: 欧冠
+  UEFA Europa League: 欧联
+  UEFA Europa Conference League: 欧协联
+  Championship: 英冠
+  2. Bundesliga: 德乙
+  3. Liga: 德丙
+  Segunda División: 西乙
+  Serie B: 意乙
+  Primeira Liga: 葡超
+  Eredivisie: 荷甲
+  Jupiler Pro League: 比甲
+  Süper Lig: 土超
+  Premiership: 苏超
+  Super League 1: 希腊超
+  Super League: 瑞士超
+  J1 League: 日职联
+  K League 1: 韩K联
+  A-League: 澳超
+  Pro League: 沙特联
+  Major League Soccer: 美职联
 teams:
   Bologna: 博洛尼亚
   Inter: 国际米兰

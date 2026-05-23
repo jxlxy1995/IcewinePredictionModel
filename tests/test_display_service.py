@@ -29,3 +29,11 @@ def test_display_name_service_falls_back_to_original_name(tmp_path):
 
     assert service.display_league("Unknown League") == "Unknown League"
     assert service.display_team("Unknown Team") == "Unknown Team"
+
+
+def test_default_display_names_include_mainstream_league_chinese_names():
+    service = DisplayNameService()
+
+    assert service.display_league("2. Bundesliga") == "德乙"
+    assert service.display_league("3. Liga") == "德丙"
+    assert service.display_league("J1 League") == "日职联"

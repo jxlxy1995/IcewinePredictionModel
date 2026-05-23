@@ -10,6 +10,10 @@ from icewine_prediction.database import (
 )
 from icewine_prediction.display_service import DisplayNameService
 from icewine_prediction.feature_service import MatchOddsFeatures, list_upcoming_match_odds_features
+from icewine_prediction.history_coverage_service import (
+    LeagueCoverageSummary,
+    build_history_coverage_report,
+)
 from icewine_prediction.historical_performance_service import (
     HistoricalPerformanceFilters,
     HistoricalPerformanceReport,
@@ -58,6 +62,8 @@ sync_app = typer.Typer(help="数据同步命令")
 matches_app = typer.Typer(help="比赛查询命令")
 app.add_typer(sync_app, name="sync")
 app.add_typer(matches_app, name="matches")
+history_app = typer.Typer(help="历史数据命令")
+app.add_typer(history_app, name="history")
 features_app = typer.Typer(help="赔率特征命令")
 app.add_typer(features_app, name="features")
 recommendations_app = typer.Typer(help="推荐预览命令")
@@ -318,6 +324,27 @@ def format_historical_performance_report(report: HistoricalPerformanceReport) ->
     )
 
 
+def format_history_coverage_line(summary: LeagueCoverageSummary) -> str:
+    return (
+        f"{summary.league_name} {summary.country_or_region} | "
+        f"总比赛 {summary.total_matches} "
+        f"已完赛 {summary.finished_matches} "
+        f"有比分 {summary.scored_matches} | "
+        f"有赔率 {summary.matches_with_odds} "
+        f"有亚盘 {summary.matches_with_asian_handicap} "
+        f"有大小球 {summary.matches_with_total_goals} | "
+        f"赔率覆盖 {summary.odds_coverage_ratio} "
+        f"亚盘覆盖 {summary.asian_handicap_coverage_ratio} "
+        f"大小球覆盖 {summary.total_goals_coverage_ratio}"
+    )
+
+
+def format_history_coverage_report(report: list[LeagueCoverageSummary]) -> str:
+    if not report:
+        return "暂无历史覆盖率数据"
+    return "\n".join(format_history_coverage_line(summary) for summary in report)
+
+
 def format_training_sample_line(
     sample: TrainingSample,
     display_service: DisplayNameService,
@@ -518,6 +545,16 @@ def records_performance(
     with session_factory() as session:
         report = build_historical_performance_report(session, filters)
         typer.echo(format_historical_performance_report(report))
+
+
+@history_app.command("coverage")
+def history_coverage(season: int | None = typer.Option(None, "--season")):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_history_coverage_report(session, season=season)
+        typer.echo(format_history_coverage_report(report))
 
 
 @samples_app.command("preview")

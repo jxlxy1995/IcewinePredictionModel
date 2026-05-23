@@ -1,6 +1,7 @@
 import pytest
 
 from icewine_prediction.sources.api_football_client import (
+    ApiFootballApiError,
     ApiFootballClient,
     MissingApiKeyError,
     RequestBudgetExceededError,
@@ -25,6 +26,11 @@ class FakeSession:
     def get(self, url, headers, params, timeout):
         self.calls.append((url, headers, params, timeout))
         return FakeResponse({"errors": {}, "results": 1, "response": [{"ok": True}]})
+
+
+class ErrorSession:
+    def get(self, url, headers, params, timeout):
+        return FakeResponse({"errors": {"season": "The Season field is required."}, "results": 0})
 
 
 def test_client_requires_api_key():
@@ -61,4 +67,15 @@ def test_client_blocks_when_budget_is_exceeded():
     )
 
     with pytest.raises(RequestBudgetExceededError):
+        client.get("fixtures", {})
+
+
+def test_client_raises_api_error_when_response_contains_errors():
+    client = ApiFootballClient(
+        base_url="https://example.test",
+        api_key="secret",
+        session=ErrorSession(),
+    )
+
+    with pytest.raises(ApiFootballApiError, match="season"):
         client.get("fixtures", {})

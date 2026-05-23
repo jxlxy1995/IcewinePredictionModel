@@ -20,20 +20,29 @@ class ApiFootballProvider:
         days: int,
     ) -> list[ExternalFixture]:
         today = now_beijing().date()
-        to_date = today + timedelta(days=days)
+        enabled_league_ids = {
+            str(league.api_football_id)
+            for league in leagues
+            if league.enabled
+        }
         fixtures: list[ExternalFixture] = []
-        for league in leagues:
-            if not league.enabled:
-                continue
+        seen_match_ids: set[str] = set()
+        for offset in range(days + 1):
+            query_date = today + timedelta(days=offset)
             payload = self.client.get(
                 "fixtures",
                 {
-                    "league": league.api_football_id,
-                    "from": today.isoformat(),
-                    "to": to_date.isoformat(),
+                    "date": query_date.isoformat(),
+                    "timezone": "Asia/Shanghai",
                 },
             )
-            fixtures.extend(map_fixtures(payload))
+            for fixture in map_fixtures(payload):
+                if fixture.source_league_id not in enabled_league_ids:
+                    continue
+                if fixture.source_match_id in seen_match_ids:
+                    continue
+                seen_match_ids.add(fixture.source_match_id)
+                fixtures.append(fixture)
         return fixtures
 
     def fetch_results(

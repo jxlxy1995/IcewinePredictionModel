@@ -11,6 +11,10 @@ class RequestBudgetExceededError(RuntimeError):
     pass
 
 
+class ApiFootballApiError(RuntimeError):
+    pass
+
+
 class ApiFootballClient:
     def __init__(
         self,
@@ -41,4 +45,8 @@ class ApiFootballClient:
         )
         response.raise_for_status()
         self.request_count += 1
-        return response.json()
+        payload = response.json()
+        errors = payload.get("errors")
+        if errors:
+            raise ApiFootballApiError(f"API-Football returned errors: {errors}")
+        return payload

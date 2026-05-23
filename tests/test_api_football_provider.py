@@ -37,3 +37,51 @@ def test_provider_fetches_upcoming_fixtures_for_enabled_leagues():
 
     assert len(fixtures) == 1
     assert fixtures[0].source_match_id == "1001"
+    assert provider.client.calls[0][0] == "fixtures"
+    assert "date" in provider.client.calls[0][1]
+    assert provider.client.calls[0][1]["timezone"] == "Asia/Shanghai"
+    assert "league" not in provider.client.calls[0][1]
+
+
+def test_provider_filters_date_query_results_to_enabled_leagues():
+    class MixedLeagueClient:
+        def get(self, endpoint, params):
+            return {
+                "response": [
+                    {
+                        "fixture": {
+                            "id": 1001,
+                            "date": "2026-05-24T00:00:00+08:00",
+                            "status": {"short": "NS"},
+                        },
+                        "league": {"id": 135, "name": "Serie A", "country": "Italy"},
+                        "teams": {
+                            "home": {"id": 500, "name": "Bologna"},
+                            "away": {"id": 505, "name": "Inter"},
+                        },
+                        "goals": {"home": None, "away": None},
+                    },
+                    {
+                        "fixture": {
+                            "id": 2001,
+                            "date": "2026-05-24T03:00:00+08:00",
+                            "status": {"short": "NS"},
+                        },
+                        "league": {"id": 999, "name": "Untracked League", "country": "Nowhere"},
+                        "teams": {
+                            "home": {"id": 1, "name": "A"},
+                            "away": {"id": 2, "name": "B"},
+                        },
+                        "goals": {"home": None, "away": None},
+                    },
+                ]
+            }
+
+    provider = ApiFootballProvider(MixedLeagueClient())
+    leagues = [LeagueSettings("Serie A", "Italy", 135, True, 95)]
+
+    fixtures = provider.fetch_upcoming_fixtures(leagues, days=1)
+
+    assert len(fixtures) == 1
+    assert fixtures[0].league_name == "Serie A"
+    assert fixtures[0].home_team_name == "Bologna"

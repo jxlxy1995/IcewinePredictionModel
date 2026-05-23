@@ -85,3 +85,48 @@ def test_provider_filters_date_query_results_to_enabled_leagues():
     assert len(fixtures) == 1
     assert fixtures[0].league_name == "Serie A"
     assert fixtures[0].home_team_name == "Bologna"
+
+
+def test_provider_fetches_historical_fixtures_by_league_and_season():
+    class HistoricalClient:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, endpoint, params):
+            self.calls.append((endpoint, params))
+            return {
+                "response": [
+                    {
+                        "fixture": {
+                            "id": 3001,
+                            "date": "2025-05-25T03:00:00+08:00",
+                            "status": {"short": "FT"},
+                        },
+                        "league": {"id": 140, "name": "La Liga", "country": "Spain"},
+                        "teams": {
+                            "home": {"id": 541, "name": "Real Madrid"},
+                            "away": {"id": 529, "name": "Barcelona"},
+                        },
+                        "goals": {"home": 2, "away": 1},
+                    }
+                ]
+            }
+
+    client = HistoricalClient()
+    provider = ApiFootballProvider(client)
+
+    fixtures = provider.fetch_historical_fixtures(league_id=140, season=2024)
+
+    assert fixtures[0].source_match_id == "3001"
+    assert fixtures[0].status == "finished"
+    assert fixtures[0].home_score == 2
+    assert client.calls == [
+        (
+            "fixtures",
+            {
+                "league": 140,
+                "season": 2024,
+                "timezone": "Asia/Shanghai",
+            },
+        )
+    ]

@@ -15,8 +15,14 @@ from icewine_prediction.recommendation_service import (
     Recommendation,
     build_rule_recommendations_from_features,
 )
-from icewine_prediction.sync_runner import run_sync_odds, run_sync_results, run_sync_upcoming
+from icewine_prediction.sync_runner import (
+    run_sync_history,
+    run_sync_odds,
+    run_sync_results,
+    run_sync_upcoming,
+)
 from icewine_prediction.time_utils import now_beijing
+from icewine_prediction.training_sample_service import TrainingSample, list_training_samples
 
 app = typer.Typer(help="冰酒足球预测模型 CLI")
 sync_app = typer.Typer(help="数据同步命令")
@@ -27,6 +33,8 @@ features_app = typer.Typer(help="赔率特征命令")
 app.add_typer(features_app, name="features")
 recommendations_app = typer.Typer(help="推荐预览命令")
 app.add_typer(recommendations_app, name="recommendations")
+samples_app = typer.Typer(help="训练样本命令")
+app.add_typer(samples_app, name="samples")
 
 
 @app.command("version")
@@ -69,6 +77,14 @@ def sync_odds(days: int = 2):
 @sync_app.command("results")
 def sync_results(from_date: str, to_date: str):
     typer.echo(run_sync_results(date.fromisoformat(from_date), date.fromisoformat(to_date)))
+
+
+@sync_app.command("history")
+def sync_history(
+    league_id: int = typer.Option(..., "--league-id"),
+    season: int = typer.Option(..., "--season"),
+):
+    typer.echo(run_sync_history(league_id=league_id, season=season))
 
 
 @sync_app.command("all")
@@ -154,6 +170,26 @@ def format_recommendation_line(
     return f"{match_text} | {recommendation_text}"
 
 
+def format_training_sample_line(
+    sample: TrainingSample,
+    display_service: DisplayNameService,
+) -> str:
+    kickoff = sample.kickoff_time.strftime("%Y-%m-%d %H:%M")
+    league_name = display_service.display_league(sample.league_name)
+    home_name = display_service.display_team(sample.home_team_name)
+    away_name = display_service.display_team(sample.away_team_name)
+    return (
+        f"{league_name} {kickoff} {home_name} vs {away_name} | "
+        f"比分 {sample.home_score}-{sample.away_score} | "
+        f"赛果 {sample.match_result} | "
+        f"总进球 {sample.total_goals} | "
+        f"亚盘 {sample.asian_handicap_line or '-'} "
+        f"主 {sample.home_handicap_result or '-'} 客 {sample.away_handicap_result or '-'} | "
+        f"大小球 {sample.total_line or '-'} "
+        f"大 {sample.over_result or '-'} 小 {sample.under_result or '-'}"
+    )
+
+
 @matches_app.command("upcoming")
 def matches_upcoming(hours: int = 24):
     engine = create_database_engine()
@@ -189,6 +225,18 @@ def recommendations_preview(hours: int = 24):
         for row in rows:
             recommendations = build_rule_recommendations_from_features(row.features)
             typer.echo(format_recommendation_line(row.match, recommendations, display_service))
+
+
+@samples_app.command("preview")
+def samples_preview(limit: int = 10):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    display_service = DisplayNameService()
+    with session_factory() as session:
+        samples = list_training_samples(session, limit=limit)
+        for sample in samples:
+            typer.echo(format_training_sample_line(sample, display_service))
 
 
 if __name__ == "__main__":

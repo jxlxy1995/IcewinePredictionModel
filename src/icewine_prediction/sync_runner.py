@@ -8,7 +8,12 @@ from icewine_prediction.models import Match
 from icewine_prediction.settings import ProjectSettings, load_project_settings
 from icewine_prediction.sources.api_football_client import ApiFootballApiError, ApiFootballClient
 from icewine_prediction.sources.api_football_provider import ApiFootballProvider
-from icewine_prediction.sync_service import OddsSyncResult, upsert_fixtures, upsert_odds_snapshots
+from icewine_prediction.sync_service import (
+    FixtureSyncResult,
+    OddsSyncResult,
+    upsert_fixtures,
+    upsert_odds_snapshots,
+)
 from icewine_prediction.time_utils import now_beijing
 
 
@@ -96,6 +101,16 @@ def fetch_and_store_odds_snapshots(
     )
 
 
+def fetch_and_store_historical_fixtures(
+    session: Session,
+    provider: ApiFootballProvider,
+    league_id: int,
+    season: int,
+) -> FixtureSyncResult:
+    fixtures = provider.fetch_historical_fixtures(league_id=league_id, season=season)
+    return upsert_fixtures(session, fixtures)
+
+
 def run_sync_upcoming(days: int) -> str:
     settings = load_project_settings()
     provider = build_api_football_provider(settings)
@@ -137,6 +152,25 @@ def run_sync_results(from_date: date, to_date: date) -> str:
         result = upsert_fixtures(session, fixtures)
     return build_sync_summary(
         operation="results",
+        created=result.created_matches,
+        updated=result.updated_matches,
+        skipped=0,
+        requests_used=provider.client.request_count,
+    )
+
+
+def run_sync_history(league_id: int, season: int) -> str:
+    settings = load_project_settings()
+    provider = build_api_football_provider(settings)
+    with _open_session() as session:
+        result = fetch_and_store_historical_fixtures(
+            session,
+            provider,
+            league_id=league_id,
+            season=season,
+        )
+    return build_sync_summary(
+        operation=f"history:{league_id}:{season}",
         created=result.created_matches,
         updated=result.updated_matches,
         skipped=0,

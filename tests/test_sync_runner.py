@@ -4,10 +4,12 @@ from zoneinfo import ZoneInfo
 
 from icewine_prediction.models import League, Match, OddsSnapshot, Team
 from icewine_prediction.sources.api_football_client import ApiFootballApiError
+from icewine_prediction.sources.api_football_mapper import ExternalFixture
 from icewine_prediction.sources.api_football_mapper import ExternalOddsSnapshot
 from icewine_prediction.sync_runner import (
     build_sync_summary,
     fetch_and_store_odds_snapshots,
+    fetch_and_store_historical_fixtures,
     select_upcoming_fixture_ids_for_odds,
 )
 
@@ -122,3 +124,41 @@ def test_fetch_and_store_odds_snapshots_persists_partial_results_before_api_erro
     assert result.failed_fixture_id == "second"
     assert "429" in result.error_message
     assert session.query(OddsSnapshot).count() == 1
+
+
+class HistoricalProvider:
+    def __init__(self):
+        self.client = type("Client", (), {"request_count": 1})()
+
+    def fetch_historical_fixtures(self, league_id: int, season: int):
+        assert league_id == 140
+        assert season == 2024
+        return [
+            ExternalFixture(
+                source_name="api_football",
+                source_match_id="3001",
+                source_league_id="140",
+                league_name="La Liga",
+                country="Spain",
+                home_source_team_id="541",
+                home_team_name="Real Madrid",
+                away_source_team_id="529",
+                away_team_name="Barcelona",
+                kickoff_time=datetime(2025, 5, 25, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                status="finished",
+                home_score=2,
+                away_score=1,
+            )
+        ]
+
+
+def test_fetch_and_store_historical_fixtures_upserts_matches(session):
+    result = fetch_and_store_historical_fixtures(
+        session,
+        HistoricalProvider(),
+        league_id=140,
+        season=2024,
+    )
+
+    assert result.created_matches == 1
+    assert session.query(Match).one().source_match_id == "3001"

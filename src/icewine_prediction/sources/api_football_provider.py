@@ -67,6 +67,17 @@ class ApiFootballProvider:
             fixtures.extend(map_fixtures(payload))
         return fixtures
 
+    def fetch_historical_fixtures(self, league_id: int, season: int) -> list[ExternalFixture]:
+        payload = self.client.get(
+            "fixtures",
+            {
+                "league": league_id,
+                "season": season,
+                "timezone": "Asia/Shanghai",
+            },
+        )
+        return map_fixtures(payload)
+
     def fetch_odds_for_fixtures(self, fixture_ids: list[str]) -> list[ExternalOddsSnapshot]:
         snapshots: list[ExternalOddsSnapshot] = []
         for fixture_id in fixture_ids:

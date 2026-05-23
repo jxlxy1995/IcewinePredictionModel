@@ -27,6 +27,10 @@ from icewine_prediction.model_training_service import (
     train_league_team_strength_goal_model,
     train_team_strength_goal_model,
 )
+from icewine_prediction.oddspapi_sync_runner import (
+    build_oddspapi_sync_plan,
+    run_oddspapi_sync,
+)
 from icewine_prediction.recommendation_service import (
     Recommendation,
     build_model_recommendations_from_features,
@@ -75,6 +79,8 @@ models_app = typer.Typer(help="模型训练命令")
 app.add_typer(models_app, name="models")
 records_app = typer.Typer(help="推荐记录命令")
 app.add_typer(records_app, name="records")
+odds_source_app = typer.Typer(help="外部赔率源命令")
+app.add_typer(odds_source_app, name="odds-source")
 
 
 @app.command("version")
@@ -580,6 +586,29 @@ def records_performance(
     with session_factory() as session:
         report = build_historical_performance_report(session, filters)
         typer.echo(format_historical_performance_report(report))
+
+
+@odds_source_app.command("oddspapi-plan")
+def odds_source_oddspapi_plan(
+    season: int = typer.Option(..., "--season"),
+    max_matches: int = typer.Option(20, "--max-matches"),
+):
+    typer.echo(build_oddspapi_sync_plan(season=season, max_matches=max_matches))
+
+
+@odds_source_app.command("oddspapi-fetch")
+def odds_source_oddspapi_fetch(
+    season: int = typer.Option(..., "--season"),
+    max_matches: int = typer.Option(20, "--max-matches"),
+    request_budget: int = typer.Option(50, "--request-budget"),
+):
+    typer.echo(
+        run_oddspapi_sync(
+            season=season,
+            max_matches=max_matches,
+            request_budget=request_budget,
+        )
+    )
 
 
 @history_app.command("coverage")

@@ -94,6 +94,21 @@ class TeamStrengthGoalModel:
         )
 
 
+@dataclass(frozen=True)
+class LeagueTeamStrengthGoalModel:
+    global_model: TeamStrengthGoalModel
+    league_models: dict[str, TeamStrengthGoalModel]
+
+    def predict_match_result_model(
+        self,
+        league_name: str,
+        home_team_name: str,
+        away_team_name: str,
+    ) -> BaselineResultModel:
+        model = self.league_models.get(league_name, self.global_model)
+        return model.predict_match_result_model(home_team_name, away_team_name)
+
+
 def _poisson_probability(lam: float, goals: int) -> float:
     return exp(-lam) * lam**goals / factorial(goals)
 
@@ -199,6 +214,25 @@ def train_team_strength_goal_model(samples: list[TrainingSample]) -> TeamStrengt
         home_goal_average=home_goal_average,
         away_goal_average=away_goal_average,
         team_strengths=team_strengths,
+    )
+
+
+def train_league_team_strength_goal_model(
+    samples: list[TrainingSample],
+) -> LeagueTeamStrengthGoalModel:
+    if not samples:
+        raise ValueError("league team strength goal model requires at least one training sample")
+
+    league_samples = defaultdict(list)
+    for sample in samples:
+        league_samples[sample.league_name].append(sample)
+
+    return LeagueTeamStrengthGoalModel(
+        global_model=train_team_strength_goal_model(samples),
+        league_models={
+            league_name: train_team_strength_goal_model(samples_for_league)
+            for league_name, samples_for_league in league_samples.items()
+        },
     )
 
 

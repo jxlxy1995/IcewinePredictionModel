@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from icewine_prediction.feature_service import MatchOddsFeatures, OddsMarketAggregate
 from icewine_prediction.model_training_service import (
     BaselineResultModel,
+    train_league_team_strength_goal_model,
     train_team_strength_goal_model,
 )
 from icewine_prediction.recommendation_service import build_model_recommendations_from_features
@@ -41,6 +42,7 @@ def _sample(
     away_team: str,
     home_score: int,
     away_score: int,
+    league_name: str = "La Liga",
 ) -> TrainingSample:
     if home_score > away_score:
         match_result = "home_win"
@@ -51,7 +53,7 @@ def _sample(
     return TrainingSample(
         match_id=match_id,
         source_match_id=str(match_id),
-        league_name="La Liga",
+        league_name=league_name,
         home_team_name=home_team,
         away_team_name=away_team,
         kickoff_time=datetime(2025, 5, match_id, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
@@ -124,6 +126,27 @@ def test_model_recommendations_can_use_team_specific_model():
     recommendations = build_model_recommendations_from_features(
         features=_features(),
         model=team_model,
+        home_team_name="Strong",
+        away_team_name="Weak",
+    )
+
+    assert recommendations[0].side == "home"
+
+
+def test_model_recommendations_can_use_league_specific_model():
+    league_model = train_league_team_strength_goal_model(
+        [
+            _sample(1, "Strong", "Weak", 4, 0, league_name="League A"),
+            _sample(2, "Weak", "Strong", 0, 3, league_name="League A"),
+            _sample(3, "Strong", "Weak", 1, 1, league_name="League B"),
+            _sample(4, "Weak", "Strong", 1, 1, league_name="League B"),
+        ]
+    )
+
+    recommendations = build_model_recommendations_from_features(
+        features=_features(),
+        model=league_model,
+        league_name="League A",
         home_team_name="Strong",
         away_team_name="Weak",
     )

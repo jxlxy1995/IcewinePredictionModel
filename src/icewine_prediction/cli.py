@@ -15,6 +15,7 @@ from icewine_prediction.model_training_service import (
     BaselineResultEvaluation,
     evaluate_baseline_result_model,
     train_baseline_result_model,
+    train_league_team_strength_goal_model,
     train_team_strength_goal_model,
 )
 from icewine_prediction.recommendation_service import (
@@ -311,12 +312,13 @@ def recommendations_model_preview(
     display_service = DisplayNameService()
     with session_factory() as session:
         samples = list_training_samples(session, limit=sample_limit)
-        model = train_team_strength_goal_model(samples)
+        model = train_league_team_strength_goal_model(samples)
         rows = list_upcoming_match_odds_features(session, start_time=now_beijing(), hours=hours)
         for row in rows:
             recommendations = build_model_recommendations_from_features(
                 features=row.features,
                 model=model,
+                league_name=row.match.league.name,
                 home_team_name=row.match.home_team.canonical_name,
                 away_team_name=row.match.away_team.canonical_name,
             )

@@ -12,7 +12,9 @@ from icewine_prediction.models import (
 from icewine_prediction.oddspapi_sync_runner import (
     OddsPapiSyncClient,
     build_oddspapi_sync_plan_for_session,
+    format_oddspapi_sync_plan,
     run_oddspapi_sync_for_session,
+    select_oddspapi_candidate_matches,
 )
 from icewine_prediction.sources.oddspapi_client import OddsPapiApiError
 
@@ -124,23 +126,32 @@ class FakeOddsPapiClient:
         raise AssertionError(f"unexpected endpoint: {endpoint}")
 
 
-def _match(session, source_match_id: str = "1391195"):
+def _match(
+    session,
+    source_match_id: str = "1391195",
+    league_name: str = "La Liga",
+    source_league_id: str = "140",
+    kickoff_time: datetime | None = None,
+    home_team_name: str = "Mallorca",
+    away_team_name: str = "Oviedo",
+):
     league = League(
-        name="La Liga",
+        name=league_name,
         country_or_region="Spain",
         level=1,
         source_name="api_football",
-        source_league_id="140",
+        source_league_id=source_league_id,
     )
-    home_team = Team(canonical_name="Mallorca")
-    away_team = Team(canonical_name="Oviedo")
+    home_team = Team(canonical_name=home_team_name)
+    away_team = Team(canonical_name=away_team_name)
     session.add_all([league, home_team, away_team])
     session.flush()
     match = Match(
         league=league,
         home_team=home_team,
         away_team=away_team,
-        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        kickoff_time=kickoff_time
+        or datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
         season=2025,
         status="finished",
         home_score=2,
@@ -151,6 +162,45 @@ def _match(session, source_match_id: str = "1391195"):
     session.add(match)
     session.commit()
     return match
+
+
+def test_select_oddspapi_candidate_matches_prioritizes_league_then_recentness(session):
+    premier_league = _match(
+        session,
+        source_match_id="pl",
+        league_name="Premier League",
+        source_league_id="39",
+        kickoff_time=datetime(2026, 5, 20, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Chelsea",
+        away_team_name="Tottenham",
+    )
+    la_liga = _match(
+        session,
+        source_match_id="laliga",
+        league_name="La Liga",
+        source_league_id="140",
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Barcelona",
+        away_team_name="Real Betis",
+    )
+    bundesliga = _match(
+        session,
+        source_match_id="bundesliga",
+        league_name="Bundesliga",
+        source_league_id="78",
+        kickoff_time=datetime(2026, 5, 23, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Bayern Munich",
+        away_team_name="Dortmund",
+    )
+
+    matches, skipped = select_oddspapi_candidate_matches(
+        session=session,
+        season=2025,
+        max_matches=3,
+    )
+
+    assert skipped == 0
+    assert matches == [premier_league, la_liga, bundesliga]
 
 
 def test_build_oddspapi_sync_plan_for_session_does_not_request_api(session):
@@ -164,8 +214,25 @@ def test_build_oddspapi_sync_plan_for_session_does_not_request_api(session):
     )
 
     assert result.candidate_match_count == 1
-    assert result.estimated_request_count == 2
+    assert result.estimated_request_count == 3
     assert client.calls == []
+
+
+def test_format_oddspapi_sync_plan_includes_candidate_matches(session):
+    match = _match(session)
+
+    plan = build_oddspapi_sync_plan_for_session(
+        session=session,
+        season=2025,
+        max_matches=20,
+    )
+
+    output = format_oddspapi_sync_plan(plan)
+
+    assert "候选比赛 1" in output
+    assert "La Liga" in output
+    assert "Mallorca vs Oviedo" in output
+    assert str(match.id) in output
 
 
 def test_run_oddspapi_sync_for_session_matches_fixture_and_stores_odds(session):

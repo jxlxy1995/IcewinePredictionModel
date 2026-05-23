@@ -40,6 +40,17 @@ class OddsPapiSyncPlan:
     candidate_match_count: int
     estimated_request_count: int
     skipped_existing_odds_count: int
+    candidate_matches: tuple["OddsPapiPlanMatch", ...] = ()
+
+
+@dataclass(frozen=True)
+class OddsPapiPlanMatch:
+    match_id: int
+    league_name: str
+    kickoff_time: datetime
+    home_team_name: str
+    away_team_name: str
+    estimated_request_count: int
 
 
 @dataclass(frozen=True)
@@ -123,7 +134,7 @@ def build_oddspapi_sync_plan(season: int, max_matches: int) -> str:
             season=season,
             max_matches=max_matches,
         )
-    return _format_plan(plan)
+    return format_oddspapi_sync_plan(plan)
 
 
 def run_oddspapi_sync(
@@ -155,21 +166,32 @@ def build_oddspapi_sync_plan_for_session(
     season: int,
     max_matches: int,
 ) -> OddsPapiSyncPlan:
-    matches, skipped_existing_odds = _select_candidate_matches(
+    matches, skipped_existing_odds = select_oddspapi_candidate_matches(
         session=session,
         season=season,
         max_matches=max_matches,
     )
-    tournament_ids = {
-        API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS[str(match.league.source_league_id)]
-        for match in matches
-        if str(match.league.source_league_id) in API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS
-    }
-    estimated_request_count = len(tournament_ids) + len(matches)
+    candidate_matches = tuple(_build_plan_match(session, match) for match in matches)
+    estimated_request_count = sum(
+        match.estimated_request_count for match in candidate_matches
+    )
     return OddsPapiSyncPlan(
         candidate_match_count=len(matches),
         estimated_request_count=estimated_request_count,
         skipped_existing_odds_count=skipped_existing_odds,
+        candidate_matches=candidate_matches,
+    )
+
+
+def _build_plan_match(session: Session, match: Match) -> OddsPapiPlanMatch:
+    cached_source_match = _get_odds_source_match(session, match.id)
+    return OddsPapiPlanMatch(
+        match_id=match.id,
+        league_name=match.league.name,
+        kickoff_time=match.kickoff_time,
+        home_team_name=match.home_team.canonical_name,
+        away_team_name=match.away_team.canonical_name,
+        estimated_request_count=2 if cached_source_match is not None else 3,
     )
 
 
@@ -179,7 +201,7 @@ def run_oddspapi_sync_for_session(
     season: int,
     max_matches: int,
 ) -> OddsPapiSyncResult:
-    matches, skipped_existing_odds = _select_candidate_matches(
+    matches, skipped_existing_odds = select_oddspapi_candidate_matches(
         session=session,
         season=season,
         max_matches=max_matches,
@@ -298,11 +320,12 @@ def _open_session():
     return session_factory()
 
 
-def _select_candidate_matches(
+def select_oddspapi_candidate_matches(
     session: Session,
     season: int,
     max_matches: int,
 ) -> tuple[list[Match], int]:
+    league_priorities = _load_league_priority_by_source_id()
     query = (
         session.query(Match)
         .filter(Match.season == season)
@@ -320,9 +343,23 @@ def _select_candidate_matches(
             skipped_existing_odds += 1
             continue
         selected.append(match)
-        if len(selected) >= max_matches:
-            break
-    return selected, skipped_existing_odds
+    selected = sorted(
+        selected,
+        key=lambda match: (
+            -league_priorities.get(str(match.league.source_league_id), match.league.priority or 0),
+            -int(match.kickoff_time.timestamp()),
+        ),
+    )
+    return selected[:max_matches], skipped_existing_odds
+
+
+def _load_league_priority_by_source_id() -> dict[str, int]:
+    settings = load_project_settings()
+    return {
+        str(league.api_football_id): league.priority
+        for league in settings.leagues
+        if league.enabled
+    }
 
 
 def _has_historical_odds(session: Session, match_id: int) -> bool:
@@ -400,13 +437,22 @@ def _team_name(value: Any) -> str:
     return str(value or "")
 
 
-def _format_plan(plan: OddsPapiSyncPlan) -> str:
-    return "\n".join(
-        [
-            f"候选比赛 {plan.candidate_match_count}",
-            f"预计请求 {plan.estimated_request_count}",
-            f"跳过已有赔率 {plan.skipped_existing_odds_count}",
-        ]
+def format_oddspapi_sync_plan(plan: OddsPapiSyncPlan) -> str:
+    lines = [
+        f"候选比赛 {plan.candidate_match_count}",
+        f"预计请求 {plan.estimated_request_count}",
+        f"跳过已有赔率 {plan.skipped_existing_odds_count}",
+    ]
+    lines.extend(_format_plan_match(match) for match in plan.candidate_matches)
+    return "\n".join(lines)
+
+
+def _format_plan_match(match: OddsPapiPlanMatch) -> str:
+    kickoff = match.kickoff_time.strftime("%Y-%m-%d %H:%M")
+    return (
+        f"id={match.match_id} {match.league_name} {kickoff} "
+        f"{match.home_team_name} vs {match.away_team_name} "
+        f"预计请求 {match.estimated_request_count}"
     )
 
 

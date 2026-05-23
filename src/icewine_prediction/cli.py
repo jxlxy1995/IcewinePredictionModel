@@ -14,9 +14,11 @@ from icewine_prediction.match_query_service import list_upcoming_matches
 from icewine_prediction.model_training_service import (
     BaselineResultEvaluation,
     evaluate_baseline_result_model,
+    train_baseline_result_model,
 )
 from icewine_prediction.recommendation_service import (
     Recommendation,
+    build_model_recommendations_from_features,
     build_rule_recommendations_from_features,
 )
 from icewine_prediction.sample_report_service import (
@@ -294,6 +296,24 @@ def recommendations_preview(hours: int = 24):
         rows = list_upcoming_match_odds_features(session, start_time=now_beijing(), hours=hours)
         for row in rows:
             recommendations = build_rule_recommendations_from_features(row.features)
+            typer.echo(format_recommendation_line(row.match, recommendations, display_service))
+
+
+@recommendations_app.command("model-preview")
+def recommendations_model_preview(
+    hours: int = typer.Option(24, "--hours"),
+    sample_limit: int = typer.Option(1000, "--sample-limit"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    display_service = DisplayNameService()
+    with session_factory() as session:
+        samples = list_training_samples(session, limit=sample_limit)
+        model = train_baseline_result_model(samples)
+        rows = list_upcoming_match_odds_features(session, start_time=now_beijing(), hours=hours)
+        for row in rows:
+            recommendations = build_model_recommendations_from_features(row.features, model)
             typer.echo(format_recommendation_line(row.match, recommendations, display_service))
 
 

@@ -2,6 +2,12 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
 from icewine_prediction.feature_service import MatchOddsFeatures
+from icewine_prediction.market_probability_service import (
+    build_score_probability_grid,
+    calculate_asian_handicap_cover_probability,
+    calculate_total_goals_probability,
+)
+from icewine_prediction.model_training_service import BaselineResultModel
 
 
 @dataclass(frozen=True)
@@ -86,6 +92,10 @@ def _watch_recommendation(market_type: str, risk_tags: list[str]) -> Recommendat
     )
 
 
+def _implied_probability(decimal_odds: Decimal) -> Decimal:
+    return (Decimal("1") / decimal_odds).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
 def _odds_gap_edge(first_odds: Decimal, second_odds: Decimal) -> Decimal:
     gap = abs(first_odds - second_odds)
     return (gap / Decimal("4")).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
@@ -160,4 +170,125 @@ def build_rule_recommendations_from_features(
             low_sample=low_sample,
             high_disagreement_tag="total_disagreement_high",
         ),
+    ]
+
+
+def _model_market_risk_tags(
+    features: MatchOddsFeatures,
+    line: Decimal | None,
+    first_odds: Decimal | None,
+    second_odds: Decimal | None,
+    disagreement: Decimal | None,
+    disagreement_limit: Decimal,
+    high_disagreement_tag: str,
+) -> list[str]:
+    risk_tags = []
+    if features.bookmaker_count < 6:
+        risk_tags.append("low_bookmaker_count")
+    if line is None or first_odds is None or second_odds is None:
+        risk_tags.append("missing_market_odds")
+    if disagreement is None or disagreement > disagreement_limit:
+        risk_tags.append(high_disagreement_tag)
+    return risk_tags
+
+
+def _build_model_handicap_recommendation(
+    features: MatchOddsFeatures,
+    model: BaselineResultModel,
+) -> Recommendation:
+    risk_tags = _model_market_risk_tags(
+        features=features,
+        line=features.asian_handicap.mean,
+        first_odds=features.home_odds.mean,
+        second_odds=features.away_odds.mean,
+        disagreement=features.asian_handicap.disagreement,
+        disagreement_limit=Decimal("1.00"),
+        high_disagreement_tag="handicap_disagreement_high",
+    )
+    if risk_tags:
+        return _watch_recommendation("asian_handicap", risk_tags)
+
+    grid = build_score_probability_grid(model.home_expected_goals, model.away_expected_goals)
+    home_probability = calculate_asian_handicap_cover_probability(
+        grid,
+        line=features.asian_handicap.mean,
+        side="home",
+    )
+    away_probability = calculate_asian_handicap_cover_probability(
+        grid,
+        line=features.asian_handicap.mean,
+        side="away",
+    )
+    if home_probability >= away_probability:
+        return build_recommendation_from_signal(
+            market_type="asian_handicap",
+            side="home",
+            model_probability=home_probability,
+            market_implied_probability=_implied_probability(features.home_odds.mean),
+            similar_backtest_roi=Decimal("0.05"),
+            risk_tags=[],
+        )
+    return build_recommendation_from_signal(
+        market_type="asian_handicap",
+        side="away",
+        model_probability=away_probability,
+        market_implied_probability=_implied_probability(features.away_odds.mean),
+        similar_backtest_roi=Decimal("0.05"),
+        risk_tags=[],
+    )
+
+
+def _build_model_total_recommendation(
+    features: MatchOddsFeatures,
+    model: BaselineResultModel,
+) -> Recommendation:
+    risk_tags = _model_market_risk_tags(
+        features=features,
+        line=features.total_line.mean,
+        first_odds=features.over_odds.mean,
+        second_odds=features.under_odds.mean,
+        disagreement=features.total_line.disagreement,
+        disagreement_limit=Decimal("0.75"),
+        high_disagreement_tag="total_disagreement_high",
+    )
+    if risk_tags:
+        return _watch_recommendation("total_goals", risk_tags)
+
+    grid = build_score_probability_grid(model.home_expected_goals, model.away_expected_goals)
+    over_probability = calculate_total_goals_probability(
+        grid,
+        line=features.total_line.mean,
+        side="over",
+    )
+    under_probability = calculate_total_goals_probability(
+        grid,
+        line=features.total_line.mean,
+        side="under",
+    )
+    if over_probability >= under_probability:
+        return build_recommendation_from_signal(
+            market_type="total_goals",
+            side="over",
+            model_probability=over_probability,
+            market_implied_probability=_implied_probability(features.over_odds.mean),
+            similar_backtest_roi=Decimal("0.05"),
+            risk_tags=[],
+        )
+    return build_recommendation_from_signal(
+        market_type="total_goals",
+        side="under",
+        model_probability=under_probability,
+        market_implied_probability=_implied_probability(features.under_odds.mean),
+        similar_backtest_roi=Decimal("0.05"),
+        risk_tags=[],
+    )
+
+
+def build_model_recommendations_from_features(
+    features: MatchOddsFeatures,
+    model: BaselineResultModel,
+) -> list[Recommendation]:
+    return [
+        _build_model_handicap_recommendation(features, model),
+        _build_model_total_recommendation(features, model),
     ]

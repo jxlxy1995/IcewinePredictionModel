@@ -1,5 +1,11 @@
 from dataclasses import dataclass
-from decimal import Decimal
+from datetime import datetime, timedelta
+from decimal import Decimal, ROUND_HALF_UP
+from statistics import median
+
+from sqlalchemy.orm import Session
+
+from icewine_prediction.models import Match, OddsSnapshot
 
 
 @dataclass(frozen=True)
@@ -10,6 +16,34 @@ class BaseFeatures:
     away_defense_strength: Decimal
 
 
+@dataclass(frozen=True)
+class OddsMarketAggregate:
+    sample_count: int
+    mean: Decimal | None
+    median: Decimal | None
+    minimum: Decimal | None
+    maximum: Decimal | None
+    disagreement: Decimal | None
+
+
+@dataclass(frozen=True)
+class MatchOddsFeatures:
+    match_id: int
+    bookmaker_count: int
+    asian_handicap: OddsMarketAggregate
+    home_odds: OddsMarketAggregate
+    away_odds: OddsMarketAggregate
+    total_line: OddsMarketAggregate
+    over_odds: OddsMarketAggregate
+    under_odds: OddsMarketAggregate
+
+
+@dataclass(frozen=True)
+class MatchOddsFeatureRow:
+    match: Match
+    features: MatchOddsFeatures
+
+
 def default_base_features() -> BaseFeatures:
     return BaseFeatures(
         home_attack_strength=Decimal("1.00"),
@@ -17,3 +51,77 @@ def default_base_features() -> BaseFeatures:
         home_defense_strength=Decimal("1.00"),
         away_defense_strength=Decimal("1.00"),
     )
+
+
+def _round_decimal(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _aggregate_decimal_values(values: list[Decimal]) -> OddsMarketAggregate:
+    if not values:
+        return OddsMarketAggregate(
+            sample_count=0,
+            mean=None,
+            median=None,
+            minimum=None,
+            maximum=None,
+            disagreement=None,
+        )
+    minimum = min(values)
+    maximum = max(values)
+    return OddsMarketAggregate(
+        sample_count=len(values),
+        mean=_round_decimal(sum(values) / Decimal(len(values))),
+        median=_round_decimal(Decimal(str(median(values)))),
+        minimum=_round_decimal(minimum),
+        maximum=_round_decimal(maximum),
+        disagreement=_round_decimal(maximum - minimum),
+    )
+
+
+def build_match_odds_features(match: Match) -> MatchOddsFeatures:
+    snapshots = list(match.odds_snapshots)
+    return MatchOddsFeatures(
+        match_id=match.id,
+        bookmaker_count=len({snapshot.bookmaker for snapshot in snapshots}),
+        asian_handicap=_aggregate_decimal_values(
+            [snapshot.asian_handicap for snapshot in snapshots if snapshot.asian_handicap is not None]
+        ),
+        home_odds=_aggregate_decimal_values(
+            [snapshot.home_odds for snapshot in snapshots if snapshot.home_odds is not None]
+        ),
+        away_odds=_aggregate_decimal_values(
+            [snapshot.away_odds for snapshot in snapshots if snapshot.away_odds is not None]
+        ),
+        total_line=_aggregate_decimal_values(
+            [snapshot.total_line for snapshot in snapshots if snapshot.total_line is not None]
+        ),
+        over_odds=_aggregate_decimal_values(
+            [snapshot.over_odds for snapshot in snapshots if snapshot.over_odds is not None]
+        ),
+        under_odds=_aggregate_decimal_values(
+            [snapshot.under_odds for snapshot in snapshots if snapshot.under_odds is not None]
+        ),
+    )
+
+
+def list_upcoming_match_odds_features(
+    session: Session,
+    start_time: datetime,
+    hours: int,
+) -> list[MatchOddsFeatureRow]:
+    end_time = start_time + timedelta(hours=hours)
+    matches = (
+        session.query(Match)
+        .join(OddsSnapshot)
+        .filter(Match.status == "scheduled")
+        .filter(Match.kickoff_time >= start_time)
+        .filter(Match.kickoff_time <= end_time)
+        .order_by(Match.kickoff_time.asc())
+        .distinct()
+        .all()
+    )
+    return [
+        MatchOddsFeatureRow(match=match, features=build_match_odds_features(match))
+        for match in matches
+    ]

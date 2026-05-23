@@ -71,3 +71,31 @@ class OddsSnapshot(Base):
     under_odds: Mapped[Decimal | None] = mapped_column(Numeric(6, 3))
 
     match: Mapped["Match"] = relationship(back_populates="odds_snapshots")
+
+
+class RecommendationRecord(Base):
+    __tablename__ = "recommendation_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    league_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    home_team_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    away_team_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    kickoff_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    market_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    side: Mapped[str] = mapped_column(String(20), nullable=False)
+    market_line: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    odds: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False)
+    model_probability: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+    market_implied_probability: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+    edge: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    confidence_grade: Mapped[str] = mapped_column(String(8), nullable=False)
+    stake_units: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    home_expected_goals: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    away_expected_goals: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    settlement_result: Mapped[str | None] = mapped_column(String(20))
+    profit_units: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+
+    match: Mapped["Match"] = relationship()

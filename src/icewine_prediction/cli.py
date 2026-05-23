@@ -23,6 +23,14 @@ from icewine_prediction.recommendation_service import (
     build_model_recommendations_from_features,
     build_rule_recommendations_from_features,
 )
+from icewine_prediction.record_service import (
+    RecordGroupSummary,
+    RecordReport,
+    build_record_report,
+    list_pending_records,
+    record_recommendations_for_match,
+    settle_pending_records,
+)
 from icewine_prediction.sample_report_service import (
     TrainingSampleReport,
     build_training_sample_report,
@@ -52,6 +60,8 @@ samples_app = typer.Typer(help="训练样本命令")
 app.add_typer(samples_app, name="samples")
 models_app = typer.Typer(help="模型训练命令")
 app.add_typer(models_app, name="models")
+records_app = typer.Typer(help="推荐记录命令")
+app.add_typer(records_app, name="records")
 
 
 @app.command("version")
@@ -231,6 +241,52 @@ def format_recommendation_line(
     return f"{match_text} | {recommendation_text}"
 
 
+def format_record_line(record, display_service: DisplayNameService) -> str:
+    kickoff = record.kickoff_time.strftime("%Y-%m-%d %H:%M")
+    league_name = display_service.display_league(record.league_name)
+    home_name = display_service.display_team(record.home_team_name)
+    away_name = display_service.display_team(record.away_team_name)
+    return (
+        f"{league_name} {kickoff} {home_name} vs {away_name} | "
+        f"{_display_market_type(record.market_type)} {_display_side(record.side)} "
+        f"{record.market_line} | {record.confidence_grade} {record.stake_units}手 | "
+        f"{record.status}"
+    )
+
+
+def _format_record_group_summary(name: str, summary: RecordGroupSummary) -> str:
+    return (
+        f"{name}: {summary.record_count}场 "
+        f"手数 {summary.stake_units} "
+        f"盈亏 {summary.profit_units} "
+        f"ROI {summary.roi}"
+    )
+
+
+def _format_record_groups(title: str, groups: dict[str, RecordGroupSummary]) -> str:
+    if not groups:
+        return f"{title} -"
+    group_text = " | ".join(
+        _format_record_group_summary(name, summary) for name, summary in groups.items()
+    )
+    return f"{title} {group_text}"
+
+
+def format_record_report(report: RecordReport) -> str:
+    return "\n".join(
+        [
+            f"总推荐 {report.total_records}",
+            f"已结算 {report.settled_records}",
+            f"总手数 {report.total_stake_units}",
+            f"总盈亏 {report.total_profit_units}",
+            f"ROI {report.roi}",
+            _format_record_groups("按盘口", report.by_market_type),
+            _format_record_groups("按信心", report.by_confidence_grade),
+            _format_record_groups("按联赛", report.by_league),
+        ]
+    )
+
+
 def format_training_sample_line(
     sample: TrainingSample,
     display_service: DisplayNameService,
@@ -343,6 +399,69 @@ def recommendations_model_preview(
                 away_team_name=row.match.away_team.canonical_name,
             )
             typer.echo(format_recommendation_line(row.match, recommendations, display_service))
+
+
+@recommendations_app.command("record")
+def recommendations_record(
+    hours: int = typer.Option(24, "--hours"),
+    sample_limit: int = typer.Option(1000, "--sample-limit"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    total_inserted = 0
+    with session_factory() as session:
+        samples = list_training_samples(session, limit=sample_limit)
+        model = train_league_team_strength_goal_model(samples)
+        rows = list_upcoming_match_odds_features(session, start_time=now_beijing(), hours=hours)
+        recorded_at = now_beijing()
+        for row in rows:
+            recommendations = build_model_recommendations_from_features(
+                features=row.features,
+                model=model,
+                league_name=row.match.league.name,
+                home_team_name=row.match.home_team.canonical_name,
+                away_team_name=row.match.away_team.canonical_name,
+            )
+            total_inserted += record_recommendations_for_match(
+                session=session,
+                match=row.match,
+                recommendations=recommendations,
+                features=row.features,
+                recorded_at=recorded_at,
+            )
+    typer.echo(f"录入推荐 {total_inserted}")
+
+
+@records_app.command("pending")
+def records_pending():
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    display_service = DisplayNameService()
+    with session_factory() as session:
+        for record in list_pending_records(session):
+            typer.echo(format_record_line(record, display_service))
+
+
+@records_app.command("settle")
+def records_settle():
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        settled_count = settle_pending_records(session)
+    typer.echo(f"结算推荐 {settled_count}")
+
+
+@records_app.command("report")
+def records_report():
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_record_report(session)
+        typer.echo(format_record_report(report))
 
 
 @samples_app.command("preview")

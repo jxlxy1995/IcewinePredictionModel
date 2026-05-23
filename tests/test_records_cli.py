@@ -2,7 +2,12 @@ from decimal import Decimal
 
 from typer.testing import CliRunner
 
-from icewine_prediction.cli import app, format_record_report
+from icewine_prediction.cli import (
+    app,
+    format_historical_performance_report,
+    format_record_report,
+)
+from icewine_prediction.historical_performance_service import HistoricalPerformanceReport
 from icewine_prediction.model_training_service import LeagueTeamStrengthGoalModel, TeamStrengthGoalModel
 from icewine_prediction.record_service import RecordGroupSummary, RecordReport
 
@@ -91,3 +96,30 @@ def test_format_record_report_outputs_summary():
     assert "ROI 0.2667" in text
     assert "asian_handicap" in text
     assert "La Liga" in text
+
+
+def test_format_historical_performance_report_outputs_summary():
+    summary = RecordGroupSummary(
+        record_count=2,
+        stake_units=Decimal("3.00"),
+        profit_units=Decimal("0.800"),
+        roi=Decimal("0.2667"),
+    )
+    report = HistoricalPerformanceReport(
+        total=summary,
+        by_settlement_result={"win": summary},
+        by_edge_bucket={"0.06-0.10": summary},
+        by_market_type={"asian_handicap": summary},
+        by_side={"home": summary},
+        by_confidence_grade={"A-": summary},
+        by_league={"La Liga": summary},
+    )
+
+    text = format_historical_performance_report(report)
+
+    assert "历史样本 2" in text
+    assert "ROI 0.2667" in text
+    assert "按edge" in text
+    assert "0.06-0.10" in text
+    assert "按方向" in text
+    assert "home" in text

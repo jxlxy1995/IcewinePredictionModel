@@ -10,6 +10,11 @@ from icewine_prediction.database import (
 )
 from icewine_prediction.display_service import DisplayNameService
 from icewine_prediction.feature_service import MatchOddsFeatures, list_upcoming_match_odds_features
+from icewine_prediction.historical_performance_service import (
+    HistoricalPerformanceFilters,
+    HistoricalPerformanceReport,
+    build_historical_performance_report,
+)
 from icewine_prediction.match_query_service import list_upcoming_matches
 from icewine_prediction.model_training_service import (
     BaselineResultEvaluation,
@@ -290,6 +295,23 @@ def format_record_report(report: RecordReport) -> str:
     )
 
 
+def format_historical_performance_report(report: HistoricalPerformanceReport) -> str:
+    return "\n".join(
+        [
+            f"历史样本 {report.total.record_count}",
+            f"总手数 {report.total.stake_units}",
+            f"总盈亏 {report.total.profit_units}",
+            f"ROI {report.total.roi}",
+            _format_record_groups("按结果", report.by_settlement_result),
+            _format_record_groups("按edge", report.by_edge_bucket),
+            _format_record_groups("按盘口", report.by_market_type),
+            _format_record_groups("按方向", report.by_side),
+            _format_record_groups("按信心", report.by_confidence_grade),
+            _format_record_groups("按联赛", report.by_league),
+        ]
+    )
+
+
 def format_training_sample_line(
     sample: TrainingSample,
     display_service: DisplayNameService,
@@ -465,6 +487,29 @@ def records_report():
     with session_factory() as session:
         report = build_record_report(session)
         typer.echo(format_record_report(report))
+
+
+@records_app.command("performance")
+def records_performance(
+    market_type: str | None = typer.Option(None, "--market-type"),
+    side: str | None = typer.Option(None, "--side"),
+    league_name: str | None = typer.Option(None, "--league-name"),
+    edge_bucket: str | None = typer.Option(None, "--edge-bucket"),
+    confidence_grade: str | None = typer.Option(None, "--confidence-grade"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    filters = HistoricalPerformanceFilters(
+        market_type=market_type,
+        side=side,
+        league_name=league_name,
+        edge_bucket=edge_bucket,
+        confidence_grade=confidence_grade,
+    )
+    with session_factory() as session:
+        report = build_historical_performance_report(session, filters)
+        typer.echo(format_historical_performance_report(report))
 
 
 @samples_app.command("preview")

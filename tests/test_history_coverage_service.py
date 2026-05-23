@@ -23,6 +23,7 @@ def _create_match(
         status=status,
         home_score=home_score,
         away_score=away_score,
+        season=2025,
     )
 
 
@@ -85,3 +86,37 @@ def test_build_history_coverage_report_summarizes_local_matches(session):
     assert summary.odds_coverage_ratio == Decimal("0.5000")
     assert summary.asian_handicap_coverage_ratio == Decimal("0.5000")
     assert summary.total_goals_coverage_ratio == Decimal("0.5000")
+
+
+def test_build_history_coverage_report_filters_by_api_season_not_kickoff_year(session):
+    league = League(
+        name="Premier League (England)",
+        country_or_region="England",
+        level=1,
+        priority=100,
+    )
+    home_team = Team(canonical_name="Liverpool", country_or_region="England")
+    away_team = Team(canonical_name="Arsenal", country_or_region="England")
+    session.add_all(
+        [
+            league,
+            home_team,
+            away_team,
+            Match(
+                league=league,
+                home_team=home_team,
+                away_team=away_team,
+                kickoff_time=datetime(2026, 5, 23, 22, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                season=2025,
+                status="finished",
+                home_score=2,
+                away_score=1,
+            ),
+        ]
+    )
+    session.commit()
+
+    report = build_history_coverage_report(session, season=2025)
+
+    assert len(report) == 1
+    assert report[0].total_matches == 1

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -28,3 +28,18 @@ def initialize_database(engine: Engine) -> None:
     from icewine_prediction import models  # noqa: F401
 
     Base.metadata.create_all(engine)
+    _ensure_sqlite_schema(engine)
+
+
+def _ensure_sqlite_schema(engine: Engine) -> None:
+    if engine.dialect.name != "sqlite":
+        return
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "matches" not in table_names:
+        return
+    match_columns = {column["name"] for column in inspector.get_columns("matches")}
+    if "season" in match_columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE matches ADD COLUMN season INTEGER"))

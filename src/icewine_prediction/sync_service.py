@@ -99,6 +99,7 @@ def upsert_fixtures(session: Session, fixtures: list[ExternalFixture]) -> Fixtur
                 home_team=home_team,
                 away_team=away_team,
                 kickoff_time=fixture.kickoff_time,
+                season=fixture.season,
                 status=fixture.status,
                 home_score=fixture.home_score,
                 away_score=fixture.away_score,
@@ -112,6 +113,7 @@ def upsert_fixtures(session: Session, fixtures: list[ExternalFixture]) -> Fixtur
             match.home_team = home_team
             match.away_team = away_team
             match.kickoff_time = fixture.kickoff_time
+            match.season = fixture.season
             match.status = fixture.status
             match.home_score = fixture.home_score
             match.away_score = fixture.away_score

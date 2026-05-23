@@ -22,6 +22,7 @@ def test_upsert_fixtures_does_not_duplicate_matches(session):
         status="scheduled",
         home_score=None,
         away_score=None,
+        season=2025,
     )
 
     first = upsert_fixtures(session, [fixture])
@@ -30,6 +31,7 @@ def test_upsert_fixtures_does_not_duplicate_matches(session):
     assert first.created_matches == 1
     assert second.updated_matches == 1
     assert session.query(Match).count() == 1
+    assert session.query(Match).one().season == 2025
 
 
 def test_upsert_fixtures_disambiguates_same_api_league_name_by_country(session):
@@ -47,6 +49,7 @@ def test_upsert_fixtures_disambiguates_same_api_league_name_by_country(session):
         status="scheduled",
         home_score=None,
         away_score=None,
+        season=2025,
     )
     austrian_fixture = ExternalFixture(
         source_name="api_football",
@@ -62,6 +65,7 @@ def test_upsert_fixtures_disambiguates_same_api_league_name_by_country(session):
         status="scheduled",
         home_score=None,
         away_score=None,
+        season=2025,
     )
 
     result = upsert_fixtures(session, [german_fixture, austrian_fixture])
@@ -86,6 +90,7 @@ def test_upsert_odds_snapshots_saves_snapshot_for_existing_match(session):
         status="scheduled",
         home_score=None,
         away_score=None,
+        season=2025,
     )
     upsert_fixtures(session, [fixture])
     snapshot = ExternalOddsSnapshot(

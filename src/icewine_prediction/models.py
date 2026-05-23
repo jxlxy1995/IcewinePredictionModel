@@ -43,6 +43,7 @@ class Match(Base):
     home_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
     away_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
     kickoff_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    season: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="scheduled")
     home_score: Mapped[int | None] = mapped_column(Integer)
     away_score: Mapped[int | None] = mapped_column(Integer)

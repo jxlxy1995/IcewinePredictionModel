@@ -16,6 +16,7 @@ class ExternalFixture:
     source_league_id: str
     league_name: str
     country: str
+    season: int | None
     home_source_team_id: str
     home_team_name: str
     away_source_team_id: str
@@ -62,6 +63,7 @@ def map_fixtures(payload: dict) -> list[ExternalFixture]:
                 source_league_id=str(league["id"]),
                 league_name=league["name"],
                 country=league["country"],
+                season=league.get("season"),
                 home_source_team_id=str(teams["home"]["id"]),
                 home_team_name=teams["home"]["name"],
                 away_source_team_id=str(teams["away"]["id"]),

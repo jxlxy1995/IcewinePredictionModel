@@ -30,10 +30,6 @@ def _coverage_ratio(count: int, total: int) -> Decimal:
     )
 
 
-def _match_year(match: Match) -> int:
-    return match.kickoff_time.year
-
-
 def _summarize_league(league: League, matches: list[Match]) -> LeagueCoverageSummary:
     total_matches = len(matches)
     finished_matches = len([match for match in matches if match.status == "finished"])
@@ -85,7 +81,7 @@ def build_history_coverage_report(
     for league in leagues:
         matches = list(league.matches)
         if season is not None:
-            matches = [match for match in matches if _match_year(match) == season]
+            matches = [match for match in matches if match.season == season]
         if not matches:
             continue
         summaries.append(_summarize_league(league, matches))

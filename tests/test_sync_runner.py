@@ -257,6 +257,7 @@ class HistoricalProvider:
                 status="finished",
                 home_score=2,
                 away_score=1,
+                season=2024,
             )
         ]
 

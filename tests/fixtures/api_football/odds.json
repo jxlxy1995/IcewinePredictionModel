@@ -1,0 +1,28 @@
+{
+  "response": [
+    {
+      "fixture": {"id": 1001},
+      "bookmakers": [
+        {
+          "name": "Sample Bookmaker",
+          "bets": [
+            {
+              "name": "Asian Handicap",
+              "values": [
+                {"value": "Home -0.25", "odd": "1.92"},
+                {"value": "Away +0.25", "odd": "1.96"}
+              ]
+            },
+            {
+              "name": "Goals Over/Under",
+              "values": [
+                {"value": "Over 2.5", "odd": "1.94"},
+                {"value": "Under 2.5", "odd": "1.94"}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

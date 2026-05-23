@@ -434,7 +434,57 @@ def test_run_oddspapi_sync_for_session_reports_progress(session):
 
     assert messages[0].startswith("[1/1] 开始")
     assert "Mallorca vs Oviedo" in messages[0]
+    assert any("拉取历史赔率" in message for message in messages)
+    assert any("拉取盘口定义" in message for message in messages)
+    assert any("写入历史赔率" in message for message in messages)
     assert messages[-1].startswith("[1/1] 完成")
+
+
+def test_run_oddspapi_sync_for_session_skips_requested_match_ids(session):
+    skipped_match = _match(
+        session,
+        source_match_id="skipped",
+        league_name="Premier League",
+        source_league_id="39",
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Skipped Home",
+        away_team_name="Skipped Away",
+    )
+    kept_match = _match(
+        session,
+        source_match_id="kept",
+        kickoff_time=datetime(2026, 5, 23, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Mallorca",
+        away_team_name="Oviedo",
+    )
+    session.add(
+        OddsSourceMatch(
+            match_id=kept_match.id,
+            source_name="oddspapi",
+            source_fixture_id="oddspapi-fixture-1",
+            matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_confidence=Decimal("1.0000"),
+            match_reason="cached",
+        )
+    )
+    session.commit()
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+    messages = []
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+        skip_match_ids={skipped_match.id},
+        progress_callback=messages.append,
+    )
+
+    assert result.processed_match_count == 1
+    assert result.inserted_snapshot_count == 4
+    assert all("Skipped Home" not in message for message in messages)
+    assert [call[0] for call in raw_client.calls] == ["historical-odds", "markets"]
 
 
 def test_oddspapi_sync_client_requests_fixture_and_historical_odds_payloads():

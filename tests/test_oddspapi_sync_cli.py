@@ -38,9 +38,10 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
         request_budget,
         timeout_seconds,
         max_snapshots_per_match,
+        skip_match_ids=None,
         progress_callback=None: (
             f"fetch:{season}:{max_matches}:{request_budget}:"
-            f"{timeout_seconds}:{max_snapshots_per_match}"
+            f"{timeout_seconds}:{max_snapshots_per_match}:{skip_match_ids}"
         ),
     )
 
@@ -59,8 +60,10 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
             "12",
             "--max-snapshots-per-match",
             "150",
+            "--skip-match-ids",
+            "1149,1150",
         ],
     )
 
     assert result.exit_code == 0
-    assert "fetch:2025:20:50:12:150" in result.stdout
+    assert "fetch:2025:20:50:12:150:{1149, 1150}" in result.stdout

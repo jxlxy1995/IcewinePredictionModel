@@ -144,6 +144,7 @@ def run_oddspapi_sync(
     request_budget: int,
     timeout_seconds: int = 20,
     max_snapshots_per_match: int = 200,
+    skip_match_ids: set[int] | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     settings = load_project_settings()
@@ -161,6 +162,7 @@ def run_oddspapi_sync(
             season=season,
             max_matches=max_matches,
             max_snapshots_per_match=max_snapshots_per_match,
+            skip_match_ids=skip_match_ids,
             progress_callback=progress_callback,
         )
     return _format_result(result)
@@ -206,6 +208,7 @@ def run_oddspapi_sync_for_session(
     season: int,
     max_matches: int,
     max_snapshots_per_match: int = 200,
+    skip_match_ids: set[int] | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> OddsPapiSyncResult:
     matches, skipped_existing_odds = select_oddspapi_candidate_matches(
@@ -213,6 +216,8 @@ def run_oddspapi_sync_for_session(
         season=season,
         max_matches=max_matches,
     )
+    if skip_match_ids:
+        matches = [match for match in matches if match.id not in skip_match_ids]
     fixtures_by_tournament_id = {}
     matched = 0
     inserted = 0
@@ -244,6 +249,7 @@ def run_oddspapi_sync_for_session(
                     match=match,
                     source_fixture_id=source_fixture_id,
                     max_snapshots_per_match=max_snapshots_per_match,
+                    progress_callback=progress_callback,
                 )
                 inserted += store_summary.inserted_count
                 skipped_duplicates += store_summary.skipped_duplicate_count
@@ -280,6 +286,7 @@ def run_oddspapi_sync_for_session(
                 match=match,
                 source_fixture_id=candidate.fixture.fixture_id,
                 max_snapshots_per_match=max_snapshots_per_match,
+                progress_callback=progress_callback,
             )
             inserted += store_summary.inserted_count
             skipped_duplicates += store_summary.skipped_duplicate_count
@@ -316,9 +323,13 @@ def _fetch_and_store_historical_odds(
     match: Match,
     source_fixture_id: str,
     max_snapshots_per_match: int,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> HistoricalOddsStoreSummary:
+    _emit_progress(progress_callback, f"  拉取历史赔率 fixture={source_fixture_id}")
     raw_odds = client.fetch_historical_odds(source_fixture_id)
+    _emit_progress(progress_callback, f"  拉取盘口定义 fixture={source_fixture_id}")
     market_definitions = client.fetch_markets(source_fixture_id)
+    _emit_progress(progress_callback, f"  写入历史赔率 match_id={match.id}")
     snapshots = map_historical_odds(
         raw_odds,
         match_id=match.id,

@@ -603,6 +603,7 @@ def odds_source_oddspapi_fetch(
     request_budget: int = typer.Option(50, "--request-budget"),
     timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
     max_snapshots_per_match: int = typer.Option(200, "--max-snapshots-per-match"),
+    skip_match_ids: str = typer.Option("", "--skip-match-ids"),
 ):
     typer.echo(
         run_oddspapi_sync(
@@ -611,9 +612,16 @@ def odds_source_oddspapi_fetch(
             request_budget=request_budget,
             timeout_seconds=timeout_seconds,
             max_snapshots_per_match=max_snapshots_per_match,
+            skip_match_ids=_parse_id_set(skip_match_ids),
             progress_callback=typer.echo,
         )
     )
+
+
+def _parse_id_set(value: str) -> set[int]:
+    if not value.strip():
+        return set()
+    return {int(item.strip()) for item in value.split(",") if item.strip()}
 
 
 @history_app.command("coverage")

@@ -15,6 +15,10 @@ from icewine_prediction.recommendation_service import (
     Recommendation,
     build_rule_recommendations_from_features,
 )
+from icewine_prediction.sample_report_service import (
+    TrainingSampleReport,
+    build_training_sample_report,
+)
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.sync_runner import (
     run_history_backfill,
@@ -220,6 +224,23 @@ def format_training_sample_line(
     )
 
 
+def _format_counter(counter: dict) -> str:
+    return ", ".join(f"{key}: {value}" for key, value in counter.items())
+
+
+def format_training_sample_report(report: TrainingSampleReport) -> str:
+    return "\n".join(
+        [
+            f"总样本 {report.total_samples}",
+            f"有赔率样本 {report.samples_with_odds}",
+            f"赔率覆盖率 {report.odds_coverage_ratio}",
+            f"按联赛 {_format_counter(report.by_league)}",
+            f"按赛季 {_format_counter(report.by_season)}",
+            f"按权重 {_format_counter(report.by_weight)}",
+        ]
+    )
+
+
 @matches_app.command("upcoming")
 def matches_upcoming(hours: int = 24):
     engine = create_database_engine()
@@ -267,6 +288,16 @@ def samples_preview(limit: int = 10):
         samples = list_training_samples(session, limit=limit)
         for sample in samples:
             typer.echo(format_training_sample_line(sample, display_service))
+
+
+@samples_app.command("report")
+def samples_report():
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_training_sample_report(session)
+        typer.echo(format_training_sample_report(report))
 
 
 if __name__ == "__main__":

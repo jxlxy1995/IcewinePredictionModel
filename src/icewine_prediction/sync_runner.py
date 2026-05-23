@@ -86,6 +86,33 @@ def build_history_backfill_tasks(
     ]
 
 
+def build_history_backfill_plan(
+    leagues,
+    from_season: int,
+    to_season: int,
+    max_leagues: int,
+) -> str:
+    tasks = build_history_backfill_tasks(
+        leagues,
+        from_season=from_season,
+        to_season=to_season,
+        max_leagues=max_leagues,
+    )
+    lines = [
+        f"计划任务 {len(tasks)}",
+        f"预计API请求 {len(tasks)}",
+        f"赛季范围 {min(from_season, to_season)}-{max(from_season, to_season)}",
+        f"联赛上限 {max_leagues}",
+    ]
+    lines.extend(
+        f"{task.league_name} {league.country} id={task.league_id} season={task.season}"
+        for task in tasks
+        for league in leagues
+        if league.api_football_id == task.league_id
+    )
+    return "\n".join(lines)
+
+
 def select_upcoming_fixture_ids_for_odds(
     session: Session,
     days: int,

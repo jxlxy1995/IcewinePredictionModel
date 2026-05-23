@@ -89,3 +89,42 @@ def test_sync_backfill_history_accepts_season_and_limit_options(monkeypatch):
 
     assert result.exit_code == 0
     assert "backfill:2023:2024:2:3" in result.stdout
+
+
+def test_sync_backfill_plan_accepts_season_and_limit_options(monkeypatch):
+    runner = CliRunner()
+
+    def fake_load_project_settings():
+        return type("Settings", (), {"leagues": ["league"]})()
+
+    def fake_build_history_backfill_plan(
+        leagues,
+        from_season,
+        to_season,
+        max_leagues,
+    ):
+        assert leagues == ["league"]
+        return f"plan:{from_season}:{to_season}:{max_leagues}"
+
+    monkeypatch.setattr("icewine_prediction.cli.load_project_settings", fake_load_project_settings)
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_history_backfill_plan",
+        fake_build_history_backfill_plan,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "sync",
+            "backfill-plan",
+            "--from-season",
+            "2023",
+            "--to-season",
+            "2024",
+            "--max-leagues",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "plan:2023:2024:2" in result.stdout

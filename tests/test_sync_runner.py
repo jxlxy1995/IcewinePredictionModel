@@ -9,6 +9,7 @@ from icewine_prediction.sources.api_football_mapper import ExternalOddsSnapshot
 from icewine_prediction.settings import LeagueSettings
 from icewine_prediction.sync_runner import (
     build_sync_summary,
+    build_history_backfill_plan,
     build_history_backfill_tasks,
     run_history_backfill,
     fetch_and_store_odds_snapshots,
@@ -56,6 +57,27 @@ def test_build_history_backfill_tasks_orders_recent_seasons_and_priority_leagues
         (3, 2022),
         (4, 2022),
     ]
+
+
+def test_build_history_backfill_plan_summarizes_tasks_without_api_requests():
+    leagues = [
+        LeagueSettings("La Liga", "Spain", 140, True, 95),
+        LeagueSettings("Serie A", "Italy", 135, True, 90),
+        LeagueSettings("Disabled", "Nowhere", 1, False, 999),
+    ]
+
+    plan = build_history_backfill_plan(
+        leagues,
+        from_season=2024,
+        to_season=2025,
+        max_leagues=2,
+    )
+
+    assert "计划任务 4" in plan
+    assert "预计API请求 4" in plan
+    assert "La Liga Spain id=140 season=2025" in plan
+    assert "Serie A Italy id=135 season=2024" in plan
+    assert "Disabled" not in plan
 
 
 def test_select_upcoming_fixture_ids_for_odds_uses_beijing_window(session):

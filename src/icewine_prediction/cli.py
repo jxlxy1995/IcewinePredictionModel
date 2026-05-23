@@ -47,6 +47,7 @@ from icewine_prediction.sample_report_service import (
 )
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.sync_runner import (
+    build_history_backfill_plan,
     run_history_backfill,
     run_sync_historical_odds,
     run_sync_history,
@@ -146,6 +147,23 @@ def sync_backfill_history(
             to_season=to_season,
             max_leagues=max_leagues,
             historical_odds_days=historical_odds_days,
+        )
+    )
+
+
+@sync_app.command("backfill-plan")
+def sync_backfill_plan(
+    from_season: int = typer.Option(..., "--from-season"),
+    to_season: int = typer.Option(..., "--to-season"),
+    max_leagues: int = typer.Option(1, "--max-leagues"),
+):
+    settings = load_project_settings()
+    typer.echo(
+        build_history_backfill_plan(
+            leagues=settings.leagues,
+            from_season=from_season,
+            to_season=to_season,
+            max_leagues=max_leagues,
         )
     )
 

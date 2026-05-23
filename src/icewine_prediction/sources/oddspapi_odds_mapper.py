@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from icewine_prediction.sources.oddspapi_market_mapper import map_markets
 
-SELECTED_BOOKMAKERS = {"pinnacle", "bet365", "sbobet"}
+SELECTED_BOOKMAKERS = {"pinnacle", "sbobet"}
 UTC_TIMEZONE = ZoneInfo("UTC")
 
 

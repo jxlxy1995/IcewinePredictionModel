@@ -410,7 +410,7 @@ def test_run_oddspapi_sync_for_session_continues_after_single_match_odds_error(s
     success_match = _match(
         session,
         source_match_id="success",
-        kickoff_time=datetime(2026, 5, 23, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
         home_team_name="Mallorca B",
         away_team_name="Oviedo B",
     )
@@ -521,7 +521,7 @@ def test_run_oddspapi_sync_for_session_skips_requested_match_ids(session):
     kept_match = _match(
         session,
         source_match_id="kept",
-        kickoff_time=datetime(2026, 5, 23, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
         home_team_name="Mallorca",
         away_team_name="Oviedo",
     )
@@ -588,7 +588,7 @@ def test_oddspapi_sync_client_requests_fixture_and_historical_odds_payloads():
         {
             "sportId": 10,
             "fixtureId": "oddspapi-fixture-1",
-            "bookmakers": "pinnacle,bet365,sbobet",
+            "bookmakers": "pinnacle,sbobet",
         },
     )
     assert raw_client.calls[2] == (
@@ -596,6 +596,6 @@ def test_oddspapi_sync_client_requests_fixture_and_historical_odds_payloads():
         {
             "sportId": 10,
             "fixtureId": "oddspapi-fixture-1",
-            "bookmakers": "pinnacle,bet365,sbobet",
+            "bookmakers": "pinnacle,sbobet",
         },
     )

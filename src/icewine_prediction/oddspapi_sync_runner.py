@@ -22,7 +22,7 @@ from icewine_prediction.time_utils import now_beijing
 ODDSPAPI_BASE_URL = "https://api.oddspapi.io/v4"
 ODDSPAPI_SOURCE_NAME = "oddspapi"
 SOCCER_SPORT_ID = 10
-SELECTED_BOOKMAKERS = "pinnacle,bet365,sbobet"
+SELECTED_BOOKMAKERS = "pinnacle,sbobet"
 
 API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "39": 17,
@@ -364,6 +364,8 @@ def _fetch_and_store_historical_odds(
         session,
         snapshots,
         max_snapshots_per_match=max_snapshots_per_match,
+        kickoff_time=match.kickoff_time,
+        max_snapshots_per_market_type=50,
     )
     return HistoricalOddsStoreSummary(
         inserted_count=store_result.inserted_count,

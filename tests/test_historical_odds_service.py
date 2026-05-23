@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import replace
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -156,3 +156,58 @@ def test_sample_historical_odds_snapshots_allocates_limit_across_groups():
 
     assert len(sampled) == 8
     assert set(counts_by_group.values()) == {2}
+
+
+def test_sample_historical_odds_snapshots_limits_each_market_type_before_kickoff():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    snapshots = []
+    for bookmaker in ["pinnacle", "sbobet"]:
+        for market_type, outcome_side in [
+            ("asian_handicap", "home"),
+            ("asian_handicap", "away"),
+            ("total_goals", "over"),
+            ("total_goals", "under"),
+        ]:
+            for index in range(80):
+                snapshots.append(
+                    replace(
+                        _snapshot(match_id),
+                        bookmaker=bookmaker,
+                        market_type=market_type,
+                        outcome_side=outcome_side,
+                        snapshot_time=kickoff_time.astimezone(ZoneInfo("UTC"))
+                        - timedelta(minutes=index * 12),
+                    )
+                )
+        snapshots.append(
+            replace(
+                _snapshot(match_id),
+                bookmaker=bookmaker,
+                market_type="asian_handicap",
+                outcome_side="home",
+                snapshot_time=kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(hours=25),
+            )
+        )
+
+    sampled = sample_historical_odds_snapshots(
+        snapshots,
+        kickoff_time=kickoff_time,
+        max_snapshots_per_market_type=50,
+    )
+
+    counts_by_market_type = {}
+    bookmakers = set()
+    for snapshot in sampled:
+        counts_by_market_type[snapshot.market_type] = (
+            counts_by_market_type.get(snapshot.market_type, 0) + 1
+        )
+        bookmakers.add(snapshot.bookmaker)
+        assert kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(hours=24) <= snapshot.snapshot_time
+        assert snapshot.snapshot_time <= kickoff_time.astimezone(ZoneInfo("UTC"))
+
+    assert counts_by_market_type == {
+        "asian_handicap": 50,
+        "total_goals": 50,
+    }
+    assert bookmakers == {"pinnacle", "sbobet"}

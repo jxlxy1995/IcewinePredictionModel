@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -43,7 +44,16 @@ class HistoricalOddsCoverageReport:
 def sample_historical_odds_snapshots(
     snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
     max_snapshots_per_match: int = 200,
+    kickoff_time: datetime | None = None,
+    max_snapshots_per_market_type: int | None = None,
 ) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    if kickoff_time is not None:
+        snapshots = _filter_snapshots_before_kickoff(snapshots, kickoff_time)
+    if max_snapshots_per_market_type is not None:
+        snapshots = _sample_snapshots_by_market_type(snapshots, max_snapshots_per_market_type)
+        if len(snapshots) <= max_snapshots_per_match:
+            return snapshots
+        return _sample_snapshot_group(snapshots, max_snapshots_per_match)
     if len(snapshots) <= max_snapshots_per_match:
         return sorted(snapshots, key=lambda snapshot: snapshot.snapshot_time)
     grouped = {}
@@ -87,14 +97,52 @@ def _sample_snapshot_group(
     return [sorted_snapshots[index] for index in sorted(indexes)]
 
 
+def _filter_snapshots_before_kickoff(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    kickoff_time: datetime,
+) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    kickoff_time = _as_utc(kickoff_time)
+    window_start = kickoff_time - timedelta(hours=24)
+    return [
+        snapshot
+        for snapshot in snapshots
+        if window_start <= _as_utc(snapshot.snapshot_time) <= kickoff_time
+    ]
+
+
+def _sample_snapshots_by_market_type(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    max_snapshots_per_market_type: int,
+) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    grouped = {}
+    for snapshot in snapshots:
+        grouped.setdefault(snapshot.market_type, []).append(snapshot)
+    sampled = []
+    for group_snapshots in grouped.values():
+        sampled.extend(
+            _sample_snapshot_group(group_snapshots, max_snapshots_per_market_type)
+        )
+    return sorted(sampled, key=lambda snapshot: snapshot.snapshot_time)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=ZoneInfo("Asia/Shanghai")).astimezone(ZoneInfo("UTC"))
+    return value.astimezone(ZoneInfo("UTC"))
+
+
 def store_historical_odds_snapshots(
     session: Session,
     snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
     max_snapshots_per_match: int = 200,
+    kickoff_time: datetime | None = None,
+    max_snapshots_per_market_type: int | None = None,
 ) -> HistoricalOddsStoreResult:
     snapshots = sample_historical_odds_snapshots(
         snapshots,
         max_snapshots_per_match=max_snapshots_per_match,
+        kickoff_time=kickoff_time,
+        max_snapshots_per_market_type=max_snapshots_per_market_type,
     )
     return _store_sampled_historical_odds_snapshots(session, snapshots)
 

@@ -34,6 +34,7 @@ def _record(
     confidence_grade: str,
     stake_units: Decimal,
     profit_units: Decimal | None,
+    settlement_result: str | None = None,
     status: str = "settled",
 ) -> RecommendationRecord:
     return RecommendationRecord(
@@ -55,7 +56,7 @@ def _record(
         home_expected_goals=Decimal("1.40"),
         away_expected_goals=Decimal("1.00"),
         status=status,
-        settlement_result="win" if profit_units and profit_units > 0 else "loss",
+        settlement_result=settlement_result,
         profit_units=profit_units,
     )
 
@@ -64,8 +65,22 @@ def test_build_record_report_summarizes_settled_records(session):
     match = _match(session)
     session.add_all(
         [
-            _record(match, "asian_handicap", "A+", Decimal("2.00"), Decimal("1.800")),
-            _record(match, "total_goals", "B", Decimal("1.00"), Decimal("-1.000")),
+            _record(
+                match,
+                "asian_handicap",
+                "A+",
+                Decimal("2.00"),
+                Decimal("1.800"),
+                settlement_result="win",
+            ),
+            _record(
+                match,
+                "total_goals",
+                "B",
+                Decimal("1.00"),
+                Decimal("-1.000"),
+                settlement_result="loss",
+            ),
             _record(match, "total_goals", "B", Decimal("1.50"), None, status="pending"),
         ]
     )
@@ -75,9 +90,12 @@ def test_build_record_report_summarizes_settled_records(session):
 
     assert report.total_records == 3
     assert report.settled_records == 2
+    assert report.pending_records == 1
     assert report.total_stake_units == Decimal("3.00")
     assert report.total_profit_units == Decimal("0.800")
     assert report.roi == Decimal("0.2667")
+    assert report.by_settlement_result["win"].record_count == 1
+    assert report.by_settlement_result["loss"].record_count == 1
     assert report.by_market_type["asian_handicap"].profit_units == Decimal("1.800")
     assert report.by_market_type["total_goals"].profit_units == Decimal("-1.000")
     assert report.by_confidence_grade["A+"].record_count == 1

@@ -22,9 +22,11 @@ class RecordGroupSummary:
 class RecordReport:
     total_records: int
     settled_records: int
+    pending_records: int
     total_stake_units: Decimal
     total_profit_units: Decimal
     roi: Decimal
+    by_settlement_result: dict[str, RecordGroupSummary]
     by_market_type: dict[str, RecordGroupSummary]
     by_confidence_grade: dict[str, RecordGroupSummary]
     by_league: dict[str, RecordGroupSummary]
@@ -216,9 +218,11 @@ def build_record_report(session: Session) -> RecordReport:
     return RecordReport(
         total_records=len(records),
         settled_records=len(settled_records),
+        pending_records=len([record for record in records if record.status == "pending"]),
         total_stake_units=total_summary.stake_units,
         total_profit_units=total_summary.profit_units,
         roi=total_summary.roi,
+        by_settlement_result=_group_records(settled_records, "settlement_result"),
         by_market_type=_group_records(settled_records, "market_type"),
         by_confidence_grade=_group_records(settled_records, "confidence_grade"),
         by_league=_group_records(settled_records, "league_name"),

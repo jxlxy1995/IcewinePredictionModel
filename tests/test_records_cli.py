@@ -67,9 +67,11 @@ def test_format_record_report_outputs_summary():
     report = RecordReport(
         total_records=3,
         settled_records=2,
+        pending_records=1,
         total_stake_units=Decimal("3.00"),
         total_profit_units=Decimal("0.800"),
         roi=Decimal("0.2667"),
+        by_settlement_result={"win": summary},
         by_market_type={"asian_handicap": summary},
         by_confidence_grade={"A+": summary},
         by_league={"La Liga": summary},
@@ -79,6 +81,9 @@ def test_format_record_report_outputs_summary():
 
     assert "总推荐 3" in text
     assert "已结算 2" in text
+    assert "待结算 1" in text
+    assert "按结果" in text
+    assert "win" in text
     assert "总盈亏 0.800" in text
     assert "ROI 0.2667" in text
     assert "asian_handicap" in text

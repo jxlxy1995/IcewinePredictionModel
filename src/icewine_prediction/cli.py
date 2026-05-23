@@ -277,9 +277,11 @@ def format_record_report(report: RecordReport) -> str:
         [
             f"总推荐 {report.total_records}",
             f"已结算 {report.settled_records}",
+            f"待结算 {report.pending_records}",
             f"总手数 {report.total_stake_units}",
             f"总盈亏 {report.total_profit_units}",
             f"ROI {report.roi}",
+            _format_record_groups("按结果", report.by_settlement_result),
             _format_record_groups("按盘口", report.by_market_type),
             _format_record_groups("按信心", report.by_confidence_grade),
             _format_record_groups("按联赛", report.by_league),

@@ -1,6 +1,7 @@
 from typing import Any
 
 import requests
+from requests import HTTPError
 
 
 class MissingApiKeyError(RuntimeError):
@@ -43,8 +44,12 @@ class ApiFootballClient:
             params=params or {},
             timeout=self.timeout_seconds,
         )
-        response.raise_for_status()
         self.request_count += 1
+        try:
+            response.raise_for_status()
+        except HTTPError as exc:
+            status_code = getattr(response, "status_code", "unknown")
+            raise ApiFootballApiError(f"API-Football HTTP error {status_code}: {exc}") from exc
         payload = response.json()
         errors = payload.get("errors")
         if errors:

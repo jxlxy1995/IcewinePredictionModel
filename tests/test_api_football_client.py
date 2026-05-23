@@ -9,10 +9,15 @@ from icewine_prediction.sources.api_football_client import (
 
 
 class FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self._payload = payload
+        self.status_code = status_code
 
     def raise_for_status(self):
+        if self.status_code >= 400:
+            from requests import HTTPError
+
+            raise HTTPError(f"{self.status_code} Client Error")
         return None
 
     def json(self):
@@ -31,6 +36,11 @@ class FakeSession:
 class ErrorSession:
     def get(self, url, headers, params, timeout):
         return FakeResponse({"errors": {"season": "The Season field is required."}, "results": 0})
+
+
+class HttpErrorSession:
+    def get(self, url, headers, params, timeout):
+        return FakeResponse({"message": "Too Many Requests"}, status_code=429)
 
 
 def test_client_requires_api_key():
@@ -79,3 +89,16 @@ def test_client_raises_api_error_when_response_contains_errors():
 
     with pytest.raises(ApiFootballApiError, match="season"):
         client.get("fixtures", {})
+
+
+def test_client_wraps_http_errors_and_counts_request():
+    client = ApiFootballClient(
+        base_url="https://example.test",
+        api_key="secret",
+        session=HttpErrorSession(),
+    )
+
+    with pytest.raises(ApiFootballApiError, match="429"):
+        client.get("odds", {"fixture": "1001"})
+
+    assert client.request_count == 1

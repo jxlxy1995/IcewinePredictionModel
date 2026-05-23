@@ -34,3 +34,56 @@ def test_map_odds_snapshots_extracts_asian_handicap_and_total_line():
     assert snapshots[0].total_line == Decimal("2.5")
     assert snapshots[0].over_odds == Decimal("1.94")
     assert snapshots[0].under_odds == Decimal("1.94")
+
+
+def test_map_odds_snapshots_pairs_same_market_line_and_selects_balanced_line():
+    payload = {
+        "response": [
+            {
+                "fixture": {"id": 1001},
+                "bookmakers": [
+                    {
+                        "name": "Bet365",
+                        "bets": [
+                            {
+                                "name": "Asian Handicap",
+                                "values": [
+                                    {"value": "Home -1.25", "odd": "5.50"},
+                                    {"value": "Away -1.25", "odd": "1.15"},
+                                    {"value": "Home +0", "odd": "2.25"},
+                                    {"value": "Away +0", "odd": "1.62"},
+                                    {"value": "Home +0.25", "odd": "1.98"},
+                                    {"value": "Away +0.25", "odd": "1.88"},
+                                    {"value": "Home +1.5", "odd": "1.24"},
+                                    {"value": "Away +1.5", "odd": "3.90"},
+                                ],
+                            },
+                            {
+                                "name": "Goals Over/Under",
+                                "values": [
+                                    {"value": "Over 1.5", "odd": "1.17"},
+                                    {"value": "Under 1.5", "odd": "5.00"},
+                                    {"value": "Over 2.5", "odd": "1.57"},
+                                    {"value": "Under 2.5", "odd": "2.38"},
+                                    {"value": "Over 3.0", "odd": "1.95"},
+                                    {"value": "Under 3.0", "odd": "1.79"},
+                                    {"value": "Over 4.5", "odd": "4.33"},
+                                    {"value": "Under 4.5", "odd": "1.22"},
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    snapshots = map_odds_snapshots(payload)
+
+    assert len(snapshots) == 1
+    assert snapshots[0].asian_handicap == Decimal("0.25")
+    assert snapshots[0].home_odds == Decimal("1.98")
+    assert snapshots[0].away_odds == Decimal("1.88")
+    assert snapshots[0].total_line == Decimal("3.0")
+    assert snapshots[0].over_odds == Decimal("1.95")
+    assert snapshots[0].under_odds == Decimal("1.79")

@@ -87,38 +87,78 @@ def _parse_prefixed_decimal(value: str, prefix: str) -> Decimal | None:
     return Decimal(value.removeprefix(prefix).strip())
 
 
+def _balanced_pair_score(first_odds: Decimal, second_odds: Decimal) -> tuple[Decimal, Decimal]:
+    return abs(first_odds - second_odds), abs(((first_odds + second_odds) / Decimal("2")) - Decimal("2"))
+
+
+def _select_balanced_line(
+    lines: dict[Decimal, dict[str, Decimal]],
+    first_key: str,
+    second_key: str,
+) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+    candidates = [
+        (line, odds[first_key], odds[second_key])
+        for line, odds in lines.items()
+        if first_key in odds and second_key in odds
+    ]
+    if not candidates:
+        return None, None, None
+    selected_line, first_odds, second_odds = min(
+        candidates,
+        key=lambda candidate: _balanced_pair_score(candidate[1], candidate[2]),
+    )
+    return selected_line, first_odds, second_odds
+
+
+def _add_away_handicap_line(
+    lines: dict[Decimal, dict[str, Decimal]],
+    handicap: Decimal,
+    odds: Decimal,
+) -> None:
+    if handicap in lines and "home" in lines[handicap]:
+        lines[handicap]["away"] = odds
+        return
+    opposite_handicap = -handicap
+    if opposite_handicap in lines and "home" in lines[opposite_handicap]:
+        lines[opposite_handicap]["away"] = odds
+        return
+    lines.setdefault(handicap, {})["away"] = odds
+
+
 def _extract_asian_handicap(bookmaker: dict) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
     bet = _find_bet(bookmaker, "Asian Handicap")
     if bet is None:
         return None, None, None
-    handicap = None
-    home_odds = None
-    away_odds = None
+    lines: dict[Decimal, dict[str, Decimal]] = {}
     for value in bet.get("values", []):
         label = value["value"]
         if label.startswith("Home "):
             handicap = _parse_prefixed_decimal(label, "Home ")
-            home_odds = Decimal(value["odd"])
+            if handicap is not None:
+                lines.setdefault(handicap, {})["home"] = Decimal(value["odd"])
         elif label.startswith("Away "):
-            away_odds = Decimal(value["odd"])
-    return handicap, home_odds, away_odds
+            handicap = _parse_prefixed_decimal(label, "Away ")
+            if handicap is not None:
+                _add_away_handicap_line(lines, handicap, Decimal(value["odd"]))
+    return _select_balanced_line(lines, "home", "away")
 
 
 def _extract_total_line(bookmaker: dict) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
     bet = _find_bet(bookmaker, "Goals Over/Under")
     if bet is None:
         return None, None, None
-    total_line = None
-    over_odds = None
-    under_odds = None
+    lines: dict[Decimal, dict[str, Decimal]] = {}
     for value in bet.get("values", []):
         label = value["value"]
         if label.startswith("Over "):
             total_line = _parse_prefixed_decimal(label, "Over ")
-            over_odds = Decimal(value["odd"])
+            if total_line is not None:
+                lines.setdefault(total_line, {})["over"] = Decimal(value["odd"])
         elif label.startswith("Under "):
-            under_odds = Decimal(value["odd"])
-    return total_line, over_odds, under_odds
+            total_line = _parse_prefixed_decimal(label, "Under ")
+            if total_line is not None:
+                lines.setdefault(total_line, {})["under"] = Decimal(value["odd"])
+    return _select_balanced_line(lines, "over", "under")
 
 
 def map_odds_snapshots(payload: dict) -> list[ExternalOddsSnapshot]:

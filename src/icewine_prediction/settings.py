@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, find_dotenv, load_dotenv
 import yaml
 
 
@@ -47,7 +47,13 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def load_project_settings(config_dir: Path = Path("config")) -> ProjectSettings:
-    load_dotenv()
+    env_path = find_dotenv(usecwd=True)
+    if env_path:
+        for key, value in dotenv_values(env_path, encoding="utf-8-sig").items():
+            if value is not None:
+                os.environ.setdefault(key, value)
+    else:
+        load_dotenv()
     sources_raw = _load_yaml(config_dir / "sources.yaml")
     leagues_raw = _load_yaml(config_dir / "leagues.yaml")
     sync_raw = _load_yaml(config_dir / "sync.yaml")

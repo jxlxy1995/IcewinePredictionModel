@@ -38,6 +38,13 @@ class OddsFetchStoreResult:
     error_message: str | None = None
 
 
+@dataclass(frozen=True)
+class HistoryBackfillTask:
+    league_id: int
+    league_name: str
+    season: int
+
+
 def build_api_football_provider(settings: ProjectSettings) -> ApiFootballProvider:
     source = settings.sources["api_football"]
     client = ApiFootballClient(
@@ -54,6 +61,29 @@ def _open_session():
     initialize_database(engine)
     session_factory = create_session_factory(engine)
     return session_factory()
+
+
+def build_history_backfill_tasks(
+    leagues,
+    from_season: int,
+    to_season: int,
+    max_leagues: int,
+) -> list[HistoryBackfillTask]:
+    enabled_leagues = sorted(
+        [league for league in leagues if league.enabled],
+        key=lambda league: league.priority,
+        reverse=True,
+    )[:max_leagues]
+    seasons = range(max(from_season, to_season), min(from_season, to_season) - 1, -1)
+    return [
+        HistoryBackfillTask(
+            league_id=league.api_football_id,
+            league_name=league.name,
+            season=season,
+        )
+        for season in seasons
+        for league in enabled_leagues
+    ]
 
 
 def select_upcoming_fixture_ids_for_odds(
@@ -213,3 +243,25 @@ def run_sync_history(league_id: int, season: int) -> str:
         skipped=0,
         requests_used=provider.client.request_count,
     )
+
+
+def run_history_backfill(
+    leagues,
+    from_season: int,
+    to_season: int,
+    max_leagues: int,
+    historical_odds_days: int,
+) -> str:
+    tasks = build_history_backfill_tasks(
+        leagues,
+        from_season=from_season,
+        to_season=to_season,
+        max_leagues=max_leagues,
+    )
+    summaries = [
+        run_sync_history(league_id=task.league_id, season=task.season)
+        for task in tasks
+    ]
+    if historical_odds_days > 0:
+        summaries.append(run_sync_historical_odds(days=historical_odds_days))
+    return "\n".join(summaries)

@@ -15,7 +15,9 @@ from icewine_prediction.recommendation_service import (
     Recommendation,
     build_rule_recommendations_from_features,
 )
+from icewine_prediction.settings import load_project_settings
 from icewine_prediction.sync_runner import (
+    run_history_backfill,
     run_sync_historical_odds,
     run_sync_history,
     run_sync_odds,
@@ -91,6 +93,25 @@ def sync_history(
     season: int = typer.Option(..., "--season"),
 ):
     typer.echo(run_sync_history(league_id=league_id, season=season))
+
+
+@sync_app.command("backfill-history")
+def sync_backfill_history(
+    from_season: int = typer.Option(..., "--from-season"),
+    to_season: int = typer.Option(..., "--to-season"),
+    max_leagues: int = typer.Option(1, "--max-leagues"),
+    historical_odds_days: int = typer.Option(0, "--historical-odds-days"),
+):
+    settings = load_project_settings()
+    typer.echo(
+        run_history_backfill(
+            leagues=settings.leagues,
+            from_season=from_season,
+            to_season=to_season,
+            max_leagues=max_leagues,
+            historical_odds_days=historical_odds_days,
+        )
+    )
 
 
 @sync_app.command("all")

@@ -602,6 +602,7 @@ def odds_source_oddspapi_fetch(
     max_matches: int = typer.Option(20, "--max-matches"),
     request_budget: int = typer.Option(50, "--request-budget"),
     timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
+    max_snapshots_per_match: int = typer.Option(200, "--max-snapshots-per-match"),
 ):
     typer.echo(
         run_oddspapi_sync(
@@ -609,6 +610,7 @@ def odds_source_oddspapi_fetch(
             max_matches=max_matches,
             request_budget=request_budget,
             timeout_seconds=timeout_seconds,
+            max_snapshots_per_match=max_snapshots_per_match,
         )
     )
 

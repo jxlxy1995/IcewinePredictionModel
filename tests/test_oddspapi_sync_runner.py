@@ -256,6 +256,23 @@ def test_run_oddspapi_sync_for_session_matches_fixture_and_stores_odds(session):
     assert session.query(HistoricalOddsSnapshot).count() == 4
 
 
+def test_run_oddspapi_sync_for_session_samples_snapshots_before_storing(session):
+    _match(session)
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+        max_snapshots_per_match=2,
+    )
+
+    assert result.inserted_snapshot_count == 2
+    assert session.query(HistoricalOddsSnapshot).count() == 2
+
+
 def test_run_oddspapi_sync_for_session_skips_matches_with_existing_historical_odds(session):
     match = _match(session)
     session.add(

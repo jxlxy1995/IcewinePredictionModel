@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from icewine_prediction.historical_odds_service import (
     HistoricalOddsSnapshotInput,
     build_historical_odds_coverage_report,
+    sample_historical_odds_snapshots,
     store_historical_odds_snapshots,
 )
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, Team
@@ -93,3 +94,65 @@ def test_build_historical_odds_coverage_report_counts_matches_and_market_rows(se
     assert report.snapshot_count == 2
     assert report.asian_handicap_count == 1
     assert report.total_goals_count == 1
+
+
+def test_sample_historical_odds_snapshots_keeps_first_last_and_even_time_shape():
+    match_id = 1
+    snapshots = [
+        replace(
+            _snapshot(match_id),
+            odds=Decimal("1.50") + Decimal(index) / Decimal("100"),
+            snapshot_time=datetime(2026, 5, 23, index, 0, tzinfo=ZoneInfo("UTC")),
+        )
+        for index in range(24)
+    ]
+
+    sampled = sample_historical_odds_snapshots(
+        snapshots,
+        max_snapshots_per_match=6,
+    )
+
+    assert len(sampled) == 6
+    assert sampled[0].snapshot_time == datetime(2026, 5, 23, 0, 0, tzinfo=ZoneInfo("UTC"))
+    assert sampled[-1].snapshot_time == datetime(2026, 5, 23, 23, 0, tzinfo=ZoneInfo("UTC"))
+    assert sampled == sorted(sampled, key=lambda snapshot: snapshot.snapshot_time)
+
+
+def test_sample_historical_odds_snapshots_allocates_limit_across_groups():
+    match_id = 1
+    snapshots = []
+    for market_type, outcome_side in [
+        ("asian_handicap", "home"),
+        ("asian_handicap", "away"),
+        ("total_goals", "over"),
+        ("total_goals", "under"),
+    ]:
+        for index in range(10):
+            snapshots.append(
+                replace(
+                    _snapshot(match_id),
+                    market_type=market_type,
+                    outcome_side=outcome_side,
+                    snapshot_time=datetime(
+                        2026,
+                        5,
+                        23,
+                        index,
+                        0,
+                        tzinfo=ZoneInfo("UTC"),
+                    ),
+                )
+            )
+
+    sampled = sample_historical_odds_snapshots(
+        snapshots,
+        max_snapshots_per_match=8,
+    )
+
+    counts_by_group = {}
+    for snapshot in sampled:
+        key = (snapshot.market_type, snapshot.outcome_side)
+        counts_by_group[key] = counts_by_group.get(key, 0) + 1
+
+    assert len(sampled) == 8
+    assert set(counts_by_group.values()) == {2}

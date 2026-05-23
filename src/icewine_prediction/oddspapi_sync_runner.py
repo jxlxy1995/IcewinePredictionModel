@@ -142,6 +142,7 @@ def run_oddspapi_sync(
     max_matches: int,
     request_budget: int,
     timeout_seconds: int = 20,
+    max_snapshots_per_match: int = 200,
 ) -> str:
     settings = load_project_settings()
     raw_client = OddsPapiClient(
@@ -157,6 +158,7 @@ def run_oddspapi_sync(
             client=client,
             season=season,
             max_matches=max_matches,
+            max_snapshots_per_match=max_snapshots_per_match,
         )
     return _format_result(result)
 
@@ -200,6 +202,7 @@ def run_oddspapi_sync_for_session(
     client: OddsPapiSyncClient,
     season: int,
     max_matches: int,
+    max_snapshots_per_match: int = 200,
 ) -> OddsPapiSyncResult:
     matches, skipped_existing_odds = select_oddspapi_candidate_matches(
         session=session,
@@ -229,6 +232,7 @@ def run_oddspapi_sync_for_session(
                     client=client,
                     match=match,
                     source_fixture_id=source_fixture_id,
+                    max_snapshots_per_match=max_snapshots_per_match,
                 )
                 inserted += store_summary.inserted_count
                 skipped_duplicates += store_summary.skipped_duplicate_count
@@ -256,6 +260,7 @@ def run_oddspapi_sync_for_session(
                 client=client,
                 match=match,
                 source_fixture_id=candidate.fixture.fixture_id,
+                max_snapshots_per_match=max_snapshots_per_match,
             )
             inserted += store_summary.inserted_count
             skipped_duplicates += store_summary.skipped_duplicate_count
@@ -291,6 +296,7 @@ def _fetch_and_store_historical_odds(
     client: OddsPapiSyncClient,
     match: Match,
     source_fixture_id: str,
+    max_snapshots_per_match: int,
 ) -> HistoricalOddsStoreSummary:
     raw_odds = client.fetch_historical_odds(source_fixture_id)
     market_definitions = client.fetch_markets(source_fixture_id)
@@ -300,7 +306,11 @@ def _fetch_and_store_historical_odds(
         source_fixture_id=source_fixture_id,
         market_definitions=market_definitions,
     )
-    store_result = store_historical_odds_snapshots(session, snapshots)
+    store_result = store_historical_odds_snapshots(
+        session,
+        snapshots,
+        max_snapshots_per_match=max_snapshots_per_match,
+    )
     return HistoricalOddsStoreSummary(
         inserted_count=store_result.inserted_count,
         skipped_duplicate_count=store_result.skipped_duplicate_count,

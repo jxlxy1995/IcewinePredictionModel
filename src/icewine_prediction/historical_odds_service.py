@@ -40,32 +40,79 @@ class HistoricalOddsCoverageReport:
     total_goals_count: int
 
 
+def sample_historical_odds_snapshots(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    max_snapshots_per_match: int = 200,
+) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    if len(snapshots) <= max_snapshots_per_match:
+        return sorted(snapshots, key=lambda snapshot: snapshot.snapshot_time)
+    grouped = {}
+    for snapshot in snapshots:
+        key = (
+            snapshot.bookmaker,
+            snapshot.market_type,
+            snapshot.market_id,
+            snapshot.outcome_side,
+        )
+        grouped.setdefault(key, []).append(snapshot)
+    group_count = len(grouped)
+    if group_count == 0:
+        return []
+    per_group_limit = max(1, max_snapshots_per_match // group_count)
+    sampled = []
+    for group_snapshots in grouped.values():
+        sampled.extend(_sample_snapshot_group(group_snapshots, per_group_limit))
+    sampled = sorted(sampled, key=lambda snapshot: snapshot.snapshot_time)
+    if len(sampled) <= max_snapshots_per_match:
+        return sampled
+    return _sample_snapshot_group(sampled, max_snapshots_per_match)
+
+
+def _sample_snapshot_group(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    limit: int,
+) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    sorted_snapshots = sorted(snapshots, key=lambda snapshot: snapshot.snapshot_time)
+    if limit <= 0:
+        return []
+    if len(sorted_snapshots) <= limit:
+        return sorted_snapshots
+    if limit == 1:
+        return [sorted_snapshots[-1]]
+    last_index = len(sorted_snapshots) - 1
+    indexes = {
+        round(index * last_index / (limit - 1))
+        for index in range(limit)
+    }
+    return [sorted_snapshots[index] for index in sorted(indexes)]
+
+
 def store_historical_odds_snapshots(
+    session: Session,
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    max_snapshots_per_match: int = 200,
+) -> HistoricalOddsStoreResult:
+    snapshots = sample_historical_odds_snapshots(
+        snapshots,
+        max_snapshots_per_match=max_snapshots_per_match,
+    )
+    return _store_sampled_historical_odds_snapshots(session, snapshots)
+
+
+def _store_sampled_historical_odds_snapshots(
     session: Session,
     snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
 ) -> HistoricalOddsStoreResult:
     inserted = 0
     skipped = 0
     seen_keys = set()
+    existing_keys = _load_existing_snapshot_keys(session, snapshots)
     for snapshot in snapshots:
         snapshot_key = _snapshot_unique_key(snapshot)
         if snapshot_key in seen_keys:
             skipped += 1
             continue
-        existing = (
-            session.query(HistoricalOddsSnapshot)
-            .filter_by(
-                match_id=snapshot.match_id,
-                source_name=snapshot.source_name,
-                bookmaker=snapshot.bookmaker,
-                market_type=snapshot.market_type,
-                market_id=snapshot.market_id,
-                outcome_side=snapshot.outcome_side,
-                snapshot_time=snapshot.snapshot_time,
-            )
-            .one_or_none()
-        )
-        if existing is not None:
+        if snapshot_key in existing_keys:
             skipped += 1
             continue
         seen_keys.add(snapshot_key)
@@ -92,6 +139,23 @@ def store_historical_odds_snapshots(
         inserted_count=inserted,
         skipped_duplicate_count=skipped,
     )
+
+
+def _load_existing_snapshot_keys(
+    session: Session,
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+) -> set[tuple]:
+    if not snapshots:
+        return set()
+    match_ids = {snapshot.match_id for snapshot in snapshots}
+    source_names = {snapshot.source_name for snapshot in snapshots}
+    rows = (
+        session.query(HistoricalOddsSnapshot)
+        .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
+        .filter(HistoricalOddsSnapshot.source_name.in_(source_names))
+        .all()
+    )
+    return {_snapshot_unique_key(row) for row in rows}
 
 
 def _snapshot_unique_key(

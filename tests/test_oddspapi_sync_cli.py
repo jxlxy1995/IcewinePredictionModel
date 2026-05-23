@@ -33,8 +33,13 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
     runner = CliRunner()
     monkeypatch.setattr(
         "icewine_prediction.cli.run_oddspapi_sync",
-        lambda season, max_matches, request_budget, timeout_seconds: (
-            f"fetch:{season}:{max_matches}:{request_budget}:{timeout_seconds}"
+        lambda season,
+        max_matches,
+        request_budget,
+        timeout_seconds,
+        max_snapshots_per_match: (
+            f"fetch:{season}:{max_matches}:{request_budget}:"
+            f"{timeout_seconds}:{max_snapshots_per_match}"
         ),
     )
 
@@ -51,8 +56,10 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
             "50",
             "--timeout-seconds",
             "12",
+            "--max-snapshots-per-match",
+            "150",
         ],
     )
 
     assert result.exit_code == 0
-    assert "fetch:2025:20:50:12" in result.stdout
+    assert "fetch:2025:20:50:12:150" in result.stdout

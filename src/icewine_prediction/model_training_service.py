@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from math import exp, factorial, log
@@ -56,6 +57,43 @@ class BaselineResultEvaluation:
     average_log_loss: Decimal
 
 
+@dataclass(frozen=True)
+class TeamGoalStrength:
+    home_attack_strength: Decimal
+    home_defense_strength: Decimal
+    away_attack_strength: Decimal
+    away_defense_strength: Decimal
+
+
+@dataclass(frozen=True)
+class TeamStrengthGoalModel:
+    home_goal_average: Decimal
+    away_goal_average: Decimal
+    team_strengths: dict[str, TeamGoalStrength]
+
+    def predict_match_result_model(
+        self,
+        home_team_name: str,
+        away_team_name: str,
+    ) -> BaselineResultModel:
+        home_strength = self.team_strengths.get(home_team_name, _neutral_team_strength())
+        away_strength = self.team_strengths.get(away_team_name, _neutral_team_strength())
+        home_expected_goals = (
+            self.home_goal_average
+            * home_strength.home_attack_strength
+            * away_strength.away_defense_strength
+        )
+        away_expected_goals = (
+            self.away_goal_average
+            * away_strength.away_attack_strength
+            * home_strength.home_defense_strength
+        )
+        return BaselineResultModel(
+            home_expected_goals=_round_decimal(home_expected_goals),
+            away_expected_goals=_round_decimal(away_expected_goals),
+        )
+
+
 def _poisson_probability(lam: float, goals: int) -> float:
     return exp(-lam) * lam**goals / factorial(goals)
 
@@ -77,6 +115,90 @@ def train_baseline_result_model(samples: list[TrainingSample]) -> BaselineResult
     return BaselineResultModel(
         home_expected_goals=_round_decimal(home_goals / total_weight),
         away_expected_goals=_round_decimal(away_goals / total_weight),
+    )
+
+
+def _neutral_team_strength() -> TeamGoalStrength:
+    return TeamGoalStrength(
+        home_attack_strength=Decimal("1.00"),
+        home_defense_strength=Decimal("1.00"),
+        away_attack_strength=Decimal("1.00"),
+        away_defense_strength=Decimal("1.00"),
+    )
+
+
+def _ratio(numerator: Decimal, denominator: Decimal) -> Decimal:
+    if denominator == Decimal("0"):
+        return Decimal("1.00")
+    return (numerator / denominator).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _weighted_average_or_none(numerator: Decimal, denominator: Decimal) -> Decimal | None:
+    if denominator == Decimal("0"):
+        return None
+    return _ratio(numerator, denominator)
+
+
+def _strength_or_neutral(value: Decimal | None, league_average: Decimal) -> Decimal:
+    if value is None:
+        return Decimal("1.00")
+    return _ratio(value, league_average)
+
+
+def train_team_strength_goal_model(samples: list[TrainingSample]) -> TeamStrengthGoalModel:
+    if not samples:
+        raise ValueError("team strength goal model requires at least one training sample")
+
+    total_weight = sum(sample.time_decay_weight for sample in samples)
+    home_goal_average = _round_decimal(
+        sum(Decimal(sample.home_score) * sample.time_decay_weight for sample in samples)
+        / total_weight
+    )
+    away_goal_average = _round_decimal(
+        sum(Decimal(sample.away_score) * sample.time_decay_weight for sample in samples)
+        / total_weight
+    )
+
+    home_for = defaultdict(lambda: Decimal("0"))
+    home_against = defaultdict(lambda: Decimal("0"))
+    home_weight = defaultdict(lambda: Decimal("0"))
+    away_for = defaultdict(lambda: Decimal("0"))
+    away_against = defaultdict(lambda: Decimal("0"))
+    away_weight = defaultdict(lambda: Decimal("0"))
+
+    for sample in samples:
+        weight = sample.time_decay_weight
+        home_for[sample.home_team_name] += Decimal(sample.home_score) * weight
+        home_against[sample.home_team_name] += Decimal(sample.away_score) * weight
+        home_weight[sample.home_team_name] += weight
+        away_for[sample.away_team_name] += Decimal(sample.away_score) * weight
+        away_against[sample.away_team_name] += Decimal(sample.home_score) * weight
+        away_weight[sample.away_team_name] += weight
+
+    team_names = set(home_weight) | set(away_weight)
+    team_strengths = {}
+    for team_name in team_names:
+        home_goals_for = _weighted_average_or_none(home_for[team_name], home_weight[team_name])
+        home_goals_against = _weighted_average_or_none(
+            home_against[team_name],
+            home_weight[team_name],
+        )
+        away_goals_for = _weighted_average_or_none(away_for[team_name], away_weight[team_name])
+        away_goals_against = _weighted_average_or_none(
+            away_against[team_name],
+            away_weight[team_name],
+        )
+        team_strengths[team_name] = TeamGoalStrength(
+            home_attack_strength=_strength_or_neutral(home_goals_for, home_goal_average),
+            home_defense_strength=_strength_or_neutral(home_goals_against, away_goal_average),
+            away_attack_strength=_strength_or_neutral(away_goals_for, away_goal_average),
+            away_defense_strength=_strength_or_neutral(away_goals_against, home_goal_average),
+        )
+
+    return TeamStrengthGoalModel(
+        home_goal_average=home_goal_average,
+        away_goal_average=away_goal_average,
+        team_strengths=team_strengths,
     )
 
 

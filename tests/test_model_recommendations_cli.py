@@ -3,7 +3,7 @@ from decimal import Decimal
 from typer.testing import CliRunner
 
 from icewine_prediction.cli import app
-from icewine_prediction.model_training_service import BaselineResultModel
+from icewine_prediction.model_training_service import TeamStrengthGoalModel
 
 
 def test_recommendations_model_preview_command_exists(monkeypatch):
@@ -13,10 +13,11 @@ def test_recommendations_model_preview_command_exists(monkeypatch):
         lambda session, limit: ["sample"] * limit,
     )
     monkeypatch.setattr(
-        "icewine_prediction.cli.train_baseline_result_model",
-        lambda samples: BaselineResultModel(
-            home_expected_goals=Decimal("1.50"),
-            away_expected_goals=Decimal("1.10"),
+        "icewine_prediction.cli.train_team_strength_goal_model",
+        lambda samples: TeamStrengthGoalModel(
+            home_goal_average=Decimal("1.50"),
+            away_goal_average=Decimal("1.10"),
+            team_strengths={},
         ),
     )
     monkeypatch.setattr(

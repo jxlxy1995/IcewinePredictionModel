@@ -8,6 +8,7 @@ from icewine_prediction.market_probability_service import (
     calculate_total_goals_probability,
 )
 from icewine_prediction.model_training_service import BaselineResultModel
+from icewine_prediction.model_training_service import TeamStrengthGoalModel
 
 
 @dataclass(frozen=True)
@@ -286,8 +287,14 @@ def _build_model_total_recommendation(
 
 def build_model_recommendations_from_features(
     features: MatchOddsFeatures,
-    model: BaselineResultModel,
+    model: BaselineResultModel | TeamStrengthGoalModel,
+    home_team_name: str | None = None,
+    away_team_name: str | None = None,
 ) -> list[Recommendation]:
+    if isinstance(model, TeamStrengthGoalModel):
+        if home_team_name is None or away_team_name is None:
+            raise ValueError("team strength model requires home and away team names")
+        model = model.predict_match_result_model(home_team_name, away_team_name)
     return [
         _build_model_handicap_recommendation(features, model),
         _build_model_total_recommendation(features, model),

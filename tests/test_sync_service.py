@@ -16,13 +16,41 @@ def test_upsert_fixtures_does_not_duplicate_matches(session):
         country="England",
         home_source_team_id="50",
         home_team_name="Manchester City",
+        home_team_logo_url="https://media.api-sports.io/football/teams/50.png",
         away_source_team_id="42",
         away_team_name="Arsenal",
+        away_team_logo_url="https://media.api-sports.io/football/teams/42.png",
         kickoff_time=datetime(2026, 5, 23, 22, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
         status="scheduled",
         home_score=None,
         away_score=None,
         season=2025,
+        league_logo_url="https://media.api-sports.io/football/leagues/39.png",
+        league_flag_url="https://media.api-sports.io/flags/gb.svg",
+        standings_supported=True,
+        league_round="Regular Season - 38",
+        referee="Example Referee",
+        fixture_timezone="Asia/Shanghai",
+        fixture_timestamp=1779554400,
+        first_period_started_at=1779554400,
+        second_period_started_at=None,
+        venue_id=100,
+        venue_name="Etihad Stadium",
+        venue_city="Manchester",
+        status_long="Not Started",
+        status_short="NS",
+        elapsed=None,
+        extra=None,
+        home_winner=None,
+        away_winner=None,
+        halftime_home_score=None,
+        halftime_away_score=None,
+        fulltime_home_score=None,
+        fulltime_away_score=None,
+        extratime_home_score=None,
+        extratime_away_score=None,
+        penalty_home_score=None,
+        penalty_away_score=None,
     )
 
     first = upsert_fixtures(session, [fixture])
@@ -31,7 +59,13 @@ def test_upsert_fixtures_does_not_duplicate_matches(session):
     assert first.created_matches == 1
     assert second.updated_matches == 1
     assert session.query(Match).count() == 1
-    assert session.query(Match).one().season == 2025
+    saved = session.query(Match).one()
+    assert saved.season == 2025
+    assert saved.league.logo_url.endswith("/39.png")
+    assert saved.home_team.logo_url.endswith("/50.png")
+    assert saved.league_round == "Regular Season - 38"
+    assert saved.venue_name == "Etihad Stadium"
+    assert saved.status_short == "NS"
 
 
 def test_upsert_fixtures_disambiguates_same_api_league_name_by_country(session):

@@ -99,20 +99,49 @@ def test_provider_fetches_historical_fixtures_by_league_and_season():
                     {
                         "fixture": {
                             "id": 3001,
+                            "referee": "Example Referee",
+                            "timezone": "Asia/Shanghai",
                             "date": "2025-05-25T03:00:00+08:00",
-                            "status": {"short": "FT"},
+                            "timestamp": 1748113200,
+                            "periods": {"first": 1748113200, "second": 1748116800},
+                            "venue": {
+                                "id": 1460,
+                                "name": "Santiago Bernabeu",
+                                "city": "Madrid",
+                            },
+                            "status": {"long": "Match Finished", "short": "FT", "elapsed": 90, "extra": 4},
                         },
                         "league": {
                             "id": 140,
                             "name": "La Liga",
                             "country": "Spain",
+                            "logo": "https://media.api-sports.io/football/leagues/140.png",
+                            "flag": "https://media.api-sports.io/flags/es.svg",
                             "season": 2024,
+                            "round": "Regular Season - 38",
+                            "standings": True,
                         },
                         "teams": {
-                            "home": {"id": 541, "name": "Real Madrid"},
-                            "away": {"id": 529, "name": "Barcelona"},
+                            "home": {
+                                "id": 541,
+                                "name": "Real Madrid",
+                                "logo": "https://media.api-sports.io/football/teams/541.png",
+                                "winner": True,
+                            },
+                            "away": {
+                                "id": 529,
+                                "name": "Barcelona",
+                                "logo": "https://media.api-sports.io/football/teams/529.png",
+                                "winner": False,
+                            },
                         },
                         "goals": {"home": 2, "away": 1},
+                        "score": {
+                            "halftime": {"home": 1, "away": 0},
+                            "fulltime": {"home": 2, "away": 1},
+                            "extratime": {"home": None, "away": None},
+                            "penalty": {"home": None, "away": None},
+                        },
                     }
                 ]
             }
@@ -126,6 +155,10 @@ def test_provider_fetches_historical_fixtures_by_league_and_season():
     assert fixtures[0].status == "finished"
     assert fixtures[0].home_score == 2
     assert fixtures[0].season == 2024
+    assert fixtures[0].league_round == "Regular Season - 38"
+    assert fixtures[0].venue_name == "Santiago Bernabeu"
+    assert fixtures[0].halftime_home_score == 1
+    assert fixtures[0].home_team_logo_url.endswith("/541.png")
     assert client.calls == [
         (
             "fixtures",

@@ -25,6 +25,34 @@ class ExternalFixture:
     status: str
     home_score: int | None
     away_score: int | None
+    league_logo_url: str | None = None
+    league_flag_url: str | None = None
+    standings_supported: bool | None = None
+    league_round: str | None = None
+    home_team_logo_url: str | None = None
+    home_winner: bool | None = None
+    away_team_logo_url: str | None = None
+    away_winner: bool | None = None
+    referee: str | None = None
+    fixture_timezone: str | None = None
+    fixture_timestamp: int | None = None
+    first_period_started_at: int | None = None
+    second_period_started_at: int | None = None
+    venue_id: int | None = None
+    venue_name: str | None = None
+    venue_city: str | None = None
+    status_long: str | None = None
+    status_short: str | None = None
+    elapsed: int | None = None
+    extra: int | None = None
+    halftime_home_score: int | None = None
+    halftime_away_score: int | None = None
+    fulltime_home_score: int | None = None
+    fulltime_away_score: int | None = None
+    extratime_home_score: int | None = None
+    extratime_away_score: int | None = None
+    penalty_home_score: int | None = None
+    penalty_away_score: int | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +84,16 @@ def map_fixtures(payload: dict) -> list[ExternalFixture]:
         league = item["league"]
         teams = item["teams"]
         goals = item.get("goals") or {}
+        score = item.get("score") or {}
+        status = fixture.get("status") or {}
+        periods = fixture.get("periods") or {}
+        venue = fixture.get("venue") or {}
+        halftime = score.get("halftime") or {}
+        fulltime = score.get("fulltime") or {}
+        extratime = score.get("extratime") or {}
+        penalty = score.get("penalty") or {}
+        home_team = teams["home"]
+        away_team = teams["away"]
         fixtures.append(
             ExternalFixture(
                 source_name=SOURCE_NAME,
@@ -64,14 +102,42 @@ def map_fixtures(payload: dict) -> list[ExternalFixture]:
                 league_name=league["name"],
                 country=league["country"],
                 season=league.get("season"),
-                home_source_team_id=str(teams["home"]["id"]),
-                home_team_name=teams["home"]["name"],
-                away_source_team_id=str(teams["away"]["id"]),
-                away_team_name=teams["away"]["name"],
+                league_logo_url=league.get("logo"),
+                league_flag_url=league.get("flag"),
+                standings_supported=league.get("standings"),
+                league_round=league.get("round"),
+                home_source_team_id=str(home_team["id"]),
+                home_team_name=home_team["name"],
+                home_team_logo_url=home_team.get("logo"),
+                home_winner=home_team.get("winner"),
+                away_source_team_id=str(away_team["id"]),
+                away_team_name=away_team["name"],
+                away_team_logo_url=away_team.get("logo"),
+                away_winner=away_team.get("winner"),
                 kickoff_time=datetime.fromisoformat(fixture["date"]),
-                status=_map_status(fixture["status"]["short"]),
+                referee=fixture.get("referee"),
+                fixture_timezone=fixture.get("timezone"),
+                fixture_timestamp=fixture.get("timestamp"),
+                first_period_started_at=periods.get("first"),
+                second_period_started_at=periods.get("second"),
+                venue_id=venue.get("id"),
+                venue_name=venue.get("name"),
+                venue_city=venue.get("city"),
+                status=_map_status(status["short"]),
+                status_long=status.get("long"),
+                status_short=status.get("short"),
+                elapsed=status.get("elapsed"),
+                extra=status.get("extra"),
                 home_score=goals.get("home"),
                 away_score=goals.get("away"),
+                halftime_home_score=halftime.get("home"),
+                halftime_away_score=halftime.get("away"),
+                fulltime_home_score=fulltime.get("home"),
+                fulltime_away_score=fulltime.get("away"),
+                extratime_home_score=extratime.get("home"),
+                extratime_away_score=extratime.get("away"),
+                penalty_home_score=penalty.get("home"),
+                penalty_away_score=penalty.get("away"),
             )
         )
     return fixtures

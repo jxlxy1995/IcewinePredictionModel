@@ -36,10 +36,48 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
         return
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
-    if "matches" not in table_names:
-        return
-    match_columns = {column["name"] for column in inspector.get_columns("matches")}
-    if "season" in match_columns:
-        return
+    missing_columns_by_table = {
+        "leagues": {
+            "logo_url": "VARCHAR(255)",
+            "flag_url": "VARCHAR(255)",
+            "standings_supported": "BOOLEAN",
+        },
+        "teams": {
+            "logo_url": "VARCHAR(255)",
+        },
+        "matches": {
+            "season": "INTEGER",
+            "league_round": "VARCHAR(120)",
+            "referee": "VARCHAR(120)",
+            "fixture_timezone": "VARCHAR(80)",
+            "fixture_timestamp": "INTEGER",
+            "first_period_started_at": "INTEGER",
+            "second_period_started_at": "INTEGER",
+            "venue_id": "INTEGER",
+            "venue_name": "VARCHAR(160)",
+            "venue_city": "VARCHAR(120)",
+            "status_long": "VARCHAR(80)",
+            "status_short": "VARCHAR(20)",
+            "elapsed": "INTEGER",
+            "extra": "INTEGER",
+            "home_winner": "BOOLEAN",
+            "away_winner": "BOOLEAN",
+            "halftime_home_score": "INTEGER",
+            "halftime_away_score": "INTEGER",
+            "fulltime_home_score": "INTEGER",
+            "fulltime_away_score": "INTEGER",
+            "extratime_home_score": "INTEGER",
+            "extratime_away_score": "INTEGER",
+            "penalty_home_score": "INTEGER",
+            "penalty_away_score": "INTEGER",
+        },
+    }
     with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE matches ADD COLUMN season INTEGER"))
+        for table_name, columns in missing_columns_by_table.items():
+            if table_name not in table_names:
+                continue
+            existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+            for column_name, column_type in columns.items():
+                if column_name in existing_columns:
+                    continue
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))

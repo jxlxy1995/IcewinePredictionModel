@@ -1,0 +1,5 @@
+api_football:
+  base_url: https://v3.football.api-sports.io
+  timeout_seconds: 20
+  daily_request_budget: 100
+  cache_enabled: true

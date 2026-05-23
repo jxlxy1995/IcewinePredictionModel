@@ -1,0 +1,5 @@
+default_days: 3
+default_source: api_football
+sync_odds: true
+sync_results: true
+budget_guard_enabled: true

@@ -1,0 +1,26 @@
+leagues:
+  - name: Premier League
+    country: England
+    api_football_id: 39
+    enabled: true
+    priority: 100
+  - name: La Liga
+    country: Spain
+    api_football_id: 140
+    enabled: true
+    priority: 95
+  - name: Bundesliga
+    country: Germany
+    api_football_id: 78
+    enabled: true
+    priority: 95
+  - name: Serie A
+    country: Italy
+    api_football_id: 135
+    enabled: true
+    priority: 95
+  - name: Ligue 1
+    country: France
+    api_football_id: 61
+    enabled: true
+    priority: 95

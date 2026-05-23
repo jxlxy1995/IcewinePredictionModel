@@ -36,6 +36,7 @@ from icewine_prediction.record_service import (
     record_recommendations_for_match,
     settle_pending_records,
 )
+from icewine_prediction.recommendation_history_service import enrich_recommendations_with_history
 from icewine_prediction.sample_report_service import (
     TrainingSampleReport,
     build_training_sample_report,
@@ -214,6 +215,11 @@ def _format_recommendation_part(recommendation: Recommendation) -> str:
         explanation_parts.append(f"隐含概率 {recommendation.market_implied_probability}")
     if recommendation.model_probability is not None:
         explanation_parts.append(f"edge {recommendation.edge}")
+    if recommendation.historical_sample_count is not None:
+        history_text = f"历史 {recommendation.historical_sample_count}场"
+        if recommendation.historical_roi is not None:
+            history_text = f"{history_text} ROI {recommendation.historical_roi}"
+        explanation_parts.append(history_text)
     if (
         recommendation.home_expected_goals is not None
         and recommendation.away_expected_goals is not None
@@ -423,6 +429,7 @@ def recommendations_model_preview(
                 home_team_name=row.match.home_team.canonical_name,
                 away_team_name=row.match.away_team.canonical_name,
             )
+            recommendations = enrich_recommendations_with_history(session, recommendations)
             typer.echo(format_recommendation_line(row.match, recommendations, display_service))
 
 
@@ -448,6 +455,7 @@ def recommendations_record(
                 home_team_name=row.match.home_team.canonical_name,
                 away_team_name=row.match.away_team.canonical_name,
             )
+            recommendations = enrich_recommendations_with_history(session, recommendations)
             total_inserted += record_recommendations_for_match(
                 session=session,
                 match=row.match,

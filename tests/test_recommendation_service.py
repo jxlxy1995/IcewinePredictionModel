@@ -34,6 +34,8 @@ def test_medium_edge_generates_b_grade_recommendation():
     assert recommendation.model_probability == Decimal("0.570")
     assert recommendation.market_implied_probability == Decimal("0.505")
     assert recommendation.similar_backtest_roi == Decimal("0.06")
+    assert recommendation.historical_sample_count is None
+    assert recommendation.historical_roi is None
 
 
 def test_risk_tag_downgrades_recommendation():

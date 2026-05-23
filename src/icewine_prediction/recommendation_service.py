@@ -23,6 +23,8 @@ class Recommendation:
     model_probability: Decimal | None = None
     market_implied_probability: Decimal | None = None
     similar_backtest_roi: Decimal | None = None
+    historical_sample_count: int | None = None
+    historical_roi: Decimal | None = None
     home_expected_goals: Decimal | None = None
     away_expected_goals: Decimal | None = None
     market_line: Decimal | None = None

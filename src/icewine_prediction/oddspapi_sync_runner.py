@@ -69,6 +69,29 @@ class OddsPapiSyncResult:
 
 
 @dataclass(frozen=True)
+class OddsPapiProbeReport:
+    probed_match_count: int
+    available_match_count: int
+    failed_match_count: int
+    skipped_existing_odds_count: int
+    requests_used: int
+    matches: tuple["OddsPapiProbeMatch", ...] = ()
+
+
+@dataclass(frozen=True)
+class OddsPapiProbeMatch:
+    match_id: int
+    league_name: str
+    kickoff_time: datetime
+    home_team_name: str
+    away_team_name: str
+    available: bool
+    source_fixture_id: str | None
+    outcome_count: int
+    reason: str
+
+
+@dataclass(frozen=True)
 class HistoricalOddsStoreSummary:
     inserted_count: int
     skipped_duplicate_count: int
@@ -176,6 +199,32 @@ def run_oddspapi_sync(
     return _format_result(result)
 
 
+def build_oddspapi_probe_report(
+    season: int,
+    max_matches: int,
+    request_budget: int,
+    timeout_seconds: int = 20,
+    skip_match_ids: set[int] | None = None,
+) -> str:
+    settings = load_project_settings()
+    raw_client = OddsPapiClient(
+        base_url=ODDSPAPI_BASE_URL,
+        api_key=settings.odds_papi_key,
+        timeout_seconds=timeout_seconds,
+        request_budget=request_budget,
+    )
+    client = OddsPapiSyncClient(raw_client)
+    with _open_session() as session:
+        report = build_oddspapi_probe_report_for_session(
+            session=session,
+            client=client,
+            season=season,
+            max_matches=max_matches,
+            skip_match_ids=skip_match_ids,
+        )
+    return format_oddspapi_probe_report(report)
+
+
 def build_oddspapi_sync_plan_for_session(
     session: Session,
     season: int,
@@ -206,7 +255,56 @@ def _build_plan_match(session: Session, match: Match) -> OddsPapiPlanMatch:
         kickoff_time=match.kickoff_time,
         home_team_name=match.home_team.canonical_name,
         away_team_name=match.away_team.canonical_name,
-        estimated_request_count=2 if cached_source_match is not None else 3,
+        estimated_request_count=5 if cached_source_match is not None else 6,
+    )
+
+
+def build_oddspapi_probe_report_for_session(
+    session: Session,
+    client: OddsPapiSyncClient,
+    season: int,
+    max_matches: int,
+    skip_match_ids: set[int] | None = None,
+) -> OddsPapiProbeReport:
+    matches, skipped_existing_odds = select_oddspapi_candidate_matches(
+        session=session,
+        season=season,
+        max_matches=max_matches,
+    )
+    if skip_match_ids:
+        matches = [match for match in matches if match.id not in skip_match_ids]
+    fixtures_by_tournament_id = {}
+    probe_matches = []
+    for match in matches:
+        try:
+            source_fixture_id = _resolve_source_fixture_id(
+                session=session,
+                client=client,
+                match=match,
+                fixtures_by_tournament_id=fixtures_by_tournament_id,
+            )
+            if source_fixture_id is None:
+                probe_matches.append(_build_probe_match(match, False, None, 0, "未匹配到 OddsPapi 比赛"))
+                continue
+            market_definitions = client.fetch_markets(source_fixture_id)
+            outcome_ids = _select_history_outcome_ids(market_definitions)
+            if not outcome_ids:
+                probe_matches.append(_build_probe_match(match, False, source_fixture_id, 0, "未找到亚盘/大小球 outcome"))
+                continue
+            probe_matches.append(
+                _build_probe_match(match, True, source_fixture_id, len(outcome_ids), "可回填")
+            )
+        except OddsPapiApiError as exc:
+            probe_matches.append(_build_probe_match(match, False, None, 0, str(exc)))
+    available_count = len([item for item in probe_matches if item.available])
+    failed_count = len(probe_matches) - available_count
+    return OddsPapiProbeReport(
+        probed_match_count=len(probe_matches),
+        available_match_count=available_count,
+        failed_match_count=failed_count,
+        skipped_existing_odds_count=skipped_existing_odds,
+        requests_used=client.request_count,
+        matches=tuple(probe_matches),
     )
 
 
@@ -322,6 +420,57 @@ def run_oddspapi_sync_for_session(
         total_goals_count=total_goals_count,
         requests_used=client.request_count,
         error_message=_format_error_summary(failed),
+    )
+
+
+def _resolve_source_fixture_id(
+    session: Session,
+    client: OddsPapiSyncClient,
+    match: Match,
+    fixtures_by_tournament_id: dict,
+) -> str | None:
+    cached_source_match = _get_odds_source_match(session, match.id)
+    if cached_source_match is not None:
+        return cached_source_match.source_fixture_id
+    tournament_id = API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS.get(
+        str(match.league.source_league_id)
+    )
+    if tournament_id is None:
+        return None
+    fixture_cache_key = (tournament_id, match.id)
+    if fixture_cache_key not in fixtures_by_tournament_id:
+        fixtures_by_tournament_id[fixture_cache_key] = client.fetch_fixtures(
+            tournament_id=tournament_id,
+            kickoff_time=match.kickoff_time,
+        )
+    candidate = find_best_odds_source_match(
+        match=match,
+        fixtures=fixtures_by_tournament_id[fixture_cache_key],
+        api_football_to_oddspapi_tournament_ids=API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS,
+    )
+    if candidate is None:
+        return None
+    _store_odds_source_match(session, match, candidate)
+    return candidate.fixture.fixture_id
+
+
+def _build_probe_match(
+    match: Match,
+    available: bool,
+    source_fixture_id: str | None,
+    outcome_count: int,
+    reason: str,
+) -> OddsPapiProbeMatch:
+    return OddsPapiProbeMatch(
+        match_id=match.id,
+        league_name=match.league.name,
+        kickoff_time=match.kickoff_time,
+        home_team_name=match.home_team.canonical_name,
+        away_team_name=match.away_team.canonical_name,
+        available=available,
+        source_fixture_id=source_fixture_id,
+        outcome_count=outcome_count,
+        reason=reason,
     )
 
 
@@ -565,6 +714,35 @@ def format_oddspapi_sync_plan(plan: OddsPapiSyncPlan) -> str:
     ]
     lines.extend(_format_plan_match(match) for match in plan.candidate_matches)
     return "\n".join(lines)
+
+
+def format_oddspapi_probe_report(report: OddsPapiProbeReport) -> str:
+    skip_ids = [
+        str(match.match_id)
+        for match in report.matches
+        if not match.available
+    ]
+    lines = [
+        f"探测比赛 {report.probed_match_count}",
+        f"可回填 {report.available_match_count}",
+        f"失败比赛 {report.failed_match_count}",
+        f"跳过已有赔率 {report.skipped_existing_odds_count}",
+        f"实际请求 {report.requests_used}",
+        f"推荐跳过 {','.join(skip_ids) if skip_ids else '-'}",
+    ]
+    lines.extend(_format_probe_match(match) for match in report.matches)
+    return "\n".join(lines)
+
+
+def _format_probe_match(match: OddsPapiProbeMatch) -> str:
+    kickoff = match.kickoff_time.strftime("%Y-%m-%d %H:%M")
+    status = "可回填" if match.available else "跳过"
+    fixture = match.source_fixture_id or "-"
+    return (
+        f"id={match.match_id} {status} {match.league_name} {kickoff} "
+        f"{match.home_team_name} vs {match.away_team_name} "
+        f"fixture={fixture} outcomes={match.outcome_count} {match.reason}"
+    )
 
 
 def _format_plan_match(match: OddsPapiPlanMatch) -> str:

@@ -11,7 +11,9 @@ from icewine_prediction.models import (
 )
 from icewine_prediction.oddspapi_sync_runner import (
     OddsPapiSyncClient,
+    build_oddspapi_probe_report_for_session,
     build_oddspapi_sync_plan_for_session,
+    format_oddspapi_probe_report,
     format_oddspapi_sync_plan,
     run_oddspapi_sync_for_session,
     select_oddspapi_candidate_matches,
@@ -245,8 +247,80 @@ def test_build_oddspapi_sync_plan_for_session_does_not_request_api(session):
     )
 
     assert result.candidate_match_count == 1
-    assert result.estimated_request_count == 3
+    assert result.estimated_request_count == 6
     assert client.calls == []
+
+
+def test_build_oddspapi_probe_report_checks_markets_only(session):
+    _match(session)
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+
+    report = build_oddspapi_probe_report_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    assert report.probed_match_count == 1
+    assert report.available_match_count == 1
+    assert report.failed_match_count == 0
+    assert report.requests_used == 2
+    assert report.matches[0].match_id == 1
+    assert report.matches[0].available is True
+    assert report.matches[0].outcome_count == 4
+    assert [call[0] for call in raw_client.calls] == ["fixtures", "markets"]
+
+
+def test_build_oddspapi_probe_report_marks_market_failures(session):
+    match = _match(session)
+    session.add(
+        OddsSourceMatch(
+            match_id=match.id,
+            source_name="oddspapi",
+            source_fixture_id="failed-fixture",
+            matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_confidence=Decimal("1.0000"),
+            match_reason="cached",
+        )
+    )
+    session.commit()
+    raw_client = FakeOddsPapiClient()
+    raw_client.failed_historical_fixture_ids.add("failed-fixture")
+    client = OddsPapiSyncClient(raw_client)
+
+    report = build_oddspapi_probe_report_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    assert report.probed_match_count == 1
+    assert report.available_match_count == 0
+    assert report.failed_match_count == 1
+    assert report.matches[0].available is False
+    assert report.matches[0].reason == "markets unavailable"
+
+
+def test_format_oddspapi_probe_report_includes_skip_ids(session):
+    _match(session)
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+    report = build_oddspapi_probe_report_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    output = format_oddspapi_probe_report(report)
+
+    assert "探测比赛 1" in output
+    assert "可回填 1" in output
+    assert "推荐跳过 -" in output
+    assert "outcomes=4" in output
 
 
 def test_format_oddspapi_sync_plan_includes_candidate_matches(session):

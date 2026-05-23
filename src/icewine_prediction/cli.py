@@ -28,6 +28,7 @@ from icewine_prediction.model_training_service import (
     train_team_strength_goal_model,
 )
 from icewine_prediction.oddspapi_sync_runner import (
+    build_oddspapi_probe_report,
     build_oddspapi_sync_plan,
     run_oddspapi_sync,
 )
@@ -614,6 +615,25 @@ def odds_source_oddspapi_fetch(
             max_snapshots_per_match=max_snapshots_per_match,
             skip_match_ids=_parse_id_set(skip_match_ids),
             progress_callback=typer.echo,
+        )
+    )
+
+
+@odds_source_app.command("oddspapi-probe")
+def odds_source_oddspapi_probe(
+    season: int = typer.Option(..., "--season"),
+    max_matches: int = typer.Option(20, "--max-matches"),
+    request_budget: int = typer.Option(50, "--request-budget"),
+    timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
+    skip_match_ids: str = typer.Option("", "--skip-match-ids"),
+):
+    typer.echo(
+        build_oddspapi_probe_report(
+            season=season,
+            max_matches=max_matches,
+            request_budget=request_budget,
+            timeout_seconds=timeout_seconds,
+            skip_match_ids=_parse_id_set(skip_match_ids),
         )
     )
 

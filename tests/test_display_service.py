@@ -42,3 +42,6 @@ def test_default_display_names_include_mainstream_league_chinese_names():
     assert service.display_league("J1 League") == "日职联"
     assert service.display_league("Ligue 2") == "法乙"
     assert service.display_league("Eerste Divisie") == "荷乙"
+    assert service.display_league("Liga I") == "罗甲"
+    assert service.display_league("Ekstraklasa") == "波兰超"
+    assert service.display_league("Primera División") == "智利甲"

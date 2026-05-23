@@ -91,3 +91,6 @@ def test_default_league_whitelist_contains_mainstream_leagues():
     assert leagues_by_name["Eerste Divisie"].api_football_id == 89
     assert leagues_by_name["Veikkausliiga"].api_football_id == 244
     assert leagues_by_name["Superettan"].api_football_id == 114
+    assert leagues_by_name["Liga I"].api_football_id == 283
+    assert leagues_by_name["Ekstraklasa"].api_football_id == 106
+    assert leagues_by_name["Primera División"].api_football_id == 265

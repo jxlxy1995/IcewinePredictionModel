@@ -36,10 +36,12 @@ budget_guard_enabled: true
         encoding="utf-8",
     )
     monkeypatch.setenv("API_FOOTBALL_KEY", "secret-key")
+    monkeypatch.setenv("ODDSPAPI_API_KEY", "odds-papi-key")
 
     settings = load_project_settings(config_dir)
 
     assert settings.api_football_key == "secret-key"
+    assert settings.odds_papi_key == "odds-papi-key"
     assert settings.sources["api_football"].daily_request_budget == 100
     assert settings.leagues[0].name == "Premier League"
     assert settings.sync.default_days == 3

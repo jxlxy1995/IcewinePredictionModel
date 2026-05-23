@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from icewine_prediction.database import Base
@@ -99,6 +99,56 @@ class OddsSnapshot(Base):
     under_odds: Mapped[Decimal | None] = mapped_column(Numeric(6, 3))
 
     match: Mapped["Match"] = relationship(back_populates="odds_snapshots")
+
+
+class OddsSourceMatch(Base):
+    __tablename__ = "odds_source_matches"
+    __table_args__ = (
+        UniqueConstraint("match_id", "source_name", name="uq_odds_source_match"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), nullable=False)
+    source_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_fixture_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    matched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    match_confidence: Mapped[Decimal] = mapped_column(Numeric(6, 4), nullable=False)
+    match_reason: Mapped[str] = mapped_column(Text, nullable=False)
+
+    match: Mapped["Match"] = relationship()
+
+
+class HistoricalOddsSnapshot(Base):
+    __tablename__ = "historical_odds_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "match_id",
+            "source_name",
+            "bookmaker",
+            "market_type",
+            "market_id",
+            "outcome_side",
+            "snapshot_time",
+            name="uq_historical_odds_snapshot",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), nullable=False)
+    source_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_fixture_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    bookmaker: Mapped[str] = mapped_column(String(80), nullable=False)
+    market_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    market_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    market_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    market_line: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    outcome_side: Mapped[str] = mapped_column(String(20), nullable=False)
+    odds: Mapped[Decimal] = mapped_column(Numeric(8, 3), nullable=False)
+    snapshot_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period: Mapped[str] = mapped_column(String(40), nullable=False)
+    raw_payload: Mapped[str | None] = mapped_column(Text)
+
+    match: Mapped["Match"] = relationship()
 
 
 class RecommendationRecord(Base):

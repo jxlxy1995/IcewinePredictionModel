@@ -11,6 +11,10 @@ from icewine_prediction.database import (
 from icewine_prediction.display_service import DisplayNameService
 from icewine_prediction.feature_service import MatchOddsFeatures, list_upcoming_match_odds_features
 from icewine_prediction.match_query_service import list_upcoming_matches
+from icewine_prediction.recommendation_service import (
+    Recommendation,
+    build_rule_recommendations_from_features,
+)
 from icewine_prediction.sync_runner import run_sync_odds, run_sync_results, run_sync_upcoming
 from icewine_prediction.time_utils import now_beijing
 
@@ -21,6 +25,8 @@ app.add_typer(sync_app, name="sync")
 app.add_typer(matches_app, name="matches")
 features_app = typer.Typer(help="赔率特征命令")
 app.add_typer(features_app, name="features")
+recommendations_app = typer.Typer(help="推荐预览命令")
+app.add_typer(recommendations_app, name="recommendations")
 
 
 @app.command("version")
@@ -104,6 +110,50 @@ def format_feature_line(
     )
 
 
+def _display_market_type(market_type: str) -> str:
+    if market_type == "asian_handicap":
+        return "亚盘"
+    if market_type == "total_goals":
+        return "大小球"
+    return market_type
+
+
+def _display_side(side: str) -> str:
+    side_names = {
+        "home": "主队",
+        "away": "客队",
+        "over": "大球",
+        "under": "小球",
+        "watch": "观望",
+    }
+    return side_names.get(side, side)
+
+
+def _format_recommendation_part(recommendation: Recommendation) -> str:
+    risk_text = ""
+    if recommendation.risk_tags:
+        risk_text = f" 风险 {','.join(recommendation.risk_tags)}"
+    return (
+        f"{_display_market_type(recommendation.market_type)} "
+        f"{_display_side(recommendation.side)} "
+        f"{recommendation.confidence_grade} "
+        f"{recommendation.stake_units}手"
+        f"{risk_text}"
+    )
+
+
+def format_recommendation_line(
+    match,
+    recommendations: list[Recommendation],
+    display_service: DisplayNameService,
+) -> str:
+    match_text = format_match_line(match, display_service)
+    recommendation_text = " | ".join(
+        _format_recommendation_part(recommendation) for recommendation in recommendations
+    )
+    return f"{match_text} | {recommendation_text}"
+
+
 @matches_app.command("upcoming")
 def matches_upcoming(hours: int = 24):
     engine = create_database_engine()
@@ -126,6 +176,19 @@ def features_preview(hours: int = 24):
         rows = list_upcoming_match_odds_features(session, start_time=now_beijing(), hours=hours)
         for row in rows:
             typer.echo(format_feature_line(row.match, row.features, display_service))
+
+
+@recommendations_app.command("preview")
+def recommendations_preview(hours: int = 24):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    display_service = DisplayNameService()
+    with session_factory() as session:
+        rows = list_upcoming_match_odds_features(session, start_time=now_beijing(), hours=hours)
+        for row in rows:
+            recommendations = build_rule_recommendations_from_features(row.features)
+            typer.echo(format_recommendation_line(row.match, recommendations, display_service))
 
 
 if __name__ == "__main__":

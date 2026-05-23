@@ -25,6 +25,7 @@ class FakeOddsPapiClient:
         self.calls = []
         self.fail_endpoint = fail_endpoint
         self.failed_historical_fixture_ids = set()
+        self.failed_historical_outcome_ids = set()
 
     def get(self, endpoint, params=None):
         self.request_count += 1
@@ -37,6 +38,12 @@ class FakeOddsPapiClient:
             and params.get("fixtureId") in self.failed_historical_fixture_ids
         ):
             raise OddsPapiApiError("historical odds unavailable")
+        if (
+            endpoint == "historical-odds"
+            and params
+            and str(params.get("outcomeId")) in self.failed_historical_outcome_ids
+        ):
+            raise OddsPapiApiError("outcome historical odds unavailable")
         if endpoint == "fixtures":
             return [
                 {
@@ -48,7 +55,7 @@ class FakeOddsPapiClient:
                 }
             ]
         if endpoint == "historical-odds":
-            return {
+            payload = {
                 "fixtureId": "oddspapi-fixture-1",
                 "bookmakers": {
                     "pinnacle": {
@@ -105,7 +112,24 @@ class FakeOddsPapiClient:
                     }
                 },
             }
+            outcome_id = str((params or {}).get("outcomeId") or "")
+            if outcome_id:
+                for bookmaker_payload in payload["bookmakers"].values():
+                    for market_id in list(bookmaker_payload["markets"]):
+                        market_payload = bookmaker_payload["markets"][market_id]
+                        filtered_outcomes = {
+                            key: value
+                            for key, value in market_payload["outcomes"].items()
+                            if key == outcome_id
+                        }
+                        if filtered_outcomes:
+                            market_payload["outcomes"] = filtered_outcomes
+                        else:
+                            del bookmaker_payload["markets"][market_id]
+            return payload
         if endpoint == "markets":
+            if (params or {}).get("fixtureId") in self.failed_historical_fixture_ids:
+                raise OddsPapiApiError("markets unavailable")
             return [
                 {
                     "marketId": 1070,
@@ -259,7 +283,7 @@ def test_run_oddspapi_sync_for_session_matches_fixture_and_stores_odds(session):
     assert result.inserted_snapshot_count == 4
     assert result.asian_handicap_count == 2
     assert result.total_goals_count == 2
-    assert client.request_count == 3
+    assert client.request_count == 6
     assert session.query(HistoricalOddsSnapshot).count() == 4
 
 
@@ -340,7 +364,19 @@ def test_run_oddspapi_sync_for_session_reuses_existing_source_match(session):
     assert result.processed_match_count == 1
     assert result.matched_count == 1
     assert result.inserted_snapshot_count == 4
-    assert [call[0] for call in raw_client.calls] == ["historical-odds", "markets"]
+    assert [call[0] for call in raw_client.calls] == [
+        "markets",
+        "historical-odds",
+        "historical-odds",
+        "historical-odds",
+        "historical-odds",
+    ]
+    assert [call[1].get("outcomeId") for call in raw_client.calls[1:]] == [
+        "1070",
+        "1071",
+        "10170",
+        "10171",
+    ]
 
 
 def test_run_oddspapi_sync_for_session_stops_gracefully_on_api_error(session):
@@ -418,6 +454,38 @@ def test_run_oddspapi_sync_for_session_continues_after_single_match_odds_error(s
     assert session.query(HistoricalOddsSnapshot).count() == 4
 
 
+def test_run_oddspapi_sync_for_session_continues_after_single_outcome_odds_error(session):
+    match = _match(session)
+    session.add(
+        OddsSourceMatch(
+            match_id=match.id,
+            source_name="oddspapi",
+            source_fixture_id="oddspapi-fixture-1",
+            matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_confidence=Decimal("1.0000"),
+            match_reason="cached",
+        )
+    )
+    session.commit()
+    raw_client = FakeOddsPapiClient()
+    raw_client.failed_historical_outcome_ids.add("1070")
+    client = OddsPapiSyncClient(raw_client)
+    messages = []
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+        progress_callback=messages.append,
+    )
+
+    assert result.processed_match_count == 1
+    assert result.failed_match_count == 0
+    assert result.inserted_snapshot_count == 3
+    assert any("跳过历史赔率" in message and "1070" in message for message in messages)
+
+
 def test_run_oddspapi_sync_for_session_reports_progress(session):
     _match(session)
     raw_client = FakeOddsPapiClient()
@@ -484,7 +552,13 @@ def test_run_oddspapi_sync_for_session_skips_requested_match_ids(session):
     assert result.processed_match_count == 1
     assert result.inserted_snapshot_count == 4
     assert all("Skipped Home" not in message for message in messages)
-    assert [call[0] for call in raw_client.calls] == ["historical-odds", "markets"]
+    assert [call[0] for call in raw_client.calls] == [
+        "markets",
+        "historical-odds",
+        "historical-odds",
+        "historical-odds",
+        "historical-odds",
+    ]
 
 
 def test_oddspapi_sync_client_requests_fixture_and_historical_odds_payloads():

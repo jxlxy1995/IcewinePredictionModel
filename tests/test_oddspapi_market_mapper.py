@@ -11,6 +11,10 @@ def test_map_markets_keeps_fulltime_asian_handicap_and_total_lines():
             "marketType": "spreads",
             "handicap": -0.25,
             "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 1070, "outcomeName": "1"},
+                {"outcomeId": 1071, "outcomeName": "2"},
+            ],
         },
         {
             "marketId": 10170,
@@ -18,6 +22,10 @@ def test_map_markets_keeps_fulltime_asian_handicap_and_total_lines():
             "marketType": "totals",
             "handicap": 2.25,
             "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 10170, "outcomeName": "Over"},
+                {"outcomeId": 10171, "outcomeName": "Under"},
+            ],
         },
         {
             "marketId": 999,
@@ -40,5 +48,7 @@ def test_map_markets_keeps_fulltime_asian_handicap_and_total_lines():
     assert [market.market_id for market in mapped] == ["1070", "10170"]
     assert mapped[0].market_type == "asian_handicap"
     assert mapped[0].line == Decimal("-0.25")
+    assert mapped[0].outcome_ids == ("1070", "1071")
     assert mapped[1].market_type == "total_goals"
     assert mapped[1].line == Decimal("2.25")
+    assert mapped[1].outcome_ids == ("10170", "10171")

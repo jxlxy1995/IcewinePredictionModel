@@ -15,6 +15,7 @@ from icewine_prediction.odds_source_match_service import (
 )
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.sources.oddspapi_client import OddsPapiApiError, OddsPapiClient
+from icewine_prediction.sources.oddspapi_market_mapper import map_markets
 from icewine_prediction.sources.oddspapi_odds_mapper import map_historical_odds
 from icewine_prediction.time_utils import now_beijing
 
@@ -102,14 +103,21 @@ class OddsPapiSyncClient:
         self._last_fixture_request_at = time.monotonic()
         return [_map_fixture(item) for item in payload]
 
-    def fetch_historical_odds(self, source_fixture_id: str) -> list[dict[str, Any]]:
+    def fetch_historical_odds(
+        self,
+        source_fixture_id: str,
+        outcome_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        params = {
+            "sportId": SOCCER_SPORT_ID,
+            "fixtureId": source_fixture_id,
+            "bookmakers": SELECTED_BOOKMAKERS,
+        }
+        if outcome_id is not None:
+            params["outcomeId"] = outcome_id
         return self.client.get(
             "historical-odds",
-            {
-                "sportId": SOCCER_SPORT_ID,
-                "fixtureId": source_fixture_id,
-                "bookmakers": SELECTED_BOOKMAKERS,
-            },
+            params,
         )
 
     def fetch_markets(self, source_fixture_id: str) -> list[dict[str, Any]]:
@@ -325,17 +333,33 @@ def _fetch_and_store_historical_odds(
     max_snapshots_per_match: int,
     progress_callback: Callable[[str], None] | None = None,
 ) -> HistoricalOddsStoreSummary:
-    _emit_progress(progress_callback, f"  拉取历史赔率 fixture={source_fixture_id}")
-    raw_odds = client.fetch_historical_odds(source_fixture_id)
     _emit_progress(progress_callback, f"  拉取盘口定义 fixture={source_fixture_id}")
     market_definitions = client.fetch_markets(source_fixture_id)
+    outcome_ids = _select_history_outcome_ids(market_definitions)
+    raw_odds_payloads = []
+    for outcome_id in outcome_ids:
+        _emit_progress(
+            progress_callback,
+            f"  拉取历史赔率 fixture={source_fixture_id} outcome={outcome_id}",
+        )
+        try:
+            raw_odds_payloads.append(client.fetch_historical_odds(source_fixture_id, outcome_id))
+        except OddsPapiApiError as exc:
+            _emit_progress(
+                progress_callback,
+                f"  跳过历史赔率 fixture={source_fixture_id} outcome={outcome_id} {exc}",
+            )
     _emit_progress(progress_callback, f"  写入历史赔率 match_id={match.id}")
-    snapshots = map_historical_odds(
-        raw_odds,
-        match_id=match.id,
-        source_fixture_id=source_fixture_id,
-        market_definitions=market_definitions,
-    )
+    snapshots = []
+    for raw_odds in raw_odds_payloads:
+        snapshots.extend(
+            map_historical_odds(
+                raw_odds,
+                match_id=match.id,
+                source_fixture_id=source_fixture_id,
+                market_definitions=market_definitions,
+            )
+        )
     store_result = store_historical_odds_snapshots(
         session,
         snapshots,
@@ -351,6 +375,17 @@ def _fetch_and_store_historical_odds(
             [snapshot for snapshot in snapshots if snapshot.market_type == "total_goals"]
         ),
     )
+
+
+def _select_history_outcome_ids(market_definitions: list[dict[str, Any]]) -> list[str]:
+    selected = []
+    selected_market_types = set()
+    for market in map_markets(market_definitions):
+        if market.market_type in selected_market_types:
+            continue
+        selected_market_types.add(market.market_type)
+        selected.extend(market.outcome_ids)
+    return selected
 
 
 def _open_session():

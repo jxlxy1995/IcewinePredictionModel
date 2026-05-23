@@ -12,6 +12,7 @@ class MappedOddsMarket:
     market_name: str
     line: Decimal
     period: str
+    outcome_ids: tuple[str, ...] = ()
 
 
 def map_markets(payload: list[dict[str, Any]]) -> list[MappedOddsMarket]:
@@ -32,6 +33,11 @@ def map_markets(payload: list[dict[str, Any]]) -> list[MappedOddsMarket]:
                 market_name=item["marketName"],
                 line=line,
                 period=item["period"],
+                outcome_ids=tuple(
+                    str(outcome.get("outcomeId"))
+                    for outcome in item.get("outcomes") or []
+                    if outcome.get("outcomeId") is not None
+                ),
             )
         )
     return mapped

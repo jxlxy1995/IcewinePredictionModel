@@ -65,6 +65,18 @@ def _create_match_with_odds(session) -> Match:
                 over_odds=Decimal("1.62"),
                 under_odds=Decimal("2.25"),
             ),
+            OddsSnapshot(
+                match=match,
+                captured_at=datetime(2026, 5, 23, 17, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                data_source="api_football",
+                bookmaker="BadLineBook",
+                asian_handicap=Decimal("-0.80"),
+                home_odds=Decimal("1.90"),
+                away_odds=Decimal("1.90"),
+                total_line=Decimal("2.63"),
+                over_odds=Decimal("1.90"),
+                under_odds=Decimal("1.90"),
+            ),
         ]
     )
     session.commit()
@@ -86,17 +98,17 @@ def test_build_match_odds_features_aggregates_handicap_and_total_lines(session):
     assert features.match_id == match.id
     assert features.bookmaker_count == 3
     assert features.asian_handicap.sample_count == 2
-    assert features.asian_handicap.mean == Decimal("0.38")
-    assert features.asian_handicap.median == Decimal("0.38")
+    assert features.asian_handicap.mean == Decimal("0.25")
+    assert features.asian_handicap.median == Decimal("0.25")
     assert features.asian_handicap.disagreement == Decimal("0.25")
-    assert features.home_odds.mean == Decimal("1.87")
-    assert features.away_odds.mean == Decimal("1.94")
+    assert features.home_odds.mean == Decimal("1.98")
+    assert features.away_odds.mean == Decimal("1.88")
     assert features.total_line.sample_count == 3
-    assert features.total_line.mean == Decimal("2.67")
+    assert features.total_line.mean == Decimal("2.50")
     assert features.total_line.median == Decimal("2.50")
     assert features.total_line.disagreement == Decimal("0.50")
-    assert features.over_odds.mean == Decimal("1.71")
-    assert features.under_odds.mean == Decimal("2.14")
+    assert features.over_odds.mean == Decimal("1.60")
+    assert features.under_odds.mean == Decimal("2.32")
 
 
 def test_list_upcoming_match_odds_features_filters_window_and_requires_odds(session):

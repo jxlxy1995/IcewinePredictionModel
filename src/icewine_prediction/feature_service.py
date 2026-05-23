@@ -1,3 +1,4 @@
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -57,6 +58,10 @@ def _round_decimal(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def is_standard_market_line(value: Decimal) -> bool:
+    return (value * Decimal("4")) == (value * Decimal("4")).to_integral_value()
+
+
 def _aggregate_decimal_values(values: list[Decimal]) -> OddsMarketAggregate:
     if not values:
         return OddsMarketAggregate(
@@ -79,28 +84,96 @@ def _aggregate_decimal_values(values: list[Decimal]) -> OddsMarketAggregate:
     )
 
 
+def _select_main_market_line(values: list[Decimal]) -> Decimal | None:
+    if not values:
+        return None
+    counts = Counter(values)
+    max_count = max(counts.values())
+    candidates = [value for value, count in counts.items() if count == max_count]
+    market_median = Decimal(str(median(values)))
+    return min(candidates, key=lambda value: (abs(value - market_median), abs(value)))
+
+
+def _aggregate_main_market_line(values: list[Decimal]) -> OddsMarketAggregate:
+    main_line = _select_main_market_line(values)
+    aggregate = _aggregate_decimal_values(values)
+    if main_line is None:
+        return aggregate
+    return OddsMarketAggregate(
+        sample_count=aggregate.sample_count,
+        mean=_round_decimal(main_line),
+        median=_round_decimal(main_line),
+        minimum=aggregate.minimum,
+        maximum=aggregate.maximum,
+        disagreement=aggregate.disagreement,
+    )
+
+
 def build_match_odds_features(match: Match) -> MatchOddsFeatures:
     snapshots = list(match.odds_snapshots)
+    asian_handicap_snapshots = [
+        snapshot
+        for snapshot in snapshots
+        if snapshot.asian_handicap is not None and is_standard_market_line(snapshot.asian_handicap)
+    ]
+    total_line_snapshots = [
+        snapshot
+        for snapshot in snapshots
+        if snapshot.total_line is not None and is_standard_market_line(snapshot.total_line)
+    ]
+    main_asian_handicap = _select_main_market_line(
+        [snapshot.asian_handicap for snapshot in asian_handicap_snapshots]
+    )
+    main_total_line = _select_main_market_line(
+        [snapshot.total_line for snapshot in total_line_snapshots]
+    )
+    main_asian_handicap_snapshots = [
+        snapshot
+        for snapshot in asian_handicap_snapshots
+        if snapshot.asian_handicap == main_asian_handicap
+    ]
+    main_total_line_snapshots = [
+        snapshot for snapshot in total_line_snapshots if snapshot.total_line == main_total_line
+    ]
+    valid_bookmakers = {
+        snapshot.bookmaker for snapshot in asian_handicap_snapshots + total_line_snapshots
+    }
     return MatchOddsFeatures(
         match_id=match.id,
-        bookmaker_count=len({snapshot.bookmaker for snapshot in snapshots}),
-        asian_handicap=_aggregate_decimal_values(
-            [snapshot.asian_handicap for snapshot in snapshots if snapshot.asian_handicap is not None]
+        bookmaker_count=len(valid_bookmakers),
+        asian_handicap=_aggregate_main_market_line(
+            [snapshot.asian_handicap for snapshot in asian_handicap_snapshots]
         ),
         home_odds=_aggregate_decimal_values(
-            [snapshot.home_odds for snapshot in snapshots if snapshot.home_odds is not None]
+            [
+                snapshot.home_odds
+                for snapshot in main_asian_handicap_snapshots
+                if snapshot.home_odds is not None
+            ]
         ),
         away_odds=_aggregate_decimal_values(
-            [snapshot.away_odds for snapshot in snapshots if snapshot.away_odds is not None]
+            [
+                snapshot.away_odds
+                for snapshot in main_asian_handicap_snapshots
+                if snapshot.away_odds is not None
+            ]
         ),
-        total_line=_aggregate_decimal_values(
-            [snapshot.total_line for snapshot in snapshots if snapshot.total_line is not None]
+        total_line=_aggregate_main_market_line(
+            [snapshot.total_line for snapshot in total_line_snapshots]
         ),
         over_odds=_aggregate_decimal_values(
-            [snapshot.over_odds for snapshot in snapshots if snapshot.over_odds is not None]
+            [
+                snapshot.over_odds
+                for snapshot in main_total_line_snapshots
+                if snapshot.over_odds is not None
+            ]
         ),
         under_odds=_aggregate_decimal_values(
-            [snapshot.under_odds for snapshot in snapshots if snapshot.under_odds is not None]
+            [
+                snapshot.under_odds
+                for snapshot in main_total_line_snapshots
+                if snapshot.under_odds is not None
+            ]
         ),
     )
 

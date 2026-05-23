@@ -87,3 +87,44 @@ def test_map_odds_snapshots_pairs_same_market_line_and_selects_balanced_line():
     assert snapshots[0].total_line == Decimal("3.0")
     assert snapshots[0].over_odds == Decimal("1.95")
     assert snapshots[0].under_odds == Decimal("1.79")
+
+
+def test_map_odds_snapshots_ignores_non_standard_market_lines():
+    payload = {
+        "response": [
+            {
+                "fixture": {"id": 1001},
+                "bookmakers": [
+                    {
+                        "name": "Bet365",
+                        "bets": [
+                            {
+                                "name": "Asian Handicap",
+                                "values": [
+                                    {"value": "Home -0.80", "odd": "1.90"},
+                                    {"value": "Away -0.80", "odd": "1.90"},
+                                    {"value": "Home -0.75", "odd": "1.82"},
+                                    {"value": "Away -0.75", "odd": "2.02"},
+                                ],
+                            },
+                            {
+                                "name": "Goals Over/Under",
+                                "values": [
+                                    {"value": "Over 2.63", "odd": "1.90"},
+                                    {"value": "Under 2.63", "odd": "1.90"},
+                                    {"value": "Over 2.75", "odd": "1.86"},
+                                    {"value": "Under 2.75", "odd": "2.04"},
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    snapshots = map_odds_snapshots(payload)
+
+    assert len(snapshots) == 1
+    assert snapshots[0].asian_handicap == Decimal("-0.75")
+    assert snapshots[0].total_line == Decimal("2.75")

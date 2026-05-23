@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
+from icewine_prediction.feature_service import is_standard_market_line
 from icewine_prediction.time_utils import now_beijing
 
 
@@ -134,11 +135,11 @@ def _extract_asian_handicap(bookmaker: dict) -> tuple[Decimal | None, Decimal | 
         label = value["value"]
         if label.startswith("Home "):
             handicap = _parse_prefixed_decimal(label, "Home ")
-            if handicap is not None:
+            if handicap is not None and is_standard_market_line(handicap):
                 lines.setdefault(handicap, {})["home"] = Decimal(value["odd"])
         elif label.startswith("Away "):
             handicap = _parse_prefixed_decimal(label, "Away ")
-            if handicap is not None:
+            if handicap is not None and is_standard_market_line(handicap):
                 _add_away_handicap_line(lines, handicap, Decimal(value["odd"]))
     return _select_balanced_line(lines, "home", "away")
 
@@ -152,11 +153,11 @@ def _extract_total_line(bookmaker: dict) -> tuple[Decimal | None, Decimal | None
         label = value["value"]
         if label.startswith("Over "):
             total_line = _parse_prefixed_decimal(label, "Over ")
-            if total_line is not None:
+            if total_line is not None and is_standard_market_line(total_line):
                 lines.setdefault(total_line, {})["over"] = Decimal(value["odd"])
         elif label.startswith("Under "):
             total_line = _parse_prefixed_decimal(label, "Under ")
-            if total_line is not None:
+            if total_line is not None and is_standard_market_line(total_line):
                 lines.setdefault(total_line, {})["under"] = Decimal(value["odd"])
     return _select_balanced_line(lines, "over", "under")
 

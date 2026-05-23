@@ -63,6 +63,22 @@ def test_baseline_result_model_predicts_normalized_probabilities():
     assert probabilities.home_win + probabilities.draw + probabilities.away_win == Decimal("1.0000")
 
 
+def test_baseline_result_model_builds_goal_distribution_for_arbitrary_lines():
+    model = train_baseline_result_model(
+        [
+            _sample(1, 3, 0, "home_win"),
+            _sample(2, 2, 1, "home_win"),
+            _sample(3, 1, 1, "draw"),
+        ]
+    )
+
+    prediction = model.predict_goal_distribution()
+
+    assert prediction.home_expected_goals == model.home_expected_goals
+    assert prediction.total_goals_probability(Decimal("2.75")).line == Decimal("2.75")
+    assert prediction.asian_handicap_probability(Decimal("-0.25")).line == Decimal("-0.25")
+
+
 def test_evaluate_baseline_result_model_splits_by_time_and_reports_metrics():
     samples = [
         _sample(1, 2, 1, "home_win"),

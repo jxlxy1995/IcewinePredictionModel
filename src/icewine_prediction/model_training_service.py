@@ -3,6 +3,10 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from math import exp, factorial, log
 
+from icewine_prediction.goal_distribution_service import (
+    GoalDistributionPrediction,
+    build_goal_distribution_prediction,
+)
 from icewine_prediction.training_sample_service import TrainingSample
 
 
@@ -17,6 +21,12 @@ class BaselineResultProbabilities:
 class BaselineResultModel:
     home_expected_goals: Decimal
     away_expected_goals: Decimal
+
+    def predict_goal_distribution(self) -> GoalDistributionPrediction:
+        return build_goal_distribution_prediction(
+            home_expected_goals=self.home_expected_goals,
+            away_expected_goals=self.away_expected_goals,
+        )
 
     def predict_result_probabilities(self) -> BaselineResultProbabilities:
         home_win = Decimal("0")

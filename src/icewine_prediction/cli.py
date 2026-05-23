@@ -11,6 +11,10 @@ from icewine_prediction.database import (
 from icewine_prediction.display_service import DisplayNameService
 from icewine_prediction.feature_service import MatchOddsFeatures, list_upcoming_match_odds_features
 from icewine_prediction.match_query_service import list_upcoming_matches
+from icewine_prediction.model_training_service import (
+    BaselineResultEvaluation,
+    evaluate_baseline_result_model,
+)
 from icewine_prediction.recommendation_service import (
     Recommendation,
     build_rule_recommendations_from_features,
@@ -42,6 +46,8 @@ recommendations_app = typer.Typer(help="推荐预览命令")
 app.add_typer(recommendations_app, name="recommendations")
 samples_app = typer.Typer(help="训练样本命令")
 app.add_typer(samples_app, name="samples")
+models_app = typer.Typer(help="模型训练命令")
+app.add_typer(models_app, name="models")
 
 
 @app.command("version")
@@ -241,6 +247,19 @@ def format_training_sample_report(report: TrainingSampleReport) -> str:
     )
 
 
+def format_baseline_result_evaluation(evaluation: BaselineResultEvaluation) -> str:
+    return "\n".join(
+        [
+            f"训练样本 {evaluation.train_sample_count}",
+            f"验证样本 {evaluation.validation_sample_count}",
+            f"主队期望进球 {evaluation.home_expected_goals}",
+            f"客队期望进球 {evaluation.away_expected_goals}",
+            f"准确率 {evaluation.accuracy}",
+            f"log loss {evaluation.average_log_loss}",
+        ]
+    )
+
+
 @matches_app.command("upcoming")
 def matches_upcoming(hours: int = 24):
     engine = create_database_engine()
@@ -298,6 +317,17 @@ def samples_report():
     with session_factory() as session:
         report = build_training_sample_report(session)
         typer.echo(format_training_sample_report(report))
+
+
+@models_app.command("train-baseline")
+def models_train_baseline(limit: int = typer.Option(1000, "--limit")):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        samples = list_training_samples(session, limit=limit)
+        evaluation = evaluate_baseline_result_model(samples)
+        typer.echo(format_baseline_result_evaluation(evaluation))
 
 
 if __name__ == "__main__":

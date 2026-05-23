@@ -1,29 +1,78 @@
 leagues:
   Premier League: 英超
+  Premier League (England): 英超
   La Liga: 西甲
+  La Liga (Spain): 西甲
   Bundesliga: 德甲
+  Bundesliga (Germany): 德甲
   Serie A: 意甲
+  Serie A (Italy): 意甲
   Ligue 1: 法甲
+  Ligue 1 (France): 法甲
   UEFA Champions League: 欧冠
+  UEFA Champions League (World): 欧冠
   UEFA Europa League: 欧联
+  UEFA Europa League (World): 欧联
   UEFA Europa Conference League: 欧协联
+  UEFA Europa Conference League (World): 欧协联
   Championship: 英冠
+  Championship (England): 英冠
   2. Bundesliga: 德乙
-  3. Liga: 德丙
+  2. Bundesliga (Germany): 德乙
   Segunda División: 西乙
+  Segunda División (Spain): 西乙
   Serie B: 意乙
+  Serie B (Italy): 意乙
+  Ligue 2: 法乙
+  Ligue 2 (France): 法乙
   Primeira Liga: 葡超
+  Primeira Liga (Portugal): 葡超
   Eredivisie: 荷甲
+  Eredivisie (Netherlands): 荷甲
+  Eerste Divisie: 荷乙
+  Eerste Divisie (Netherlands): 荷乙
   Jupiler Pro League: 比甲
+  Jupiler Pro League (Belgium): 比甲
   Süper Lig: 土超
+  Süper Lig (Turkey): 土超
   Premiership: 苏超
+  Premiership (Scotland): 苏超
   Super League 1: 希腊超
+  Super League 1 (Greece): 希腊超
+  Bundesliga (Austria): 奥甲
   Super League: 瑞士超
+  Super League (Switzerland): 瑞士超
+  Premier League (Russia): 俄超
+  Superliga: 丹麦超
+  Superliga (Denmark): 丹麦超
+  Liga Profesional Argentina: 阿甲
+  Liga Profesional Argentina (Argentina): 阿甲
+  Serie A (Brazil): 巴西甲
+  Veikkausliiga: 芬超
+  Veikkausliiga (Finland): 芬超
+  Allsvenskan: 瑞典超
+  Allsvenskan (Sweden): 瑞典超
+  Superettan: 瑞典超甲
+  Superettan (Sweden): 瑞典超甲
+  League One: 英甲
+  League One (England): 英甲
+  3. Liga: 德丙
+  3. Liga (Germany): 德丙
   J1 League: 日职联
+  J1 League (Japan): 日职联
+  J2 League: 日职乙
+  J2 League (Japan): 日职乙
   K League 1: 韩K联
+  K League 1 (South-Korea): 韩K联
+  K League 2: 韩K2联
+  K League 2 (South-Korea): 韩K2联
   A-League: 澳超
+  A-League (Australia): 澳超
   Pro League: 沙特联
+  Pro League (Saudi-Arabia): 沙特联
+  Super League (China): 中超
   Major League Soccer: 美职联
+  Major League Soccer (USA): 美职联
 teams:
   Bologna: 博洛尼亚
   Inter: 国际米兰

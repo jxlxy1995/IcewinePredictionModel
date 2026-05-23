@@ -34,6 +34,11 @@ def test_display_name_service_falls_back_to_original_name(tmp_path):
 def test_default_display_names_include_mainstream_league_chinese_names():
     service = DisplayNameService()
 
+    assert service.display_league("Bundesliga (Germany)") == "德甲"
+    assert service.display_league("Bundesliga (Austria)") == "奥甲"
+    assert service.display_league("Super League (China)") == "中超"
     assert service.display_league("2. Bundesliga") == "德乙"
     assert service.display_league("3. Liga") == "德丙"
     assert service.display_league("J1 League") == "日职联"
+    assert service.display_league("Ligue 2") == "法乙"
+    assert service.display_league("Eerste Divisie") == "荷乙"

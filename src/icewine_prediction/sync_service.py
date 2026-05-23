@@ -18,6 +18,10 @@ class OddsSyncResult:
     skipped_odds_snapshots: int = 0
 
 
+def league_internal_name(league_name: str, country: str) -> str:
+    return f"{league_name} ({country})"
+
+
 def _get_or_create_league(session: Session, fixture: ExternalFixture) -> League:
     league = (
         session.query(League)
@@ -27,7 +31,7 @@ def _get_or_create_league(session: Session, fixture: ExternalFixture) -> League:
     if league is not None:
         return league
     league = League(
-        name=fixture.league_name,
+        name=league_internal_name(fixture.league_name, fixture.country),
         country_or_region=fixture.country,
         level=1,
         is_enabled=True,

@@ -10,6 +10,7 @@ from icewine_prediction.sync_runner import (
     build_sync_summary,
     fetch_and_store_odds_snapshots,
     fetch_and_store_historical_fixtures,
+    select_recent_finished_fixture_ids_for_odds,
     select_upcoming_fixture_ids_for_odds,
 )
 
@@ -72,6 +73,64 @@ def test_select_upcoming_fixture_ids_for_odds_uses_beijing_window(session):
     fixture_ids = select_upcoming_fixture_ids_for_odds(session, days=1, start_time=start_time)
 
     assert fixture_ids == ["inside"]
+
+
+def test_select_recent_finished_fixture_ids_for_odds_uses_days_window_and_recent_first(session):
+    league = League(name="Serie A", country_or_region="Italy", level=1)
+    home = Team(canonical_name="Bologna")
+    away = Team(canonical_name="Inter")
+    session.add_all([league, home, away])
+    session.flush()
+    end_time = datetime(2026, 5, 23, 18, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    session.add_all(
+        [
+            Match(
+                league=league,
+                home_team=home,
+                away_team=away,
+                kickoff_time=datetime(2026, 5, 23, 2, 45, tzinfo=ZoneInfo("Asia/Shanghai")),
+                status="finished",
+                source_name="api_football",
+                source_match_id="recent",
+            ),
+            Match(
+                league=league,
+                home_team=home,
+                away_team=away,
+                kickoff_time=datetime(2026, 5, 21, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                status="finished",
+                source_name="api_football",
+                source_match_id="older",
+            ),
+            Match(
+                league=league,
+                home_team=home,
+                away_team=away,
+                kickoff_time=datetime(2026, 5, 20, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                status="finished",
+                source_name="api_football",
+                source_match_id="outside",
+            ),
+            Match(
+                league=league,
+                home_team=home,
+                away_team=away,
+                kickoff_time=datetime(2026, 5, 23, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                status="scheduled",
+                source_name="api_football",
+                source_match_id="scheduled",
+            ),
+        ]
+    )
+    session.commit()
+
+    fixture_ids = select_recent_finished_fixture_ids_for_odds(
+        session,
+        days=2,
+        end_time=end_time,
+    )
+
+    assert fixture_ids == ["recent", "older"]
 
 
 class PartiallyFailingProvider:

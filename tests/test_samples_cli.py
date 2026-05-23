@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -42,6 +43,9 @@ def test_format_training_sample_line_uses_chinese_match_names_and_labels():
         total_line=None,
         over_result=None,
         under_result=None,
+        has_odds_snapshot=False,
+        sample_age_days=363,
+        time_decay_weight=Decimal("0.80"),
     )
 
     line = format_training_sample_line(sample, display_service)
@@ -49,3 +53,6 @@ def test_format_training_sample_line_uses_chinese_match_names_and_labels():
     assert "西甲 2025-05-25 03:00 皇家马德里 vs 巴塞罗那" in line
     assert "比分 2-1" in line
     assert "赛果 home_win" in line
+    assert "样本年龄 363天" in line
+    assert "权重 0.80" in line
+    assert "赔率 否" in line

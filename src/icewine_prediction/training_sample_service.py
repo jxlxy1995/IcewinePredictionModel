@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from icewine_prediction.models import Match, OddsSnapshot
 from icewine_prediction.settlement_service import settle_asian_handicap, settle_total_goals
+from icewine_prediction.time_utils import now_beijing
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,9 @@ class TrainingSample:
     total_line: Decimal | None
     over_result: str | None
     under_result: str | None
+    has_odds_snapshot: bool
+    sample_age_days: int
+    time_decay_weight: Decimal
 
 
 def _match_result(home_score: int, away_score: int) -> str:
@@ -43,9 +47,26 @@ def _first_snapshot(match: Match) -> OddsSnapshot | None:
     return snapshots[0]
 
 
-def build_training_sample(match: Match) -> TrainingSample:
+def time_decay_weight_for_age(sample_age_days: int) -> Decimal:
+    if sample_age_days <= 180:
+        return Decimal("1.00")
+    if sample_age_days <= 365:
+        return Decimal("0.80")
+    if sample_age_days <= 730:
+        return Decimal("0.55")
+    if sample_age_days <= 1095:
+        return Decimal("0.35")
+    return Decimal("0.15")
+
+
+def build_training_sample(
+    match: Match,
+    reference_time: datetime | None = None,
+) -> TrainingSample:
     if match.home_score is None or match.away_score is None:
         raise ValueError("training sample requires final scores")
+    reference = reference_time or now_beijing()
+    sample_age_days = max(0, (reference.date() - match.kickoff_time.date()).days)
     snapshot = _first_snapshot(match)
     home_handicap_result = None
     away_handicap_result = None
@@ -88,10 +109,17 @@ def build_training_sample(match: Match) -> TrainingSample:
         total_line=total_line,
         over_result=over_result,
         under_result=under_result,
+        has_odds_snapshot=snapshot is not None,
+        sample_age_days=sample_age_days,
+        time_decay_weight=time_decay_weight_for_age(sample_age_days),
     )
 
 
-def list_training_samples(session: Session, limit: int = 20) -> list[TrainingSample]:
+def list_training_samples(
+    session: Session,
+    limit: int = 20,
+    reference_time: datetime | None = None,
+) -> list[TrainingSample]:
     matches = (
         session.query(Match)
         .filter(Match.status == "finished")
@@ -101,4 +129,4 @@ def list_training_samples(session: Session, limit: int = 20) -> list[TrainingSam
         .limit(limit)
         .all()
     )
-    return [build_training_sample(match) for match in matches]
+    return [build_training_sample(match, reference_time=reference_time) for match in matches]

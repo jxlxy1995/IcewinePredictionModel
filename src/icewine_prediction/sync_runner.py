@@ -75,6 +75,25 @@ def select_upcoming_fixture_ids_for_odds(
     return [fixture_id for (fixture_id,) in fixture_ids if fixture_id is not None]
 
 
+def select_recent_finished_fixture_ids_for_odds(
+    session: Session,
+    days: int,
+    end_time: datetime | None = None,
+) -> list[str]:
+    end = end_time or now_beijing()
+    start = end - timedelta(days=days)
+    fixture_ids = (
+        session.query(Match.source_match_id)
+        .filter(Match.status == "finished")
+        .filter(Match.kickoff_time >= start)
+        .filter(Match.kickoff_time <= end)
+        .filter(Match.source_match_id.isnot(None))
+        .order_by(Match.kickoff_time.desc())
+        .all()
+    )
+    return [fixture_id for (fixture_id,) in fixture_ids if fixture_id is not None]
+
+
 def fetch_and_store_odds_snapshots(
     session: Session,
     provider: ApiFootballProvider,
@@ -134,6 +153,24 @@ def run_sync_odds(days: int) -> str:
         result = fetch_and_store_odds_snapshots(session, provider, fixture_ids)
     summary = build_sync_summary(
         operation=f"odds:{days}",
+        created=result.created_odds_snapshots,
+        updated=0,
+        skipped=result.skipped_odds_snapshots,
+        requests_used=provider.client.request_count,
+    )
+    if result.failed_fixture_id is not None:
+        return f"{summary}, failed_fixture={result.failed_fixture_id}, error={result.error_message}"
+    return summary
+
+
+def run_sync_historical_odds(days: int) -> str:
+    settings = load_project_settings()
+    provider = build_api_football_provider(settings)
+    with _open_session() as session:
+        fixture_ids = select_recent_finished_fixture_ids_for_odds(session, days=days)
+        result = fetch_and_store_odds_snapshots(session, provider, fixture_ids)
+    summary = build_sync_summary(
+        operation=f"historical-odds:{days}",
         created=result.created_odds_snapshots,
         updated=0,
         skipped=result.skipped_odds_snapshots,

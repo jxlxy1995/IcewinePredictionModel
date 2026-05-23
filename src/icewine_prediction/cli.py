@@ -16,6 +16,7 @@ from icewine_prediction.recommendation_service import (
     build_rule_recommendations_from_features,
 )
 from icewine_prediction.sync_runner import (
+    run_sync_historical_odds,
     run_sync_history,
     run_sync_odds,
     run_sync_results,
@@ -72,6 +73,11 @@ def sync_upcoming(days: int = 3):
 @sync_app.command("odds")
 def sync_odds(days: int = 2):
     typer.echo(run_sync_odds(days))
+
+
+@sync_app.command("historical-odds")
+def sync_historical_odds(days: int = typer.Option(7, "--days")):
+    typer.echo(run_sync_historical_odds(days=days))
 
 
 @sync_app.command("results")
@@ -183,6 +189,9 @@ def format_training_sample_line(
         f"比分 {sample.home_score}-{sample.away_score} | "
         f"赛果 {sample.match_result} | "
         f"总进球 {sample.total_goals} | "
+        f"样本年龄 {sample.sample_age_days}天 | "
+        f"权重 {sample.time_decay_weight} | "
+        f"赔率 {'是' if sample.has_odds_snapshot else '否'} | "
         f"亚盘 {sample.asian_handicap_line or '-'} "
         f"主 {sample.home_handicap_result or '-'} 客 {sample.away_handicap_result or '-'} | "
         f"大小球 {sample.total_line or '-'} "

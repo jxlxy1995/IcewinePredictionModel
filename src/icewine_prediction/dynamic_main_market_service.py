@@ -32,14 +32,12 @@ def build_dynamic_main_market_snapshots(
     filtered = _filter_pre_kickoff_window(snapshots, kickoff_time)
     grouped = {}
     for snapshot in filtered:
-        key = (snapshot.bookmaker, snapshot.market_type, _as_utc(snapshot.snapshot_time))
+        key = (snapshot.bookmaker, snapshot.market_type)
         grouped.setdefault(key, []).append(snapshot)
 
     selected = []
     for group in grouped.values():
-        selected_pair = _select_balanced_pair(group)
-        if selected_pair:
-            selected.extend(selected_pair)
+        selected.extend(_build_market_timeline(group))
     return sorted(
         selected,
         key=lambda item: (
@@ -48,6 +46,49 @@ def build_dynamic_main_market_snapshots(
             item.market_type,
             item.outcome_side,
         ),
+    )
+
+
+def _build_market_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
+    latest_by_line_and_side = {}
+    selected = []
+    for snapshot_time, time_snapshots in _group_snapshots_by_time(snapshots):
+        for snapshot in time_snapshots:
+            latest_by_line_and_side[(snapshot.market_line, snapshot.outcome_side)] = snapshot
+        selected_pair = _select_balanced_pair(list(latest_by_line_and_side.values()))
+        selected.extend(_copy_pair_to_time(selected_pair, snapshot_time))
+    return selected
+
+
+def _group_snapshots_by_time(snapshots: list[Snapshot]) -> list[tuple[datetime, list[Snapshot]]]:
+    grouped = {}
+    for snapshot in snapshots:
+        grouped.setdefault(_as_utc(snapshot.snapshot_time), []).append(snapshot)
+    return sorted(grouped.items(), key=lambda item: item[0])
+
+
+def _copy_pair_to_time(pair: list[Snapshot], snapshot_time: datetime) -> list[Snapshot]:
+    return [
+        _copy_snapshot_with_time(snapshot, snapshot_time)
+        for snapshot in pair
+    ]
+
+
+def _copy_snapshot_with_time(snapshot: Snapshot, snapshot_time: datetime) -> Snapshot:
+    return HistoricalOddsSnapshotInput(
+        match_id=snapshot.match_id,
+        source_name=snapshot.source_name,
+        source_fixture_id=snapshot.source_fixture_id,
+        bookmaker=snapshot.bookmaker,
+        market_type=snapshot.market_type,
+        market_id=snapshot.market_id,
+        market_name=snapshot.market_name,
+        market_line=snapshot.market_line,
+        outcome_side=snapshot.outcome_side,
+        odds=snapshot.odds,
+        snapshot_time=snapshot_time,
+        period=snapshot.period,
+        raw_payload=snapshot.raw_payload,
     )
 
 

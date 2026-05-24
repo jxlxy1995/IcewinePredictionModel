@@ -55,8 +55,8 @@ def test_dynamic_main_market_keeps_line_migration_before_kickoff_only():
     snapshots = [
         _snapshot("pinnacle", "total_goals", "m25", "2.5", "over", "1.92", 120),
         _snapshot("pinnacle", "total_goals", "m25", "2.5", "under", "1.94", 120),
-        _snapshot("pinnacle", "total_goals", "m30", "3.0", "over", "1.91", 10),
-        _snapshot("pinnacle", "total_goals", "m30", "3.0", "under", "1.93", 10),
+        _snapshot("pinnacle", "total_goals", "m30", "3.0", "over", "1.99", 10),
+        _snapshot("pinnacle", "total_goals", "m30", "3.0", "under", "2.00", 10),
         _snapshot("pinnacle", "total_goals", "live", "3.25", "over", "1.90", -1),
         _snapshot("pinnacle", "total_goals", "live", "3.25", "under", "1.92", -1),
     ]
@@ -72,3 +72,22 @@ def test_dynamic_main_market_keeps_line_migration_before_kickoff_only():
     assert summary[("pinnacle", "total_goals")].closing_line == Decimal("3.0")
     assert summary[("pinnacle", "total_goals")].line_change == Decimal("0.5")
     assert summary[("pinnacle", "total_goals")].line_move_count == 1
+
+
+def test_dynamic_main_market_uses_latest_known_pair_when_outcomes_update_at_different_times():
+    kickoff = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    snapshots = [
+        _snapshot("pinnacle", "asian_handicap", "draw", "0", "home", "1.95", 120),
+        _snapshot("pinnacle", "asian_handicap", "draw", "0", "away", "1.95", 120),
+        _snapshot("pinnacle", "asian_handicap", "wide", "1.25", "home", "1.25", 60),
+        _snapshot("pinnacle", "asian_handicap", "wide", "1.25", "away", "4.20", 60),
+    ]
+
+    selected = build_dynamic_main_market_snapshots(snapshots, kickoff_time=kickoff)
+
+    latest_time = kickoff.astimezone(ZoneInfo("UTC")) - timedelta(minutes=60)
+    latest_selected = [item for item in selected if item.snapshot_time == latest_time]
+    assert [(item.market_id, item.outcome_side, item.odds) for item in latest_selected] == [
+        ("draw", "away", Decimal("1.95")),
+        ("draw", "home", Decimal("1.95")),
+    ]

@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from decimal import Decimal
 import time
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -8,6 +7,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from icewine_prediction.database import create_database_engine, create_session_factory, initialize_database
+from icewine_prediction.dynamic_main_market_service import build_dynamic_main_market_snapshots
 from icewine_prediction.historical_odds_service import store_historical_odds_snapshots
 from icewine_prediction.models import HistoricalOddsSnapshot, Match, OddsSourceMatch
 from icewine_prediction.odds_source_match_service import (
@@ -543,6 +543,10 @@ def _fetch_and_store_historical_odds(
                 market_definitions=market_definitions,
             )
         )
+    snapshots = build_dynamic_main_market_snapshots(
+        snapshots,
+        kickoff_time=match.kickoff_time,
+    )
     store_result = store_historical_odds_snapshots(
         session,
         snapshots,
@@ -564,23 +568,9 @@ def _fetch_and_store_historical_odds(
 
 def _select_history_outcome_ids(market_definitions: list[dict[str, Any]]) -> list[str]:
     selected = []
-    markets = map_markets(market_definitions)
-    for market_type in ["asian_handicap", "total_goals"]:
-        market = _select_history_market(markets, market_type)
-        if market is not None:
-            selected.extend(market.outcome_ids)
+    for market in map_markets(market_definitions):
+        selected.extend(market.outcome_ids)
     return selected
-
-
-def _select_history_market(markets, market_type: str):
-    candidates = [market for market in markets if market.market_type == market_type]
-    if not candidates:
-        return None
-    if market_type == "asian_handicap":
-        return min(candidates, key=lambda market: (abs(market.line), abs(market.line - Decimal("0.25"))))
-    if market_type == "total_goals":
-        return min(candidates, key=lambda market: abs(market.line - Decimal("2.5")))
-    return candidates[0]
 
 
 def _open_session():

@@ -329,7 +329,7 @@ def test_format_oddspapi_probe_report_includes_skip_ids(session):
     assert "outcomes=4" in output
 
 
-def test_select_history_outcome_ids_prefers_main_total_and_handicap_lines():
+def test_select_history_outcome_ids_returns_all_standard_handicap_and_total_outcomes():
     markets = [
         {
             "marketId": 106,
@@ -379,7 +379,7 @@ def test_select_history_outcome_ids_prefers_main_total_and_handicap_lines():
 
     outcome_ids = _select_history_outcome_ids(markets)
 
-    assert outcome_ids == ["210", "211", "1010", "1011"]
+    assert outcome_ids == ["106", "107", "1010", "1011", "200", "201", "210", "211"]
 
 
 def test_format_oddspapi_sync_plan_includes_candidate_matches(session):
@@ -615,7 +615,9 @@ def test_run_oddspapi_sync_for_session_continues_after_single_outcome_odds_error
 
     assert result.processed_match_count == 1
     assert result.failed_match_count == 0
-    assert result.inserted_snapshot_count == 3
+    assert result.inserted_snapshot_count == 2
+    assert result.asian_handicap_count == 0
+    assert result.total_goals_count == 2
     assert any("跳过历史赔率" in message and "1070" in message for message in messages)
 
 

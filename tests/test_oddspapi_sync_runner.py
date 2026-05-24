@@ -11,6 +11,8 @@ from icewine_prediction.models import (
 )
 from icewine_prediction.oddspapi_sync_runner import (
     OddsPapiSyncClient,
+    build_oddspapi_match_report,
+    build_oddspapi_match_report_for_session,
     build_oddspapi_probe_report_for_session,
     build_oddspapi_sync_plan_for_session,
     format_oddspapi_probe_report,
@@ -702,6 +704,31 @@ def test_run_oddspapi_sync_for_session_skips_requested_match_ids(session):
         "markets",
         "historical-odds",
     ]
+
+
+def test_build_oddspapi_match_report_displays_snapshot_time_in_beijing(session):
+    match = _match(session)
+    session.add(
+        HistoricalOddsSnapshot(
+            match_id=match.id,
+            source_name="oddspapi",
+            source_fixture_id="oddspapi-fixture-1",
+            bookmaker="pinnacle",
+            market_type="total_goals",
+            market_id="10170",
+            market_name="Over Under Full Time",
+            market_line=Decimal("2.50"),
+            outcome_side="over",
+            odds=Decimal("1.90"),
+            snapshot_time=datetime(2026, 5, 23, 18, 0, tzinfo=ZoneInfo("UTC")),
+            period="fulltime",
+        )
+    )
+    session.commit()
+
+    output = build_oddspapi_match_report_for_session(session, match.id)
+
+    assert "2026-05-24 02:00:00 北京时间" in output
 
 
 def test_oddspapi_sync_client_requests_fixture_and_historical_odds_payloads():

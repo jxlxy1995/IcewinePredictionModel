@@ -248,29 +248,33 @@ def build_oddspapi_probe_report(
 
 def build_oddspapi_match_report(match_id: int) -> str:
     with _open_session() as session:
-        match = session.query(Match).filter(Match.id == match_id).one_or_none()
-        if match is None:
-            return f"未找到比赛 id={match_id}"
-        snapshots = (
-            session.query(HistoricalOddsSnapshot)
-            .filter_by(match_id=match_id, source_name=ODDSPAPI_SOURCE_NAME)
-            .order_by(
-                HistoricalOddsSnapshot.bookmaker,
-                HistoricalOddsSnapshot.market_type,
-                HistoricalOddsSnapshot.snapshot_time,
-                HistoricalOddsSnapshot.market_line,
-                HistoricalOddsSnapshot.outcome_side,
-            )
-            .all()
+        return build_oddspapi_match_report_for_session(session, match_id)
+
+
+def build_oddspapi_match_report_for_session(session: Session, match_id: int) -> str:
+    match = session.query(Match).filter(Match.id == match_id).one_or_none()
+    if match is None:
+        return f"未找到比赛 id={match_id}"
+    snapshots = (
+        session.query(HistoricalOddsSnapshot)
+        .filter_by(match_id=match_id, source_name=ODDSPAPI_SOURCE_NAME)
+        .order_by(
+            HistoricalOddsSnapshot.bookmaker,
+            HistoricalOddsSnapshot.market_type,
+            HistoricalOddsSnapshot.snapshot_time,
+            HistoricalOddsSnapshot.market_line,
+            HistoricalOddsSnapshot.outcome_side,
         )
-        lines = [_format_match_brief(match), f"历史赔率快照 {len(snapshots)}"]
-        for snapshot in snapshots:
-            lines.append(
-                f"{snapshot.snapshot_time} {snapshot.bookmaker} "
-                f"{snapshot.market_type} line={snapshot.market_line} "
-                f"{snapshot.outcome_side} odds={snapshot.odds}"
-            )
-        return "\n".join(lines)
+        .all()
+    )
+    lines = [_format_match_brief(match), f"历史赔率快照 {len(snapshots)}"]
+    for snapshot in snapshots:
+        lines.append(
+            f"{_format_beijing_time(snapshot.snapshot_time)} {snapshot.bookmaker} "
+            f"{snapshot.market_type} line={snapshot.market_line} "
+            f"{snapshot.outcome_side} odds={snapshot.odds}"
+        )
+    return "\n".join(lines)
 
 
 def build_oddspapi_sync_plan_for_session(
@@ -693,6 +697,14 @@ def _parse_utc_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=ZoneInfo("UTC"))
     return parsed.astimezone(ZoneInfo("UTC"))
+
+
+def _format_beijing_time(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=ZoneInfo("UTC"))
+    return value.astimezone(ZoneInfo("Asia/Shanghai")).strftime(
+        "%Y-%m-%d %H:%M:%S 北京时间"
+    )
 
 
 def _as_utc(value: datetime) -> datetime:

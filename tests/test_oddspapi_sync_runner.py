@@ -253,7 +253,7 @@ def test_build_oddspapi_sync_plan_for_session_does_not_request_api(session):
     )
 
     assert result.candidate_match_count == 1
-    assert result.estimated_request_count == 6
+    assert result.estimated_request_count == 3
     assert client.calls == []
 
 
@@ -416,7 +416,7 @@ def test_run_oddspapi_sync_for_session_matches_fixture_and_stores_odds(session):
     assert result.inserted_snapshot_count == 4
     assert result.asian_handicap_count == 2
     assert result.total_goals_count == 2
-    assert client.request_count == 6
+    assert client.request_count == 3
     assert session.query(HistoricalOddsSnapshot).count() == 4
 
 
@@ -500,16 +500,8 @@ def test_run_oddspapi_sync_for_session_reuses_existing_source_match(session):
     assert [call[0] for call in raw_client.calls] == [
         "markets",
         "historical-odds",
-        "historical-odds",
-        "historical-odds",
-        "historical-odds",
     ]
-    assert [call[1].get("outcomeId") for call in raw_client.calls[1:]] == [
-        "1070",
-        "1071",
-        "10170",
-        "10171",
-    ]
+    assert raw_client.calls[1][1].get("outcomeId") is None
 
 
 def test_run_oddspapi_sync_for_session_stops_gracefully_on_api_error(session):
@@ -615,10 +607,10 @@ def test_run_oddspapi_sync_for_session_continues_after_single_outcome_odds_error
 
     assert result.processed_match_count == 1
     assert result.failed_match_count == 0
-    assert result.inserted_snapshot_count == 2
-    assert result.asian_handicap_count == 0
+    assert result.inserted_snapshot_count == 4
+    assert result.asian_handicap_count == 2
     assert result.total_goals_count == 2
-    assert any("跳过历史赔率" in message and "1070" in message for message in messages)
+    assert all("跳过历史赔率" not in message for message in messages)
 
 
 def test_run_oddspapi_sync_for_session_stops_gracefully_on_request_budget(session):
@@ -708,9 +700,6 @@ def test_run_oddspapi_sync_for_session_skips_requested_match_ids(session):
     assert all("Skipped Home" not in message for message in messages)
     assert [call[0] for call in raw_client.calls] == [
         "markets",
-        "historical-odds",
-        "historical-odds",
-        "historical-odds",
         "historical-odds",
     ]
 

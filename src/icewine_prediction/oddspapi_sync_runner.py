@@ -303,7 +303,7 @@ def _build_plan_match(session: Session, match: Match) -> OddsPapiPlanMatch:
         kickoff_time=match.kickoff_time,
         home_team_name=match.home_team.canonical_name,
         away_team_name=match.away_team.canonical_name,
-        estimated_request_count=5 if cached_source_match is not None else 6,
+        estimated_request_count=2 if cached_source_match is not None else 3,
     )
 
 
@@ -545,31 +545,18 @@ def _fetch_and_store_historical_odds(
 ) -> HistoricalOddsStoreSummary:
     _emit_progress(progress_callback, f"  拉取盘口定义 fixture={source_fixture_id}")
     market_definitions = client.fetch_markets(source_fixture_id)
-    outcome_ids = _select_history_outcome_ids(market_definitions)
-    raw_odds_payloads = []
-    for outcome_id in outcome_ids:
-        _emit_progress(
-            progress_callback,
-            f"  拉取历史赔率 fixture={source_fixture_id} outcome={outcome_id}",
-        )
-        try:
-            raw_odds_payloads.append(client.fetch_historical_odds(source_fixture_id, outcome_id))
-        except OddsPapiApiError as exc:
-            _emit_progress(
-                progress_callback,
-                f"  跳过历史赔率 fixture={source_fixture_id} outcome={outcome_id} {exc}",
-            )
+    _emit_progress(
+        progress_callback,
+        f"  拉取历史赔率 fixture={source_fixture_id}",
+    )
+    raw_odds = client.fetch_historical_odds(source_fixture_id)
     _emit_progress(progress_callback, f"  写入历史赔率 match_id={match.id}")
-    snapshots = []
-    for raw_odds in raw_odds_payloads:
-        snapshots.extend(
-            map_historical_odds(
-                raw_odds,
-                match_id=match.id,
-                source_fixture_id=source_fixture_id,
-                market_definitions=market_definitions,
-            )
-        )
+    snapshots = map_historical_odds(
+        raw_odds,
+        match_id=match.id,
+        source_fixture_id=source_fixture_id,
+        market_definitions=market_definitions,
+    )
     snapshots = build_dynamic_main_market_snapshots(
         snapshots,
         kickoff_time=match.kickoff_time,

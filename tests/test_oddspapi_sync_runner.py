@@ -17,6 +17,7 @@ from icewine_prediction.oddspapi_sync_runner import (
     format_oddspapi_sync_plan,
     run_oddspapi_sync_for_session,
     select_oddspapi_candidate_matches,
+    _select_history_outcome_ids,
 )
 import icewine_prediction.oddspapi_sync_runner as oddspapi_sync_runner
 from icewine_prediction.sources.oddspapi_client import OddsPapiApiError
@@ -326,6 +327,59 @@ def test_format_oddspapi_probe_report_includes_skip_ids(session):
     assert "可回填 1" in output
     assert "推荐跳过 -" in output
     assert "outcomes=4" in output
+
+
+def test_select_history_outcome_ids_prefers_main_total_and_handicap_lines():
+    markets = [
+        {
+            "marketId": 106,
+            "marketName": "Over Under Full Time",
+            "marketType": "totals",
+            "handicap": 0.5,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 106, "outcomeName": "Over"},
+                {"outcomeId": 107, "outcomeName": "Under"},
+            ],
+        },
+        {
+            "marketId": 1010,
+            "marketName": "Over Under Full Time",
+            "marketType": "totals",
+            "handicap": 2.5,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 1010, "outcomeName": "Over"},
+                {"outcomeId": 1011, "outcomeName": "Under"},
+            ],
+        },
+        {
+            "marketId": 200,
+            "marketName": "Asian Handicap",
+            "marketType": "spreads",
+            "handicap": -2.5,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 200, "outcomeName": "1"},
+                {"outcomeId": 201, "outcomeName": "2"},
+            ],
+        },
+        {
+            "marketId": 210,
+            "marketName": "Asian Handicap",
+            "marketType": "spreads",
+            "handicap": -0.25,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 210, "outcomeName": "1"},
+                {"outcomeId": 211, "outcomeName": "2"},
+            ],
+        },
+    ]
+
+    outcome_ids = _select_history_outcome_ids(markets)
+
+    assert outcome_ids == ["210", "211", "1010", "1011"]
 
 
 def test_format_oddspapi_sync_plan_includes_candidate_matches(session):

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal
 import time
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -563,13 +564,23 @@ def _fetch_and_store_historical_odds(
 
 def _select_history_outcome_ids(market_definitions: list[dict[str, Any]]) -> list[str]:
     selected = []
-    selected_market_types = set()
-    for market in map_markets(market_definitions):
-        if market.market_type in selected_market_types:
-            continue
-        selected_market_types.add(market.market_type)
-        selected.extend(market.outcome_ids)
+    markets = map_markets(market_definitions)
+    for market_type in ["asian_handicap", "total_goals"]:
+        market = _select_history_market(markets, market_type)
+        if market is not None:
+            selected.extend(market.outcome_ids)
     return selected
+
+
+def _select_history_market(markets, market_type: str):
+    candidates = [market for market in markets if market.market_type == market_type]
+    if not candidates:
+        return None
+    if market_type == "asian_handicap":
+        return min(candidates, key=lambda market: (abs(market.line), abs(market.line - Decimal("0.25"))))
+    if market_type == "total_goals":
+        return min(candidates, key=lambda market: abs(market.line - Decimal("2.5")))
+    return candidates[0]
 
 
 def _open_session():

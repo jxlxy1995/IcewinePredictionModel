@@ -19,6 +19,10 @@ from icewine_prediction.historical_performance_service import (
     HistoricalPerformanceReport,
     build_historical_performance_report,
 )
+from icewine_prediction.historical_odds_audit_service import (
+    audit_live_historical_odds,
+    delete_live_historical_odds,
+)
 from icewine_prediction.match_query_service import list_upcoming_matches
 from icewine_prediction.model_training_service import (
     BaselineResultEvaluation,
@@ -28,6 +32,7 @@ from icewine_prediction.model_training_service import (
     train_team_strength_goal_model,
 )
 from icewine_prediction.oddspapi_sync_runner import (
+    build_oddspapi_match_report,
     build_oddspapi_probe_report,
     build_oddspapi_sync_plan,
     run_oddspapi_sync,
@@ -636,6 +641,32 @@ def odds_source_oddspapi_probe(
             skip_match_ids=_parse_id_set(skip_match_ids),
         )
     )
+
+
+@odds_source_app.command("oddspapi-audit-live")
+def odds_source_oddspapi_audit_live():
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = audit_live_historical_odds(session)
+    typer.echo(f"赛中历史赔率比赛 {report.match_count}")
+    typer.echo(f"赛中历史赔率快照 {report.snapshot_count}")
+
+
+@odds_source_app.command("oddspapi-clear-live")
+def odds_source_oddspapi_clear_live():
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        deleted = delete_live_historical_odds(session)
+    typer.echo(f"已删除赛中历史赔率快照 {deleted}")
+
+
+@odds_source_app.command("oddspapi-match-report")
+def odds_source_oddspapi_match_report(match_id: int = typer.Option(..., "--match-id")):
+    typer.echo(build_oddspapi_match_report(match_id=match_id))
 
 
 def _parse_id_set(value: str) -> set[int]:

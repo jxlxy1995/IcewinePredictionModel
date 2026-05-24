@@ -246,6 +246,33 @@ def build_oddspapi_probe_report(
     return format_oddspapi_probe_report(report)
 
 
+def build_oddspapi_match_report(match_id: int) -> str:
+    with _open_session() as session:
+        match = session.query(Match).filter(Match.id == match_id).one_or_none()
+        if match is None:
+            return f"未找到比赛 id={match_id}"
+        snapshots = (
+            session.query(HistoricalOddsSnapshot)
+            .filter_by(match_id=match_id, source_name=ODDSPAPI_SOURCE_NAME)
+            .order_by(
+                HistoricalOddsSnapshot.bookmaker,
+                HistoricalOddsSnapshot.market_type,
+                HistoricalOddsSnapshot.snapshot_time,
+                HistoricalOddsSnapshot.market_line,
+                HistoricalOddsSnapshot.outcome_side,
+            )
+            .all()
+        )
+        lines = [_format_match_brief(match), f"历史赔率快照 {len(snapshots)}"]
+        for snapshot in snapshots:
+            lines.append(
+                f"{snapshot.snapshot_time} {snapshot.bookmaker} "
+                f"{snapshot.market_type} line={snapshot.market_line} "
+                f"{snapshot.outcome_side} odds={snapshot.odds}"
+            )
+        return "\n".join(lines)
+
+
 def build_oddspapi_sync_plan_for_session(
     session: Session,
     season: int,

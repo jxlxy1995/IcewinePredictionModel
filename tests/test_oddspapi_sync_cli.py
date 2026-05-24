@@ -12,6 +12,9 @@ def test_odds_source_group_exposes_oddspapi_commands():
     assert "oddspapi-plan" in result.stdout
     assert "oddspapi-fetch" in result.stdout
     assert "oddspapi-probe" in result.stdout
+    assert "oddspapi-audit-live" in result.stdout
+    assert "oddspapi-clear-live" in result.stdout
+    assert "oddspapi-match-report" in result.stdout
 
 
 def test_oddspapi_plan_accepts_season_and_match_limit(monkeypatch):
@@ -104,3 +107,19 @@ def test_oddspapi_probe_accepts_season_match_limit_and_request_budget(monkeypatc
 
     assert result.exit_code == 0
     assert "probe:2025:20:50:8:{1149, 1150}" in result.stdout
+
+
+def test_oddspapi_match_report_accepts_match_id(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_oddspapi_match_report",
+        lambda match_id: f"match-report:{match_id}",
+    )
+
+    result = runner.invoke(
+        app,
+        ["odds-source", "oddspapi-match-report", "--match-id", "1141"],
+    )
+
+    assert result.exit_code == 0
+    assert "match-report:1141" in result.stdout

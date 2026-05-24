@@ -18,18 +18,23 @@ from icewine_prediction.oddspapi_sync_runner import (
     run_oddspapi_sync_for_session,
     select_oddspapi_candidate_matches,
 )
+import icewine_prediction.oddspapi_sync_runner as oddspapi_sync_runner
 from icewine_prediction.sources.oddspapi_client import OddsPapiApiError
+from icewine_prediction.sources.oddspapi_client import OddsPapiRequestBudgetExceededError
 
 
 class FakeOddsPapiClient:
     def __init__(self, fail_endpoint=None):
         self.request_count = 0
+        self.request_budget = 10_000
         self.calls = []
         self.fail_endpoint = fail_endpoint
         self.failed_historical_fixture_ids = set()
         self.failed_historical_outcome_ids = set()
 
     def get(self, endpoint, params=None):
+        if self.request_count >= self.request_budget:
+            raise OddsPapiRequestBudgetExceededError("OddsPapi request budget exceeded")
         self.request_count += 1
         self.calls.append((endpoint, params or {}))
         if endpoint == self.fail_endpoint:
@@ -560,6 +565,25 @@ def test_run_oddspapi_sync_for_session_continues_after_single_outcome_odds_error
     assert any("跳过历史赔率" in message and "1070" in message for message in messages)
 
 
+def test_run_oddspapi_sync_for_session_stops_gracefully_on_request_budget(session):
+    _match(session)
+    raw_client = FakeOddsPapiClient()
+    raw_client.request_budget = 2
+    client = OddsPapiSyncClient(raw_client)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    assert result.processed_match_count == 0
+    assert result.failed_match_count == 0
+    assert result.requests_used == 2
+    assert result.error_message == "OddsPapi request budget exceeded"
+
+
 def test_run_oddspapi_sync_for_session_reports_progress(session):
     _match(session)
     raw_client = FakeOddsPapiClient()
@@ -673,3 +697,17 @@ def test_oddspapi_sync_client_requests_fixture_and_historical_odds_payloads():
             "bookmakers": "pinnacle,sbobet",
         },
     )
+
+
+def test_oddspapi_sync_client_respects_historical_odds_cooldown(monkeypatch):
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client, historical_odds_cooldown_seconds=5)
+    now_values = iter([100.0, 100.0, 101.0, 105.0])
+    sleeps = []
+    monkeypatch.setattr(oddspapi_sync_runner.time, "monotonic", lambda: next(now_values))
+    monkeypatch.setattr(oddspapi_sync_runner.time, "sleep", sleeps.append)
+
+    client.fetch_historical_odds(source_fixture_id="oddspapi-fixture-1", outcome_id="1070")
+    client.fetch_historical_odds(source_fixture_id="oddspapi-fixture-1", outcome_id="1071")
+
+    assert sleeps == [4.0]

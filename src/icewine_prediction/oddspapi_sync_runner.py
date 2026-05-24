@@ -14,7 +14,11 @@ from icewine_prediction.odds_source_match_service import (
     find_best_odds_source_match,
 )
 from icewine_prediction.settings import load_project_settings
-from icewine_prediction.sources.oddspapi_client import OddsPapiApiError, OddsPapiClient
+from icewine_prediction.sources.oddspapi_client import (
+    OddsPapiApiError,
+    OddsPapiClient,
+    OddsPapiRequestBudgetExceededError,
+)
 from icewine_prediction.sources.oddspapi_market_mapper import map_markets
 from icewine_prediction.sources.oddspapi_odds_mapper import map_historical_odds
 from icewine_prediction.time_utils import now_beijing
@@ -100,9 +104,15 @@ class HistoricalOddsStoreSummary:
 
 
 class OddsPapiSyncClient:
-    def __init__(self, client: OddsPapiClient):
+    def __init__(
+        self,
+        client: OddsPapiClient,
+        historical_odds_cooldown_seconds: float = 0,
+    ):
         self.client = client
         self._last_fixture_request_at = 0.0
+        self._last_historical_odds_request_at = 0.0
+        self.historical_odds_cooldown_seconds = historical_odds_cooldown_seconds
 
     @property
     def request_count(self) -> int:
@@ -131,6 +141,7 @@ class OddsPapiSyncClient:
         source_fixture_id: str,
         outcome_id: str | None = None,
     ) -> list[dict[str, Any]]:
+        self._respect_historical_odds_cooldown()
         params = {
             "sportId": SOCCER_SPORT_ID,
             "fixtureId": source_fixture_id,
@@ -138,10 +149,13 @@ class OddsPapiSyncClient:
         }
         if outcome_id is not None:
             params["outcomeId"] = outcome_id
-        return self.client.get(
-            "historical-odds",
-            params,
-        )
+        try:
+            return self.client.get(
+                "historical-odds",
+                params,
+            )
+        finally:
+            self._last_historical_odds_request_at = time.monotonic()
 
     def fetch_markets(self, source_fixture_id: str) -> list[dict[str, Any]]:
         return self.client.get(
@@ -157,6 +171,12 @@ class OddsPapiSyncClient:
         elapsed = time.monotonic() - self._last_fixture_request_at
         if self._last_fixture_request_at > 0 and elapsed < 2:
             time.sleep(2 - elapsed)
+
+    def _respect_historical_odds_cooldown(self) -> None:
+        elapsed = time.monotonic() - self._last_historical_odds_request_at
+        cooldown = self.historical_odds_cooldown_seconds
+        if self._last_historical_odds_request_at > 0 and elapsed < cooldown:
+            time.sleep(cooldown - elapsed)
 
 
 def build_oddspapi_sync_plan(season: int, max_matches: int) -> str:
@@ -185,7 +205,7 @@ def run_oddspapi_sync(
         timeout_seconds=timeout_seconds,
         request_budget=request_budget,
     )
-    client = OddsPapiSyncClient(raw_client)
+    client = OddsPapiSyncClient(raw_client, historical_odds_cooldown_seconds=5)
     with _open_session() as session:
         result = run_oddspapi_sync_for_session(
             session=session,
@@ -213,7 +233,7 @@ def build_oddspapi_probe_report(
         timeout_seconds=timeout_seconds,
         request_budget=request_budget,
     )
-    client = OddsPapiSyncClient(raw_client)
+    client = OddsPapiSyncClient(raw_client, historical_odds_cooldown_seconds=5)
     with _open_session() as session:
         report = build_oddspapi_probe_report_for_session(
             session=session,
@@ -408,6 +428,19 @@ def run_oddspapi_sync_for_session(
             _emit_progress(
                 progress_callback,
                 _format_progress_failure(index, total, match, str(exc)),
+            )
+        except OddsPapiRequestBudgetExceededError as exc:
+            return OddsPapiSyncResult(
+                processed_match_count=processed,
+                matched_count=matched,
+                failed_match_count=failed,
+                inserted_snapshot_count=inserted,
+                skipped_duplicate_snapshot_count=skipped_duplicates,
+                skipped_existing_odds_count=skipped_existing_odds,
+                asian_handicap_count=asian_handicap_count,
+                total_goals_count=total_goals_count,
+                requests_used=client.request_count,
+                error_message=str(exc),
             )
     return OddsPapiSyncResult(
         processed_match_count=processed,

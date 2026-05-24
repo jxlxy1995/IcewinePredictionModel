@@ -27,7 +27,7 @@ from icewine_prediction.time_utils import now_beijing
 ODDSPAPI_BASE_URL = "https://api.oddspapi.io/v4"
 ODDSPAPI_SOURCE_NAME = "oddspapi"
 SOCCER_SPORT_ID = 10
-SELECTED_BOOKMAKERS = "pinnacle,sbobet"
+SELECTED_BOOKMAKERS = "pinnacle"
 
 API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "39": 17,

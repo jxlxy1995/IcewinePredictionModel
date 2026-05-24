@@ -39,6 +39,16 @@ def delete_live_historical_odds(session: Session) -> int:
     return int(deleted or 0)
 
 
+def clear_historical_odds_snapshots(session: Session, source_name: str) -> int:
+    deleted = (
+        session.query(HistoricalOddsSnapshot)
+        .filter(HistoricalOddsSnapshot.source_name == source_name)
+        .delete(synchronize_session=False)
+    )
+    session.commit()
+    return int(deleted or 0)
+
+
 def _live_snapshot_ids(session: Session) -> list[tuple[int, int]]:
     rows = (
         session.query(

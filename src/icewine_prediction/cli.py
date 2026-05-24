@@ -21,6 +21,7 @@ from icewine_prediction.historical_performance_service import (
 )
 from icewine_prediction.historical_odds_audit_service import (
     audit_live_historical_odds,
+    clear_historical_odds_snapshots,
     delete_live_historical_odds,
 )
 from icewine_prediction.match_query_service import list_upcoming_matches
@@ -662,6 +663,16 @@ def odds_source_oddspapi_clear_live():
     with session_factory() as session:
         deleted = delete_live_historical_odds(session)
     typer.echo(f"已删除赛中历史赔率快照 {deleted}")
+
+
+@odds_source_app.command("oddspapi-clear-snapshots")
+def odds_source_oddspapi_clear_snapshots():
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        deleted = clear_historical_odds_snapshots(session, source_name="oddspapi")
+    typer.echo(f"已删除 OddsPapi 历史赔率快照 {deleted}")
 
 
 @odds_source_app.command("oddspapi-match-report")

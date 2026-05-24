@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from icewine_prediction.historical_odds_audit_service import (
     audit_live_historical_odds,
+    clear_historical_odds_snapshots,
     delete_live_historical_odds,
 )
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, Team
@@ -78,3 +79,31 @@ def test_delete_live_historical_odds_removes_only_after_kickoff(session):
     if remaining_time.tzinfo is None:
         remaining_time = remaining_time.replace(tzinfo=ZoneInfo("UTC"))
     assert remaining_time <= kickoff_utc
+
+
+def test_clear_historical_odds_snapshots_deletes_source_snapshots_only(session):
+    match = _match(session)
+    _snapshot(session, match, datetime(2026, 5, 23, 18, 0, tzinfo=ZoneInfo("UTC")))
+    session.add(
+        HistoricalOddsSnapshot(
+            match_id=match.id,
+            source_name="api_football",
+            source_fixture_id="fixture-2",
+            bookmaker="pinnacle",
+            market_type="total_goals",
+            market_id="1010",
+            market_name="Over Under Full Time",
+            market_line=Decimal("2.50"),
+            outcome_side="over",
+            odds=Decimal("1.900"),
+            snapshot_time=datetime(2026, 5, 23, 18, 0, tzinfo=ZoneInfo("UTC")),
+            period="fulltime",
+        )
+    )
+    session.commit()
+
+    deleted = clear_historical_odds_snapshots(session, source_name="oddspapi")
+
+    assert deleted == 1
+    remaining = session.query(HistoricalOddsSnapshot).one()
+    assert remaining.source_name == "api_football"

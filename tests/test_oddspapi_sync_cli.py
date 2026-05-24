@@ -14,6 +14,7 @@ def test_odds_source_group_exposes_oddspapi_commands():
     assert "oddspapi-probe" in result.stdout
     assert "oddspapi-audit-live" in result.stdout
     assert "oddspapi-clear-live" in result.stdout
+    assert "oddspapi-clear-snapshots" in result.stdout
     assert "oddspapi-match-report" in result.stdout
 
 

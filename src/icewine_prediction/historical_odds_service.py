@@ -120,9 +120,59 @@ def _sample_snapshots_by_market_type(
     sampled = []
     for group_snapshots in grouped.values():
         sampled.extend(
-            _sample_snapshot_group(group_snapshots, max_snapshots_per_market_type)
+            _sample_market_type_pairs(group_snapshots, max_snapshots_per_market_type)
         )
     return sorted(sampled, key=lambda snapshot: snapshot.snapshot_time)
+
+
+def _sample_market_type_pairs(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    limit: int,
+) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    pair_groups = {}
+    for snapshot in snapshots:
+        key = (
+            snapshot.bookmaker,
+            snapshot.market_type,
+            snapshot.market_line,
+            snapshot.snapshot_time,
+        )
+        pair_groups.setdefault(key, []).append(snapshot)
+    complete_pairs = [
+        sorted(group, key=lambda snapshot: snapshot.outcome_side)
+        for group in pair_groups.values()
+        if len({snapshot.outcome_side for snapshot in group}) >= 2
+    ]
+    complete_pairs = sorted(
+        complete_pairs,
+        key=lambda group: group[0].snapshot_time,
+    )
+    if not complete_pairs:
+        return _sample_snapshot_group(snapshots, limit)
+    pair_limit = max(1, limit // 2)
+    sampled_pairs = _sample_pair_group(complete_pairs, pair_limit)
+    sampled = []
+    for pair in sampled_pairs:
+        sampled.extend(pair[:2])
+    return sampled
+
+
+def _sample_pair_group(
+    pairs: list[list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]],
+    limit: int,
+) -> list[list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]]:
+    if limit <= 0:
+        return []
+    if len(pairs) <= limit:
+        return pairs
+    if limit == 1:
+        return [pairs[-1]]
+    last_index = len(pairs) - 1
+    indexes = {
+        round(index * last_index / (limit - 1))
+        for index in range(limit)
+    }
+    return [pairs[index] for index in sorted(indexes)]
 
 
 def _as_utc(value: datetime) -> datetime:

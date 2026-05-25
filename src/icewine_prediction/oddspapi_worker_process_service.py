@@ -42,6 +42,7 @@ def start_oddspapi_batch_worker_process(
     log_dir: str | Path,
     league_ids: set[str] | None,
     from_date: str | None,
+    skip_match_ids: set[int] | None,
     notify_on_complete: bool = False,
     popen_factory: Callable[..., subprocess.Popen] | None = None,
 ) -> WorkerStartResult:
@@ -64,6 +65,7 @@ def start_oddspapi_batch_worker_process(
         log_dir=log_dir,
         league_ids=league_ids,
         from_date=from_date,
+        skip_match_ids=skip_match_ids,
         notify_on_complete=notify_on_complete,
     )
     env = os.environ.copy()
@@ -91,6 +93,7 @@ def start_oddspapi_batch_worker_process(
         "mode": mode,
         "league_ids": sorted(league_ids or []),
         "from_date": from_date,
+        "skip_match_ids": sorted(skip_match_ids or []),
         "notify_on_complete": notify_on_complete,
         "stop_after_failed_rounds": stop_after_failed_rounds,
         "round_timeout_seconds": round_timeout_seconds,
@@ -146,6 +149,7 @@ def _build_worker_command(
     log_dir: Path,
     league_ids: set[str] | None,
     from_date: str | None,
+    skip_match_ids: set[int] | None,
     notify_on_complete: bool = False,
 ) -> tuple[str, ...]:
     command = [
@@ -181,6 +185,8 @@ def _build_worker_command(
         command.extend(["--league-ids", ",".join(sorted(league_ids))])
     if from_date:
         command.extend(["--from-date", from_date])
+    if skip_match_ids:
+        command.extend(["--skip-match-ids", ",".join(str(value) for value in sorted(skip_match_ids))])
     if notify_on_complete:
         command.append("--notify-on-complete")
     return tuple(command)

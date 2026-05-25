@@ -171,11 +171,12 @@ def test_oddspapi_batch_backfill_accepts_controller_options(monkeypatch):
         stop_after_failed_rounds,
         round_timeout_seconds,
         league_ids=None,
-        from_date=None: (
+        from_date=None,
+        skip_match_ids=None: (
             f"batch:{season}:{mode}:{chunk_size}:{request_budget_per_league}:"
             f"{timeout_seconds}:{max_snapshots_per_match}:{max_rounds_per_league}:"
             f"{stop_after_empty_matches}:{stop_after_failed_rounds}:"
-            f"{round_timeout_seconds}:{league_ids}:{from_date}"
+            f"{round_timeout_seconds}:{league_ids}:{from_date}:{skip_match_ids}"
         ),
     )
 
@@ -208,6 +209,8 @@ def test_oddspapi_batch_backfill_accepts_controller_options(monkeypatch):
             "62,89",
             "--from-date",
             "2026-01-15",
+            "--skip-match-ids",
+            "8328,8600",
         ],
     )
 
@@ -215,6 +218,8 @@ def test_oddspapi_batch_backfill_accepts_controller_options(monkeypatch):
     assert "batch:2025:balanced:20:800:20:120:12:8:2:60.0:" in result.stdout
     assert "'62'" in result.stdout
     assert "'89'" in result.stdout
+    assert "'8328'" in result.stdout or "8328" in result.stdout
+    assert "'8600'" in result.stdout or "8600" in result.stdout
     assert ":2026-01-15" in result.stdout
 
 
@@ -235,13 +240,14 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
         log_dir,
         league_ids=None,
         from_date=None,
+        skip_match_ids=None,
         notify_on_complete=False,
         output_callback=None: (
             f"worker:{season}:{mode}:{chunk_size}:{request_budget_per_league}:"
             f"{timeout_seconds}:{max_snapshots_per_match}:{max_rounds_per_league}:"
             f"{stop_after_empty_matches}:{stop_after_failed_rounds}:{round_timeout_seconds}:"
             f"{log_dir}:{league_ids}:{from_date}:"
-            f"{notify_on_complete}:{output_callback is not None}"
+            f"{skip_match_ids}:{notify_on_complete}:{output_callback is not None}"
         ),
     )
 
@@ -276,6 +282,8 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
             "41,89",
             "--from-date",
             "2026-01-15",
+            "--skip-match-ids",
+            "8328,8600",
             "--notify-on-complete",
         ],
     )
@@ -284,7 +292,10 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
     assert "worker:2025:balanced:10:500:20:120:2:8:2:60.0:logs/odds:" in result.stdout
     assert "'41'" in result.stdout
     assert "'89'" in result.stdout
-    assert ":2026-01-15:True:True" in result.stdout
+    assert "'8328'" in result.stdout or "8328" in result.stdout
+    assert "'8600'" in result.stdout or "8600" in result.stdout
+    assert ":2026-01-15:" in result.stdout
+    assert ":True:True" in result.stdout
 
 
 def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
@@ -304,6 +315,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
         log_dir,
         league_ids=None,
         from_date=None,
+        skip_match_ids=None,
         notify_on_complete=False: type(
             "FakeResult",
             (),
@@ -313,7 +325,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
                     f"{timeout_seconds}:{max_snapshots_per_match}:{max_rounds_per_league}:"
                     f"{stop_after_empty_matches}:{stop_after_failed_rounds}:"
                     f"{round_timeout_seconds}:{log_dir}:{league_ids}:{from_date}:"
-                    f"{notify_on_complete}"
+                    f"{skip_match_ids}:{notify_on_complete}"
                 )
             },
         )(),
@@ -350,6 +362,8 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
             "62,89",
             "--from-date",
             "2026-01-15",
+            "--skip-match-ids",
+            "8328,8600",
             "--notify-on-complete",
         ],
     )
@@ -358,7 +372,10 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
     assert "start:2025:fast:12:900:18:100:30:10:3:45.0:logs/odds:" in result.stdout
     assert "'62'" in result.stdout
     assert "'89'" in result.stdout
-    assert ":2026-01-15:True" in result.stdout
+    assert "'8328'" in result.stdout or "8328" in result.stdout
+    assert "'8600'" in result.stdout or "8600" in result.stdout
+    assert ":2026-01-15:" in result.stdout
+    assert ":True" in result.stdout
 
 
 def test_oddspapi_worker_status_accepts_log_dir_and_tail(monkeypatch):

@@ -754,6 +754,7 @@ def odds_source_oddspapi_batch_backfill(
     round_timeout_seconds: float = typer.Option(90, "--round-timeout-seconds"),
     league_ids: str = typer.Option("", "--league-ids"),
     from_date: str | None = typer.Option(None, "--from-date"),
+    skip_match_ids: str = typer.Option("", "--skip-match-ids"),
 ):
     typer.echo(
         run_oddspapi_batch_backfill(
@@ -769,6 +770,7 @@ def odds_source_oddspapi_batch_backfill(
             round_timeout_seconds=round_timeout_seconds,
             league_ids=_parse_str_set(league_ids),
             from_date=date.fromisoformat(from_date) if from_date else None,
+            skip_match_ids=_parse_id_set(skip_match_ids),
         )
     )
 
@@ -788,6 +790,7 @@ def odds_source_oddspapi_batch_worker(
     log_dir: str = typer.Option("logs/odds", "--log-dir"),
     league_ids: str = typer.Option("", "--league-ids"),
     from_date: str | None = typer.Option(None, "--from-date"),
+    skip_match_ids: str = typer.Option("", "--skip-match-ids"),
     notify_on_complete: bool = typer.Option(False, "--notify-on-complete"),
 ):
     typer.echo(
@@ -805,6 +808,7 @@ def odds_source_oddspapi_batch_worker(
             log_dir=log_dir,
             league_ids=_parse_str_set(league_ids),
             from_date=date.fromisoformat(from_date) if from_date else None,
+            skip_match_ids=_parse_id_set(skip_match_ids),
             notify_on_complete=notify_on_complete,
             output_callback=typer.echo,
         )
@@ -826,6 +830,7 @@ def odds_source_oddspapi_worker_start(
     log_dir: str = typer.Option("logs/odds", "--log-dir"),
     league_ids: str = typer.Option("", "--league-ids"),
     from_date: str | None = typer.Option(None, "--from-date"),
+    skip_match_ids: str = typer.Option("", "--skip-match-ids"),
     notify_on_complete: bool = typer.Option(False, "--notify-on-complete"),
 ):
     result = start_oddspapi_batch_worker_process(
@@ -842,6 +847,7 @@ def odds_source_oddspapi_worker_start(
         log_dir=log_dir,
         league_ids=_parse_str_set(league_ids),
         from_date=from_date,
+        skip_match_ids=_parse_id_set(skip_match_ids),
         notify_on_complete=notify_on_complete,
     )
     typer.echo(result.to_text())

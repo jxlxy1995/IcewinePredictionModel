@@ -232,6 +232,41 @@ def test_batch_backfill_balanced_mode_reports_two_workers_and_multiple_leagues()
     assert all(call["historical_odds_cooldown_seconds"] == 5 for call in calls)
 
 
+def test_batch_backfill_passes_skip_match_ids_to_runner():
+    calls = []
+
+    def fake_runner(**kwargs):
+        calls.append(kwargs)
+        return OddsPapiSyncResult(
+            processed_match_count=0,
+            matched_count=0,
+            failed_match_count=0,
+            inserted_snapshot_count=0,
+            skipped_duplicate_snapshot_count=0,
+            skipped_existing_odds_count=0,
+            asian_handicap_count=0,
+            total_goals_count=0,
+            requests_used=0,
+        )
+
+    run_oddspapi_batch_backfill_with_runner(
+        jobs=(LeagueBackfillJob("283", "Liga I", 71),),
+        runner=fake_runner,
+        season=2025,
+        from_date=date(2026, 1, 15),
+        mode=BatchBackfillMode.SAFE,
+        chunk_size=1,
+        request_budget_per_league=100,
+        timeout_seconds=20,
+        max_snapshots_per_match=30,
+        max_rounds_per_league=1,
+        stop_after_empty_matches=8,
+        skip_match_ids={8328, 8600},
+    )
+
+    assert calls[0]["skip_match_ids"] == {8328, 8600}
+
+
 def test_format_batch_backfill_report_summarizes_leagues():
     @dataclass(frozen=True)
     class FakeReport:

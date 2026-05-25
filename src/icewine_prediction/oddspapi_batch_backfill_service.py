@@ -66,6 +66,7 @@ class OddsPapiSyncRunner(Protocol):
         max_snapshots_per_match: int,
         league_ids: set[str],
         from_date: datetime | None,
+        skip_match_ids: set[int] | None,
         historical_odds_cooldown_seconds: float,
         progress_callback,
     ) -> OddsPapiSyncResult:
@@ -85,6 +86,7 @@ def run_oddspapi_batch_backfill(
     round_timeout_seconds: float | None = 90,
     league_ids: set[str] | None = None,
     from_date: date | datetime | None = None,
+    skip_match_ids: set[int] | None = None,
 ) -> str:
     settings = load_project_settings()
     jobs = build_league_backfill_jobs(settings.leagues, requested_league_ids=league_ids)
@@ -102,6 +104,7 @@ def run_oddspapi_batch_backfill(
         stop_after_empty_matches=stop_after_empty_matches,
         stop_after_failed_rounds=stop_after_failed_rounds,
         round_timeout_seconds=round_timeout_seconds,
+        skip_match_ids=skip_match_ids,
     )
     return format_batch_backfill_report(report)
 
@@ -120,6 +123,7 @@ def run_oddspapi_batch_worker(
     log_dir: str | Path = "logs/odds",
     league_ids: set[str] | None = None,
     from_date: date | datetime | None = None,
+    skip_match_ids: set[int] | None = None,
     notify_on_complete: bool = False,
     output_callback: Callable[[str], None] | None = None,
 ) -> str:
@@ -139,6 +143,7 @@ def run_oddspapi_batch_worker(
         stop_after_empty_matches=stop_after_empty_matches,
         stop_after_failed_rounds=stop_after_failed_rounds,
         round_timeout_seconds=round_timeout_seconds,
+        skip_match_ids=skip_match_ids,
         log_dir=Path(log_dir),
         notify_on_complete=notify_on_complete,
         notification_callback=notify_local_completion,
@@ -185,6 +190,7 @@ def run_oddspapi_batch_backfill_with_runner(
     stop_after_empty_matches: int,
     stop_after_failed_rounds: int = 2,
     round_timeout_seconds: float | None = 90,
+    skip_match_ids: set[int] | None = None,
 ) -> BatchBackfillReport:
     worker_count = min(_worker_count_for_mode(mode), max(len(jobs), 1))
     return _run_batch_backfill(
@@ -201,6 +207,7 @@ def run_oddspapi_batch_backfill_with_runner(
         stop_after_empty_matches=stop_after_empty_matches,
         stop_after_failed_rounds=stop_after_failed_rounds,
         round_timeout_seconds=round_timeout_seconds,
+        skip_match_ids=skip_match_ids,
         worker_count=worker_count,
         progress_callback=None,
     )
@@ -221,6 +228,7 @@ def run_oddspapi_batch_worker_with_runner(
     stop_after_empty_matches: int,
     stop_after_failed_rounds: int = 2,
     round_timeout_seconds: float | None = 90,
+    skip_match_ids: set[int] | None = None,
     log_dir: Path,
     notify_on_complete: bool = False,
     notification_callback: Callable[[str, str], bool] | None = None,
@@ -248,6 +256,7 @@ def run_oddspapi_batch_worker_with_runner(
         stop_after_empty_matches=stop_after_empty_matches,
         stop_after_failed_rounds=stop_after_failed_rounds,
         round_timeout_seconds=round_timeout_seconds,
+        skip_match_ids=skip_match_ids,
         worker_count=worker_count,
         progress_callback=logger.write,
     )
@@ -306,6 +315,7 @@ def _run_batch_backfill(
     stop_after_empty_matches: int,
     stop_after_failed_rounds: int,
     round_timeout_seconds: float | None,
+    skip_match_ids: set[int] | None,
     worker_count: int,
     progress_callback: Callable[[str], None] | None,
 ) -> BatchBackfillReport:
@@ -327,6 +337,7 @@ def _run_batch_backfill(
                 stop_after_empty_matches=stop_after_empty_matches,
                 stop_after_failed_rounds=stop_after_failed_rounds,
                 round_timeout_seconds=round_timeout_seconds,
+                skip_match_ids=skip_match_ids,
                 progress_callback=progress_callback,
             )
             for job in jobs
@@ -355,6 +366,7 @@ def _run_league_backfill(
     stop_after_empty_matches: int,
     stop_after_failed_rounds: int,
     round_timeout_seconds: float | None,
+    skip_match_ids: set[int] | None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> LeagueBackfillReport:
     totals = _MutableLeagueTotals()
@@ -374,6 +386,7 @@ def _run_league_backfill(
                 max_snapshots_per_match=max_snapshots_per_match,
                 league_id=job.league_id,
                 from_date=from_date,
+                skip_match_ids=skip_match_ids,
             )
         except TimeoutError:
             stop_reason = f"单轮回填超时 {round_timeout_seconds} 秒"
@@ -434,6 +447,7 @@ def _run_round_with_timeout(
     max_snapshots_per_match: int,
     league_id: str,
     from_date: datetime | None,
+    skip_match_ids: set[int] | None,
 ) -> OddsPapiSyncResult:
     kwargs = {
         "season": season,
@@ -443,6 +457,7 @@ def _run_round_with_timeout(
         "max_snapshots_per_match": max_snapshots_per_match,
         "league_ids": {league_id},
         "from_date": from_date,
+        "skip_match_ids": skip_match_ids,
         "historical_odds_cooldown_seconds": 5,
         "progress_callback": None,
     }

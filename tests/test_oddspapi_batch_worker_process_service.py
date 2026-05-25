@@ -33,6 +33,7 @@ def test_start_batch_worker_process_writes_status_and_launches_python(monkeypatc
         log_dir=tmp_path,
         league_ids={"41", "89"},
         from_date="2026-01-15",
+        skip_match_ids={8328, 8600},
         notify_on_complete=True,
     )
 
@@ -41,6 +42,7 @@ def test_start_batch_worker_process_writes_status_and_launches_python(monkeypatc
     assert "oddspapi-batch-worker" in command
     assert command[command.index("--league-ids") + 1] == "41,89"
     assert command[command.index("--from-date") + 1] == "2026-01-15"
+    assert command[command.index("--skip-match-ids") + 1] == "8328,8600"
     assert command[command.index("--stop-after-failed-rounds") + 1] == "2"
     assert command[command.index("--round-timeout-seconds") + 1] == "60"
     assert "--notify-on-complete" in command
@@ -71,6 +73,7 @@ def test_batch_worker_status_reads_current_status_and_log_tail(monkeypatch, tmp_
         log_dir=tmp_path,
         league_ids={"62"},
         from_date=None,
+        skip_match_ids=None,
         notify_on_complete=False,
         popen_factory=lambda command, **kwargs: type("FakeProcess", (), {"pid": 9876})(),
     )

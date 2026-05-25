@@ -3,6 +3,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from icewine_prediction.config import DEFAULT_DATABASE_PATH
 
@@ -17,7 +18,12 @@ def create_database_engine(database_path: Path = DEFAULT_DATABASE_PATH) -> Engin
 
 
 def create_memory_database() -> Engine:
-    return create_engine("sqlite:///:memory:", future=True)
+    return create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
 
 
 def create_session_factory(engine: Engine):

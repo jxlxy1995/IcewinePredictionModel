@@ -12,4 +12,6 @@ __pycache__/
 .env
 local_data/
 logs/
+web/node_modules/
+web/dist/
 本地数据/

@@ -237,6 +237,7 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
         stop_after_empty_matches,
         stop_after_failed_rounds,
         round_timeout_seconds,
+        hard_timeout_seconds,
         log_dir,
         league_ids=None,
         from_date=None,
@@ -246,6 +247,7 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
             f"worker:{season}:{mode}:{chunk_size}:{request_budget_per_league}:"
             f"{timeout_seconds}:{max_snapshots_per_match}:{max_rounds_per_league}:"
             f"{stop_after_empty_matches}:{stop_after_failed_rounds}:{round_timeout_seconds}:"
+            f"{hard_timeout_seconds}:"
             f"{log_dir}:{league_ids}:{from_date}:"
             f"{skip_match_ids}:{notify_on_complete}:{output_callback is not None}"
         ),
@@ -276,6 +278,8 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
             "2",
             "--round-timeout-seconds",
             "60",
+            "--hard-timeout-seconds",
+            "3600",
             "--log-dir",
             "logs/odds",
             "--league-ids",
@@ -289,7 +293,7 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "worker:2025:balanced:10:500:20:120:2:8:2:60.0:logs/odds:" in result.stdout
+    assert "worker:2025:balanced:10:500:20:120:2:8:2:60.0:3600.0:logs/odds:" in result.stdout
     assert "'41'" in result.stdout
     assert "'89'" in result.stdout
     assert "'8328'" in result.stdout or "8328" in result.stdout
@@ -312,6 +316,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
         stop_after_empty_matches,
         stop_after_failed_rounds,
         round_timeout_seconds,
+        hard_timeout_seconds,
         log_dir,
         league_ids=None,
         from_date=None,
@@ -324,7 +329,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
                     f"start:{season}:{mode}:{chunk_size}:{request_budget_per_league}:"
                     f"{timeout_seconds}:{max_snapshots_per_match}:{max_rounds_per_league}:"
                     f"{stop_after_empty_matches}:{stop_after_failed_rounds}:"
-                    f"{round_timeout_seconds}:{log_dir}:{league_ids}:{from_date}:"
+                    f"{round_timeout_seconds}:{hard_timeout_seconds}:{log_dir}:{league_ids}:{from_date}:"
                     f"{skip_match_ids}:{notify_on_complete}"
                 )
             },
@@ -356,6 +361,8 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
             "3",
             "--round-timeout-seconds",
             "45",
+            "--hard-timeout-seconds",
+            "3600",
             "--log-dir",
             "logs/odds",
             "--league-ids",
@@ -369,7 +376,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "start:2025:fast:12:900:18:100:30:10:3:45.0:logs/odds:" in result.stdout
+    assert "start:2025:fast:12:900:18:100:30:10:3:45.0:3600.0:logs/odds:" in result.stdout
     assert "'62'" in result.stdout
     assert "'89'" in result.stdout
     assert "'8328'" in result.stdout or "8328" in result.stdout

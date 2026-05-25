@@ -4,6 +4,7 @@ from datetime import date, datetime, time as datetime_time
 from enum import Enum
 import os
 from pathlib import Path
+from threading import Timer
 from typing import Callable, Protocol
 from zoneinfo import ZoneInfo
 
@@ -120,6 +121,7 @@ def run_oddspapi_batch_worker(
     stop_after_empty_matches: int = 8,
     stop_after_failed_rounds: int = 2,
     round_timeout_seconds: float | None = 90,
+    hard_timeout_seconds: float | None = 0,
     log_dir: str | Path = "logs/odds",
     league_ids: set[str] | None = None,
     from_date: date | datetime | None = None,
@@ -143,6 +145,7 @@ def run_oddspapi_batch_worker(
         stop_after_empty_matches=stop_after_empty_matches,
         stop_after_failed_rounds=stop_after_failed_rounds,
         round_timeout_seconds=round_timeout_seconds,
+        hard_timeout_seconds=hard_timeout_seconds,
         skip_match_ids=skip_match_ids,
         log_dir=Path(log_dir),
         notify_on_complete=notify_on_complete,
@@ -190,6 +193,7 @@ def run_oddspapi_batch_backfill_with_runner(
     stop_after_empty_matches: int,
     stop_after_failed_rounds: int = 2,
     round_timeout_seconds: float | None = 90,
+    hard_timeout_seconds: float | None = 0,
     skip_match_ids: set[int] | None = None,
 ) -> BatchBackfillReport:
     worker_count = min(_worker_count_for_mode(mode), max(len(jobs), 1))
@@ -228,6 +232,7 @@ def run_oddspapi_batch_worker_with_runner(
     stop_after_empty_matches: int,
     stop_after_failed_rounds: int = 2,
     round_timeout_seconds: float | None = 90,
+    hard_timeout_seconds: float | None = 0,
     skip_match_ids: set[int] | None = None,
     log_dir: Path,
     notify_on_complete: bool = False,
@@ -242,24 +247,29 @@ def run_oddspapi_batch_worker_with_runner(
         f"开始 OddsPapi 后台回填 mode={mode.value} workers={worker_count} "
         f"leagues={len(jobs)} log={log_path}"
     )
-    report = _run_batch_backfill(
-        jobs=jobs,
-        runner=runner,
-        season=season,
-        from_date=_normalize_from_date(from_date),
-        mode=mode,
-        chunk_size=chunk_size,
-        request_budget_per_league=request_budget_per_league,
-        timeout_seconds=timeout_seconds,
-        max_snapshots_per_match=max_snapshots_per_match,
-        max_rounds_per_league=max_rounds_per_league,
-        stop_after_empty_matches=stop_after_empty_matches,
-        stop_after_failed_rounds=stop_after_failed_rounds,
-        round_timeout_seconds=round_timeout_seconds,
-        skip_match_ids=skip_match_ids,
-        worker_count=worker_count,
-        progress_callback=logger.write,
-    )
+    hard_timeout_timer = _start_hard_timeout_timer(hard_timeout_seconds, logger.write)
+    try:
+        report = _run_batch_backfill(
+            jobs=jobs,
+            runner=runner,
+            season=season,
+            from_date=_normalize_from_date(from_date),
+            mode=mode,
+            chunk_size=chunk_size,
+            request_budget_per_league=request_budget_per_league,
+            timeout_seconds=timeout_seconds,
+            max_snapshots_per_match=max_snapshots_per_match,
+            max_rounds_per_league=max_rounds_per_league,
+            stop_after_empty_matches=stop_after_empty_matches,
+            stop_after_failed_rounds=stop_after_failed_rounds,
+            round_timeout_seconds=round_timeout_seconds,
+            skip_match_ids=skip_match_ids,
+            worker_count=worker_count,
+            progress_callback=logger.write,
+        )
+    finally:
+        if hard_timeout_timer is not None:
+            hard_timeout_timer.cancel()
     logger.write("完成 OddsPapi 后台回填")
     logger.write(format_batch_backfill_report(report))
     if notify_on_complete:
@@ -280,6 +290,23 @@ def _build_completion_notification_message(report: BatchBackfillReport) -> str:
         f"{league_names} 已完成，"
         f"leagues={len(report.league_reports)} snapshots={snapshots} requests={requests_used}"
     )
+
+
+def _start_hard_timeout_timer(
+    hard_timeout_seconds: float | None,
+    output_callback: Callable[[str], None],
+) -> Timer | None:
+    if hard_timeout_seconds is None or hard_timeout_seconds <= 0:
+        return None
+
+    def exit_process() -> None:
+        output_callback(f"硬超时 {hard_timeout_seconds} 秒，强制结束 OddsPapi worker")
+        os._exit(124)
+
+    timer = Timer(hard_timeout_seconds, exit_process)
+    timer.daemon = True
+    timer.start()
+    return timer
 
 
 def format_batch_backfill_report(report) -> str:

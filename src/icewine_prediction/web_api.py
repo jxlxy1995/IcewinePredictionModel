@@ -19,6 +19,7 @@ from icewine_prediction.models import (
     Match,
     OddsSourceMatch,
     RecommendationRecord,
+    Team,
 )
 from icewine_prediction.oddspapi_worker_process_service import _is_process_running
 
@@ -60,6 +61,14 @@ def create_web_app(
     def unmatched() -> list[dict[str, Any]]:
         with session_factory() as session:
             return build_unmatched_matches(session, display_name_service=display_name_service)
+
+    @app.get("/api/display/missing-team-names")
+    def missing_team_names() -> list[dict[str, Any]]:
+        with session_factory() as session:
+            return build_missing_team_display_names(
+                session,
+                display_name_service=display_name_service,
+            )
 
     @app.get("/api/matches/with-odds")
     def matches_with_odds() -> list[dict[str, Any]]:
@@ -217,6 +226,80 @@ def build_unmatched_matches(
             "historical_odds_error": row.historical_odds_error,
         }
         for row in rows
+    ]
+
+
+def build_missing_team_display_names(
+    session: Session,
+    *,
+    display_name_service: DisplayNameService | None = None,
+    limit: int = 300,
+) -> list[dict[str, Any]]:
+    display_name_service = display_name_service or DisplayNameService()
+    rows_by_key: dict[tuple[int, int | None, int], dict[str, Any]] = {}
+
+    for side in ("home", "away"):
+        team_id_column = Match.home_team_id if side == "home" else Match.away_team_id
+        rows = (
+            session.query(
+                League.id.label("league_id"),
+                League.name.label("league_name"),
+                Match.season.label("season"),
+                Team.id.label("team_id"),
+                Team.canonical_name.label("team_name"),
+                Team.logo_url.label("team_logo_url"),
+                func.count(Match.id).label("match_count"),
+                func.max(Match.kickoff_time).label("latest_kickoff_time"),
+            )
+            .join(Match, Match.league_id == League.id)
+            .join(Team, Team.id == team_id_column)
+            .group_by(
+                League.id,
+                League.name,
+                Match.season,
+                Team.id,
+                Team.canonical_name,
+                Team.logo_url,
+            )
+            .all()
+        )
+        for row in rows:
+            if display_name_service.display_team(row.team_name) != row.team_name:
+                continue
+            key = (row.league_id, row.season, row.team_id)
+            item = rows_by_key.setdefault(
+                key,
+                {
+                    "league_id": row.league_id,
+                    "league_name": row.league_name,
+                    "league_display_name": display_name_service.display_league(row.league_name),
+                    "season": row.season,
+                    "team_id": row.team_id,
+                    "team_name": row.team_name,
+                    "team_logo_url": row.team_logo_url,
+                    "match_count": 0,
+                    "latest_kickoff_time": None,
+                },
+            )
+            item["match_count"] += row.match_count
+            if item["latest_kickoff_time"] is None or row.latest_kickoff_time > item["latest_kickoff_time"]:
+                item["latest_kickoff_time"] = row.latest_kickoff_time
+
+    items = sorted(
+        rows_by_key.values(),
+        key=lambda item: (
+            item["league_display_name"],
+            -(item["season"] or 0),
+            -item["match_count"],
+            item["team_name"],
+        ),
+    )
+    return [
+        {
+            **item,
+            "latest_kickoff_time": _format_datetime(item["latest_kickoff_time"]),
+        }
+        for item in items[:limit]
     ]
 
 

@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, BarChart3, CircleAlert, Database, ListChecks, Radio } from "lucide-react";
+import {
+  Activity,
+  BarChart3,
+  CircleAlert,
+  Database,
+  Languages,
+  ListChecks,
+  Radio
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { loadDashboardData, loadMatchOddsTrend } from "../apiClient";
 import { LeagueCoverageTable } from "../components/LeagueCoverageTable";
 import { MetricCard } from "../components/MetricCard";
+import { MissingTeamDisplayNameTable } from "../components/MissingTeamDisplayNameTable";
 import { OddsTrendPanel } from "../components/OddsTrendPanel";
 import { Panel } from "../components/Panel";
 import { RecommendationRecordTable } from "../components/RecommendationRecordTable";
@@ -13,7 +22,14 @@ import { WorkerStatusTable } from "../components/WorkerStatusTable";
 import { mockDashboardData } from "../mockData";
 import type { DashboardData, MatchOddsTrends } from "../types";
 
-type ViewKey = "overview" | "coverage" | "workers" | "unmatched" | "odds" | "records";
+type ViewKey =
+  | "overview"
+  | "coverage"
+  | "workers"
+  | "unmatched"
+  | "displayNames"
+  | "odds"
+  | "records";
 
 type NavItem = {
   key: ViewKey;
@@ -26,6 +42,7 @@ const navItems: NavItem[] = [
   { key: "coverage", label: "覆盖率", icon: Database },
   { key: "workers", label: "Worker", icon: Radio },
   { key: "unmatched", label: "未匹配", icon: CircleAlert },
+  { key: "displayNames", label: "中文名", icon: Languages },
   { key: "odds", label: "赔率走势", icon: BarChart3 },
   { key: "records", label: "推荐记录", icon: ListChecks }
 ];
@@ -47,6 +64,10 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
     title: "未匹配比赛",
     subtitle: "集中处理外部数据源队名差异和匹配失败记录"
   },
+  displayNames: {
+    title: "中文名维护",
+    subtitle: "按联赛和赛季检查缺失中文显示名的球队"
+  },
   odds: {
     title: "赔率走势",
     subtitle: "查看单场亚盘和大小球主盘口变化"
@@ -67,6 +88,7 @@ export function DashboardPage() {
   );
   const [oddsTrendError, setOddsTrendError] = useState<string | null>(null);
   const [coverageFilter, setCoverageFilter] = useState("");
+  const [displayNameFilter, setDisplayNameFilter] = useState("");
   const [coverageSort, setCoverageSort] = useState<
     "coverage_desc" | "coverage_asc" | "unmatched_desc"
   >("coverage_desc");
@@ -137,6 +159,13 @@ export function DashboardPage() {
         )}
         {activeView === "workers" && <WorkersView data={data} />}
         {activeView === "unmatched" && <UnmatchedView data={data} />}
+        {activeView === "displayNames" && (
+          <DisplayNamesView
+            data={data}
+            filterText={displayNameFilter}
+            onFilterTextChange={setDisplayNameFilter}
+          />
+        )}
         {activeView === "odds" && (
           <OddsView
             data={data}
@@ -246,6 +275,42 @@ function UnmatchedView({ data }: { data: DashboardData }) {
     <section className="single-column">
       <Panel title="待处理未匹配比赛">
         <UnmatchedTable matches={data.unmatched} />
+      </Panel>
+    </section>
+  );
+}
+
+function DisplayNamesView({
+  data,
+  filterText,
+  onFilterTextChange
+}: {
+  data: DashboardData;
+  filterText: string;
+  onFilterTextChange: (value: string) => void;
+}) {
+  const normalizedFilterText = filterText.trim().toLowerCase();
+  const visibleItems = data.missingTeamDisplayNames.filter((item) => {
+    if (!normalizedFilterText) {
+      return true;
+    }
+    return `${item.league_display_name ?? ""} ${item.league_name} ${item.season ?? ""} ${item.team_name}`
+      .toLowerCase()
+      .includes(normalizedFilterText);
+  });
+
+  return (
+    <section className="single-column">
+      <Panel title="缺失中文名球队">
+        <div className="table-toolbar">
+          <input
+            onChange={(event) => onFilterTextChange(event.target.value)}
+            placeholder="筛选联赛、赛季或球队英文名"
+            type="search"
+            value={filterText}
+          />
+        </div>
+        <MissingTeamDisplayNameTable items={visibleItems} />
       </Panel>
     </section>
   );

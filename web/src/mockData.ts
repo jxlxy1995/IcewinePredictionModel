@@ -138,6 +138,19 @@ export const mockDashboardData: DashboardData = {
       snapshot_count: 6
     }
   ],
+  missingTeamDisplayNames: [
+    {
+      league_id: 39,
+      league_name: "Premier League",
+      league_display_name: "英超",
+      season: 2025,
+      team_id: 66,
+      team_name: "Wolves",
+      team_logo_url: "https://media.api-sports.io/football/teams/39.png",
+      match_count: 34,
+      latest_kickoff_time: "2026-05-17T22:00:00+08:00"
+    }
+  ],
   recommendationRecords: [
     {
       id: 1,

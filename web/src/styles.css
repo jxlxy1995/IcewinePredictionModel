@@ -188,6 +188,19 @@ th {
   font-weight: 600;
 }
 
+.team-cell {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.team-cell img {
+  display: block;
+  height: 24px;
+  object-fit: contain;
+  width: 24px;
+}
+
 .worker {
   border: 1px solid #e2e8f0;
   border-radius: 8px;

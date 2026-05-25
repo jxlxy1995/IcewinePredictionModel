@@ -180,6 +180,48 @@ def test_web_console_api_returns_display_names_without_replacing_raw_names(tmp_p
     assert payload["away_team_display_name"] == "斯旺西"
 
 
+def test_web_console_api_returns_missing_team_display_names(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    _seed_console_data(session_factory)
+    display_name_service = DisplayNameService(
+        DisplayNames(
+            leagues={"英冠": "英冠"},
+            teams={
+                "Cardiff": "卡迪夫城",
+                "Swansea": "斯旺西",
+                "Leeds": "利兹联",
+            },
+        )
+    )
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            display_name_service=display_name_service,
+        )
+    )
+
+    response = client.get("/api/display/missing-team-names")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "league_id": 1,
+            "league_name": "英冠",
+            "league_display_name": "英冠",
+            "season": 2025,
+            "team_id": 3,
+            "team_name": "Wolves",
+            "team_logo_url": "https://media.api-sports.io/football/teams/wolves.png",
+            "match_count": 1,
+            "latest_kickoff_time": "2026-05-21T22:00:00",
+        }
+    ]
+
+
 def test_web_console_api_returns_matches_with_odds(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)
@@ -238,7 +280,10 @@ def _seed_console_data(session_factory):
         )
         cardiff = Team(canonical_name="Cardiff")
         swansea = Team(canonical_name="Swansea")
-        wolves = Team(canonical_name="Wolves")
+        wolves = Team(
+            canonical_name="Wolves",
+            logo_url="https://media.api-sports.io/football/teams/wolves.png",
+        )
         leeds = Team(canonical_name="Leeds")
         session.add_all([league, cardiff, swansea, wolves, leeds])
         session.flush()

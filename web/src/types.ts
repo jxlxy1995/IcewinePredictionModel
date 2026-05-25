@@ -102,6 +102,18 @@ export type RecommendationRecord = {
   profit_units: string | null;
 };
 
+export type MissingTeamDisplayName = {
+  league_id: number;
+  league_name: string;
+  league_display_name?: string;
+  season: number | null;
+  team_id: number;
+  team_name: string;
+  team_logo_url?: string | null;
+  match_count: number;
+  latest_kickoff_time: string | null;
+};
+
 export type DashboardData = {
   summary: DashboardSummary;
   leagues: LeagueCoverage[];
@@ -109,6 +121,7 @@ export type DashboardData = {
   unmatched: UnmatchedMatch[];
   oddsTrends: MatchOddsTrends;
   matchesWithOdds: MatchWithOdds[];
+  missingTeamDisplayNames: MissingTeamDisplayName[];
   recommendationRecords: RecommendationRecord[];
   source: "api" | "mock";
 };

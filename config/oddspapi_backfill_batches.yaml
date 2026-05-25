@@ -1,56 +1,10 @@
 # OddsPapi 历史赔率回填批次配置
-# league_ids 使用 API-Football 联赛 id，后续按批次逐步填入。
-batches:
-  - name: 第一优先级A-北欧新赛季回填
-    season: 2026
-    from_date: 2026-01-01
-    mode: balanced
-    chunk_size: 10
-    request_budget_per_league: 900
-    max_snapshots_per_match: 120
-    max_rounds_per_league: 24
-    stop_after_empty_matches: 8
-    league_ids:
-      - 103  # 挪超 Eliteserien Norway
-      - 113  # 瑞典超 Allsvenskan Sweden
-      - 244  # 芬超 Veikkausliiga Finland
+# league_ids 使用 API-Football 联赛 id。
+#
+# 当前规则：
+# - batches 只放“明确准备立即自动回填”的联赛。
+# - 已完成、仅补漏、待复测联赛不放入 batches，避免误启动后重复扫库和消耗请求。
+# - 待复测联赛必须先通过 1-5 场小样本验证可以写入快照，再重新加入 batches。
 
-  - name: 第一优先级B-主流联赛新回填
-    season: 2025
-    from_date: 2026-01-01
-    mode: balanced
-    chunk_size: 10
-    request_budget_per_league: 900
-    max_snapshots_per_match: 120
-    max_rounds_per_league: 30
-    stop_after_empty_matches: 8
-    league_ids:
-      - 141  # 西乙 Segunda División Spain
-      - 136  # 意乙 Serie B Italy
-      - 94   # 葡超 Primeira Liga Portugal
-      - 88   # 荷甲 Eredivisie Netherlands
+batches: []
 
-  - name: 第一优先级C-英甲荷乙补漏
-    season: 2025
-    from_date: 2026-01-01
-    mode: balanced
-    chunk_size: 10
-    request_budget_per_league: 600
-    max_snapshots_per_match: 120
-    max_rounds_per_league: 12
-    stop_after_empty_matches: 8
-    league_ids:
-      - 41   # 英甲 League One England
-      - 89   # 荷乙 Eerste Divisie Netherlands
-
-# 待复测候选联赛，暂不进入自动回填批次：
-# 2026-05-25 小样本验证结论：
-# - 土超 Süper Lig Turkey id=203：样本 404。
-# - 波兰超 Ekstraklasa Poland id=106：卡在盘口定义请求。
-# - 丹麦超 Superliga Denmark id=119：样本未匹配。
-# - 罗甲 Liga I Romania id=283：本地已有少量成功样本，但本轮复测卡在盘口定义请求。
-# - 俄超 Premier League Russia id=235：本地已有少量成功样本，但本轮复测卡在盘口定义请求。
-# - 瑞典超甲 Superettan Sweden id=114：当前无可处理候选。
-# - 阿甲 Liga Profesional Argentina id=128：当前无可处理候选。
-# - 智利甲 Primera División Chile id=265：当前无可处理候选。
-# 这些联赛需要先通过 1-5 场小样本验证可以写入快照，再重新加入待回填批次。

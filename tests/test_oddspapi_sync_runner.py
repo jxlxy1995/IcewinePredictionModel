@@ -504,7 +504,7 @@ def test_format_oddspapi_probe_report_includes_skip_ids(session):
     assert "outcomes=4" in output
 
 
-def test_select_history_outcome_ids_returns_all_standard_handicap_and_total_outcomes():
+def test_select_history_outcome_ids_returns_main_standard_handicap_and_total_outcomes():
     markets = [
         {
             "marketId": 106,
@@ -554,7 +554,7 @@ def test_select_history_outcome_ids_returns_all_standard_handicap_and_total_outc
 
     outcome_ids = _select_history_outcome_ids(markets)
 
-    assert outcome_ids == ["106", "107", "1010", "1011", "200", "201", "210", "211"]
+    assert outcome_ids == ["210", "211", "1010", "1011"]
 
 
 def test_format_oddspapi_sync_plan_includes_candidate_matches(session):
@@ -591,7 +591,7 @@ def test_run_oddspapi_sync_for_session_matches_fixture_and_stores_odds(session):
     assert result.inserted_snapshot_count == 4
     assert result.asian_handicap_count == 2
     assert result.total_goals_count == 2
-    assert client.request_count == 3
+    assert client.request_count == 6
     assert session.query(HistoricalOddsSnapshot).count() == 4
 
 
@@ -710,8 +710,16 @@ def test_run_oddspapi_sync_for_session_reuses_existing_source_match(session):
     assert [call[0] for call in raw_client.calls] == [
         "markets",
         "historical-odds",
+        "historical-odds",
+        "historical-odds",
+        "historical-odds",
     ]
-    assert raw_client.calls[1][1].get("outcomeId") is None
+    assert [str(call[1].get("outcomeId")) for call in raw_client.calls[1:]] == [
+        "1070",
+        "1071",
+        "10170",
+        "10171",
+    ]
 
 
 def test_run_oddspapi_sync_for_session_reuses_fixture_lookup_for_same_time_window(session):
@@ -951,10 +959,47 @@ def test_run_oddspapi_sync_for_session_continues_after_single_outcome_odds_error
 
     assert result.processed_match_count == 1
     assert result.failed_match_count == 0
-    assert result.inserted_snapshot_count == 4
-    assert result.asian_handicap_count == 2
+    assert result.inserted_snapshot_count == 2
+    assert result.asian_handicap_count == 0
     assert result.total_goals_count == 2
-    assert all("跳过历史赔率" not in message for message in messages)
+    assert any("跳过历史赔率 outcome=1070" in message for message in messages)
+
+
+def test_run_oddspapi_sync_for_session_fetches_history_by_outcome_id(session):
+    match = _match(session)
+    session.add(
+        OddsSourceMatch(
+            match_id=match.id,
+            source_name="oddspapi",
+            source_fixture_id="oddspapi-fixture-1",
+            matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_confidence=Decimal("1.0000"),
+            match_reason="cached",
+        )
+    )
+    session.commit()
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    historical_calls = [
+        params
+        for endpoint, params in raw_client.calls
+        if endpoint == "historical-odds"
+    ]
+    assert result.inserted_snapshot_count == 4
+    assert [str(call.get("outcomeId")) for call in historical_calls] == [
+        "1070",
+        "1071",
+        "10170",
+        "10171",
+    ]
 
 
 def test_run_oddspapi_sync_for_session_stops_gracefully_on_request_budget(session):
@@ -1044,6 +1089,9 @@ def test_run_oddspapi_sync_for_session_skips_requested_match_ids(session):
     assert all("Skipped Home" not in message for message in messages)
     assert [call[0] for call in raw_client.calls] == [
         "markets",
+        "historical-odds",
+        "historical-odds",
+        "historical-odds",
         "historical-odds",
     ]
 

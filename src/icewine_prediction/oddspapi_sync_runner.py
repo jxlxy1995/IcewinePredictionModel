@@ -690,7 +690,29 @@ def _fetch_and_store_historical_odds(
         progress_callback,
         f"  拉取历史赔率 fixture={source_fixture_id}",
     )
-    raw_odds = client.fetch_historical_odds(source_fixture_id)
+    raw_odds_payloads = []
+    outcome_errors = []
+    for outcome_id in _select_history_outcome_ids(market_definitions):
+        try:
+            raw_odds_payloads.append(
+                client.fetch_historical_odds(
+                    source_fixture_id,
+                    outcome_id=outcome_id,
+                )
+            )
+        except OddsPapiApiError as exc:
+            outcome_errors.append(exc)
+            _emit_progress(
+                progress_callback,
+                f"  跳过历史赔率 outcome={outcome_id} error={exc}",
+            )
+            continue
+    if not raw_odds_payloads and outcome_errors:
+        raise outcome_errors[-1]
+    raw_odds = _merge_nested_historical_odds_payloads(
+        raw_odds_payloads,
+        source_fixture_id=source_fixture_id,
+    )
     _emit_progress(progress_callback, f"  写入历史赔率 match_id={match.id}")
     snapshots = map_historical_odds(
         raw_odds,
@@ -721,11 +743,48 @@ def _fetch_and_store_historical_odds(
     )
 
 
+def _merge_nested_historical_odds_payloads(
+    payloads: list[dict[str, Any]],
+    *,
+    source_fixture_id: str,
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {
+        "fixtureId": source_fixture_id,
+        "bookmakers": {},
+    }
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        for bookmaker, bookmaker_payload in (payload.get("bookmakers") or {}).items():
+            merged_bookmaker = merged["bookmakers"].setdefault(str(bookmaker), {"markets": {}})
+            merged_markets = merged_bookmaker.setdefault("markets", {})
+            for market_id, market_payload in (bookmaker_payload.get("markets") or {}).items():
+                merged_market = merged_markets.setdefault(str(market_id), {"outcomes": {}})
+                merged_outcomes = merged_market.setdefault("outcomes", {})
+                merged_outcomes.update(market_payload.get("outcomes") or {})
+    return merged
+
+
 def _select_history_outcome_ids(market_definitions: list[dict[str, Any]]) -> list[str]:
     selected = []
+    markets_by_type = {}
     for market in map_markets(market_definitions):
-        selected.extend(market.outcome_ids)
+        markets_by_type.setdefault(market.market_type, []).append(market)
+    for market_type in ("asian_handicap", "total_goals"):
+        markets = markets_by_type.get(market_type) or []
+        if not markets:
+            continue
+        main_market = min(markets, key=_market_definition_score)
+        selected.extend(main_market.outcome_ids)
     return selected
+
+
+def _market_definition_score(market) -> tuple[Decimal, Decimal]:
+    if market.market_type == "asian_handicap":
+        line_gap = abs(market.line)
+    else:
+        line_gap = abs(market.line - Decimal("2.5"))
+    return line_gap, abs(market.line)
 
 
 def _open_session():

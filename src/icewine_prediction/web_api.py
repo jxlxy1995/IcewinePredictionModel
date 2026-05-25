@@ -12,7 +12,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from icewine_prediction.database import create_database_engine, create_session_factory
-from icewine_prediction.display_service import DisplayNameService
+from icewine_prediction.display_service import (
+    DisplayNameService,
+    load_display_names,
+    save_team_display_names,
+)
 from icewine_prediction.display_translation_status_service import DisplayTranslationStatusService
 from icewine_prediction.models import (
     HistoricalOddsSnapshot,
@@ -32,12 +36,13 @@ def create_web_app(
     process_running_checker: Callable[[int], bool] = _is_process_running,
     display_name_service: DisplayNameService | None = None,
     display_translation_status_service: DisplayTranslationStatusService | None = None,
+    display_names_path: Path = Path("config/display_names.yaml"),
 ) -> FastAPI:
     if session_factory is None:
         engine = create_database_engine()
         session_factory = create_session_factory(engine)
     log_dir = Path(log_dir)
-    display_name_service = display_name_service or DisplayNameService()
+    display_name_service = display_name_service or DisplayNameService(load_display_names(display_names_path))
     display_translation_status_service = (
         display_translation_status_service or DisplayTranslationStatusService()
     )
@@ -107,6 +112,17 @@ def create_web_app(
             "season": season,
             "is_translation_done": True,
         }
+
+    @app.post("/api/display/team-names")
+    def save_display_team_names(payload: dict[str, dict[str, str]]) -> dict[str, int]:
+        team_names = {
+            team_name: display_name.strip()
+            for team_name, display_name in payload.get("teams", {}).items()
+            if display_name.strip()
+        }
+        save_team_display_names(team_names, path=display_names_path)
+        display_name_service.display_names = load_display_names(display_names_path)
+        return {"saved_count": len(team_names)}
 
     @app.get("/api/matches/with-odds")
     def matches_with_odds() -> list[dict[str, Any]]:

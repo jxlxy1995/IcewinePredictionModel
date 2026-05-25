@@ -14,6 +14,7 @@ import {
   loadDashboardData,
   loadMatchOddsTrend,
   markTeamDisplayNameWorkspaceDone,
+  saveTeamDisplayNames,
   loadTeamDisplayNameWorkspace
 } from "../apiClient";
 import { LeagueCoverageTable } from "../components/LeagueCoverageTable";
@@ -98,6 +99,8 @@ export function DashboardPage() {
     null
   );
   const [displayWorkspaceError, setDisplayWorkspaceError] = useState<string | null>(null);
+  const [displayWorkspaceMessage, setDisplayWorkspaceMessage] = useState<string | null>(null);
+  const [teamDisplayDraftNames, setTeamDisplayDraftNames] = useState<Record<string, string>>({});
   const [doneDisplayTranslationKeys, setDoneDisplayTranslationKeys] = useState<Set<string>>(
     new Set(mockDashboardData.doneDisplayTranslationKeys)
   );
@@ -192,9 +195,13 @@ export function DashboardPage() {
             doneKeys={doneDisplayTranslationKeys}
             filterText={displayNameFilter}
             onFilterTextChange={setDisplayNameFilter}
+            draftNames={teamDisplayDraftNames}
+            onDraftNamesChange={setTeamDisplayDraftNames}
             onMarkDone={(leagueId, season) => {
               setDisplayWorkspaceError(null);
-              markTeamDisplayNameWorkspaceDone(leagueId, season)
+              setDisplayWorkspaceMessage(null);
+              saveCurrentTeamDisplayDrafts(teamDisplayDraftNames)
+                .then(() => markTeamDisplayNameWorkspaceDone(leagueId, season))
                 .then(() => {
                   const doneKey = `${leagueId}-${season}`;
                   setDoneDisplayTranslationKeys(new Set([...doneDisplayTranslationKeys, doneKey]));
@@ -203,17 +210,39 @@ export function DashboardPage() {
                       ? { ...current, is_translation_done: true }
                       : current
                   );
+                  setTeamDisplayDraftNames({});
+                  setDisplayWorkspaceMessage("已保存当前填写并标记完成");
                 })
-                .catch(() => setDisplayWorkspaceError("标记中文名校验完成失败"));
+                .catch(() => setDisplayWorkspaceError("保存或标记中文名校验完成失败"));
+            }}
+            onSaveDrafts={() => {
+              setDisplayWorkspaceError(null);
+              setDisplayWorkspaceMessage(null);
+              saveCurrentTeamDisplayDrafts(teamDisplayDraftNames)
+                .then((savedCount) => {
+                  setTeamDisplayDraftNames({});
+                  setDisplayWorkspaceMessage(`已保存 ${savedCount} 个中文名`);
+                  if (teamDisplayWorkspace) {
+                    return loadTeamDisplayNameWorkspace(
+                      teamDisplayWorkspace.league_id,
+                      teamDisplayWorkspace.season
+                    ).then(setTeamDisplayWorkspace);
+                  }
+                  return undefined;
+                })
+                .catch(() => setDisplayWorkspaceError("保存中文名失败"));
             }}
             onWorkspaceChange={(leagueId, season) => {
               setDisplayWorkspaceError(null);
+              setDisplayWorkspaceMessage(null);
+              setTeamDisplayDraftNames({});
               loadTeamDisplayNameWorkspace(leagueId, season)
                 .then(setTeamDisplayWorkspace)
                 .catch(() => setDisplayWorkspaceError("读取球队中文名维护列表失败"));
             }}
             workspace={teamDisplayWorkspace}
             workspaceError={displayWorkspaceError}
+            workspaceMessage={displayWorkspaceMessage}
           />
         )}
         {activeView === "odds" && (
@@ -333,21 +362,29 @@ function UnmatchedView({ data }: { data: DashboardData }) {
 function DisplayNamesView({
   data,
   doneKeys,
+  draftNames,
   filterText,
+  onDraftNamesChange,
   onFilterTextChange,
   onMarkDone,
+  onSaveDrafts,
   onWorkspaceChange,
   workspace,
-  workspaceError
+  workspaceError,
+  workspaceMessage
 }: {
   data: DashboardData;
   doneKeys: Set<string>;
+  draftNames: Record<string, string>;
   filterText: string;
+  onDraftNamesChange: (draftNames: Record<string, string>) => void;
   onFilterTextChange: (value: string) => void;
   onMarkDone: (leagueId: number, season: number) => void;
+  onSaveDrafts: () => void;
   onWorkspaceChange: (leagueId: number, season: number) => void;
   workspace: TeamDisplayNameWorkspace | null;
   workspaceError: string | null;
+  workspaceMessage: string | null;
 }) {
   const workspaceOptions = Array.from(
     new Map(
@@ -408,6 +445,7 @@ function DisplayNamesView({
           />
         </div>
         {workspaceError && <div className="inline-warning">{workspaceError}</div>}
+        {workspaceMessage && <div className="inline-success">{workspaceMessage}</div>}
         {workspace && (
           <div className="match-heading">
             <strong>
@@ -418,6 +456,9 @@ function DisplayNamesView({
         )}
         {workspace && (
           <div className="inline-actions">
+            <button onClick={onSaveDrafts} type="button">
+              保存当前填写
+            </button>
             <button
               disabled={workspace.is_translation_done}
               onClick={() => onMarkDone(workspace.league_id, workspace.season)}
@@ -427,10 +468,23 @@ function DisplayNamesView({
             </button>
           </div>
         )}
-        <TeamDisplayNameEditor teams={visibleTeams} />
+        <TeamDisplayNameEditor
+          draftNames={draftNames}
+          onDraftNamesChange={onDraftNamesChange}
+          teams={visibleTeams}
+        />
       </Panel>
     </section>
   );
+}
+
+function saveCurrentTeamDisplayDrafts(draftNames: Record<string, string>) {
+  const teams = Object.fromEntries(
+    Object.entries(draftNames)
+      .map(([teamName, displayName]) => [teamName, displayName.trim()])
+      .filter(([, displayName]) => displayName.length > 0)
+  );
+  return saveTeamDisplayNames(teams).then((result) => result.saved_count);
 }
 
 function OddsView({

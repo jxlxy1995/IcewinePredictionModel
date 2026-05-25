@@ -1,4 +1,8 @@
-from icewine_prediction.display_service import DisplayNameService, load_display_names
+from icewine_prediction.display_service import (
+    DisplayNameService,
+    load_display_names,
+    save_team_display_names,
+)
 
 
 def test_display_name_service_translates_leagues_and_teams(tmp_path):
@@ -45,3 +49,26 @@ def test_default_display_names_include_mainstream_league_chinese_names():
     assert service.display_league("Liga I") == "罗甲"
     assert service.display_league("Ekstraklasa") == "波兰超"
     assert service.display_league("Primera División") == "智利甲"
+
+
+def test_save_team_display_names_merges_existing_yaml(tmp_path):
+    config_path = tmp_path / "display_names.yaml"
+    config_path.write_text(
+        """
+leagues:
+  Serie A: 意甲
+teams:
+  Inter: 国际米兰
+""",
+        encoding="utf-8",
+    )
+
+    save_team_display_names(
+        {"Inter": "国米", "Fiorentina": "佛罗伦萨"},
+        path=config_path,
+    )
+
+    display_names = load_display_names(config_path)
+    assert display_names.leagues == {"Serie A": "意甲"}
+    assert display_names.teams["Inter"] == "国米"
+    assert display_names.teams["Fiorentina"] == "佛罗伦萨"

@@ -1,14 +1,18 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import type { TeamDisplayNameRow } from "../types";
 
 type TeamDisplayNameEditorProps = {
+  draftNames: Record<string, string>;
+  onDraftNamesChange: (draftNames: Record<string, string>) => void;
   teams: TeamDisplayNameRow[];
 };
 
-export function TeamDisplayNameEditor({ teams }: TeamDisplayNameEditorProps) {
-  const [draftNames, setDraftNames] = useState<Record<string, string>>({});
-
+export function TeamDisplayNameEditor({
+  draftNames,
+  onDraftNamesChange,
+  teams
+}: TeamDisplayNameEditorProps) {
   const yamlSnippet = useMemo(() => {
     const lines = Object.entries(draftNames)
       .map(([teamName, displayName]) => [teamName, displayName.trim()])
@@ -50,7 +54,7 @@ export function TeamDisplayNameEditor({ teams }: TeamDisplayNameEditorProps) {
                 <input
                   className="inline-input"
                   onChange={(event) =>
-                    setDraftNames({ ...draftNames, [item.team_name]: event.target.value })
+                    onDraftNamesChange({ ...draftNames, [item.team_name]: event.target.value })
                   }
                   placeholder={item.is_missing_display_name ? "输入中文名" : "可覆盖当前译名"}
                   value={draftNames[item.team_name] ?? ""}

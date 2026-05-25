@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
 
 from icewine_prediction.database import create_memory_database, create_session_factory, initialize_database
-from icewine_prediction.display_service import DisplayNameService, DisplayNames
+from icewine_prediction.display_service import DisplayNameService, DisplayNames, load_display_names
 from icewine_prediction.display_translation_status_service import DisplayTranslationStatusService
 from icewine_prediction.models import (
     HistoricalOddsSnapshot,
@@ -343,6 +343,33 @@ def test_web_console_api_marks_team_display_name_workspace_done(tmp_path):
     assert response.status_code == 200
     assert response.json() == {"league_id": 1, "season": 2025, "is_translation_done": True}
     assert status_service.is_done(league_id=1, season=2025) is True
+
+
+def test_web_console_api_saves_team_display_names(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    display_names_path = tmp_path / "display_names.yaml"
+    display_names_path.write_text("leagues:\n  英冠: 英冠\nteams: {}\n", encoding="utf-8")
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            display_names_path=display_names_path,
+        )
+    )
+
+    response = client.post(
+        "/api/display/team-names",
+        json={"teams": {"Wolves": "狼队", "Cardiff": "卡迪夫城"}},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"saved_count": 2}
+    display_name_service = DisplayNameService(load_display_names(display_names_path))
+    assert display_name_service.display_team("Wolves") == "狼队"
+    assert display_name_service.display_team("Cardiff") == "卡迪夫城"
 
 
 def test_web_console_api_returns_matches_with_odds(tmp_path):

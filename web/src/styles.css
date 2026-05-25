@@ -425,6 +425,16 @@ th {
   padding: 10px 12px;
 }
 
+.inline-success {
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 6px;
+  color: #166534;
+  font-size: 14px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+}
+
 .empty-state {
   align-items: center;
   background: #f8fafc;

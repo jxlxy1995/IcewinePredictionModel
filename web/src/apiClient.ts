@@ -85,6 +85,12 @@ export async function markTeamDisplayNameWorkspaceDone(
   });
 }
 
+export async function saveTeamDisplayNames(
+  teams: Record<string, string>
+): Promise<{ saved_count: number }> {
+  return postJson("/api/display/team-names", { teams });
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`);
   if (!response.ok) {

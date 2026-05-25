@@ -3,6 +3,7 @@ from decimal import Decimal
 from typer.testing import CliRunner
 
 from icewine_prediction.cli import app, format_baseline_result_evaluation
+from icewine_prediction.dixon_coles_model_service import DixonColesGoalModel
 from icewine_prediction.model_training_service import BaselineResultEvaluation
 
 
@@ -47,3 +48,28 @@ def test_models_train_baseline_command_exists(monkeypatch):
 
     assert result.exit_code == 0
     assert "训练样本 8" in result.stdout
+
+
+def test_models_train_dixon_coles_outputs_parameters(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.list_training_samples",
+        lambda session, limit: ["sample"] * limit,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.train_dixon_coles_goal_model",
+        lambda samples: DixonColesGoalModel(
+            home_expected_goals=Decimal("1.25"),
+            away_expected_goals=Decimal("0.95"),
+            rho=Decimal("-0.1200"),
+        ),
+    )
+
+    result = runner.invoke(app, ["models", "train-dixon-coles", "--limit", "10"])
+
+    assert result.exit_code == 0
+    assert "训练样本 10" in result.stdout
+    assert "主队期望进球 1.25" in result.stdout
+    assert "客队期望进球 0.95" in result.stdout
+    assert "rho -0.1200" in result.stdout
+    assert "主胜" in result.stdout

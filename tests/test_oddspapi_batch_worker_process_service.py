@@ -28,6 +28,8 @@ def test_start_batch_worker_process_writes_status_and_launches_python(monkeypatc
         max_snapshots_per_match=120,
         max_rounds_per_league=2,
         stop_after_empty_matches=8,
+        stop_after_failed_rounds=2,
+        round_timeout_seconds=60,
         log_dir=tmp_path,
         league_ids={"41", "89"},
         from_date="2026-01-15",
@@ -39,6 +41,8 @@ def test_start_batch_worker_process_writes_status_and_launches_python(monkeypatc
     assert "oddspapi-batch-worker" in command
     assert command[command.index("--league-ids") + 1] == "41,89"
     assert command[command.index("--from-date") + 1] == "2026-01-15"
+    assert command[command.index("--stop-after-failed-rounds") + 1] == "2"
+    assert command[command.index("--round-timeout-seconds") + 1] == "60"
     assert "--notify-on-complete" in command
     assert captured["kwargs"]["cwd"] == Path.cwd()
     assert captured["kwargs"]["env"]["PYTHONIOENCODING"] == "utf-8"
@@ -62,6 +66,8 @@ def test_batch_worker_status_reads_current_status_and_log_tail(monkeypatch, tmp_
         max_snapshots_per_match=120,
         max_rounds_per_league=1,
         stop_after_empty_matches=8,
+        stop_after_failed_rounds=2,
+        round_timeout_seconds=60,
         log_dir=tmp_path,
         league_ids={"62"},
         from_date=None,

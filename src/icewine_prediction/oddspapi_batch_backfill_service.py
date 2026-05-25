@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time
 from enum import Enum
@@ -81,6 +81,8 @@ def run_oddspapi_batch_backfill(
     max_snapshots_per_match: int = 120,
     max_rounds_per_league: int = 20,
     stop_after_empty_matches: int = 8,
+    stop_after_failed_rounds: int = 2,
+    round_timeout_seconds: float | None = 90,
     league_ids: set[str] | None = None,
     from_date: date | datetime | None = None,
 ) -> str:
@@ -98,6 +100,8 @@ def run_oddspapi_batch_backfill(
         max_snapshots_per_match=max_snapshots_per_match,
         max_rounds_per_league=max_rounds_per_league,
         stop_after_empty_matches=stop_after_empty_matches,
+        stop_after_failed_rounds=stop_after_failed_rounds,
+        round_timeout_seconds=round_timeout_seconds,
     )
     return format_batch_backfill_report(report)
 
@@ -111,6 +115,8 @@ def run_oddspapi_batch_worker(
     max_snapshots_per_match: int = 120,
     max_rounds_per_league: int = 2,
     stop_after_empty_matches: int = 8,
+    stop_after_failed_rounds: int = 2,
+    round_timeout_seconds: float | None = 90,
     log_dir: str | Path = "logs/odds",
     league_ids: set[str] | None = None,
     from_date: date | datetime | None = None,
@@ -131,6 +137,8 @@ def run_oddspapi_batch_worker(
         max_snapshots_per_match=max_snapshots_per_match,
         max_rounds_per_league=max_rounds_per_league,
         stop_after_empty_matches=stop_after_empty_matches,
+        stop_after_failed_rounds=stop_after_failed_rounds,
+        round_timeout_seconds=round_timeout_seconds,
         log_dir=Path(log_dir),
         notify_on_complete=notify_on_complete,
         notification_callback=notify_local_completion,
@@ -175,6 +183,8 @@ def run_oddspapi_batch_backfill_with_runner(
     max_snapshots_per_match: int,
     max_rounds_per_league: int,
     stop_after_empty_matches: int,
+    stop_after_failed_rounds: int = 2,
+    round_timeout_seconds: float | None = 90,
 ) -> BatchBackfillReport:
     worker_count = min(_worker_count_for_mode(mode), max(len(jobs), 1))
     return _run_batch_backfill(
@@ -189,6 +199,8 @@ def run_oddspapi_batch_backfill_with_runner(
         max_snapshots_per_match=max_snapshots_per_match,
         max_rounds_per_league=max_rounds_per_league,
         stop_after_empty_matches=stop_after_empty_matches,
+        stop_after_failed_rounds=stop_after_failed_rounds,
+        round_timeout_seconds=round_timeout_seconds,
         worker_count=worker_count,
         progress_callback=None,
     )
@@ -207,6 +219,8 @@ def run_oddspapi_batch_worker_with_runner(
     max_snapshots_per_match: int,
     max_rounds_per_league: int,
     stop_after_empty_matches: int,
+    stop_after_failed_rounds: int = 2,
+    round_timeout_seconds: float | None = 90,
     log_dir: Path,
     notify_on_complete: bool = False,
     notification_callback: Callable[[str, str], bool] | None = None,
@@ -232,6 +246,8 @@ def run_oddspapi_batch_worker_with_runner(
         max_snapshots_per_match=max_snapshots_per_match,
         max_rounds_per_league=max_rounds_per_league,
         stop_after_empty_matches=stop_after_empty_matches,
+        stop_after_failed_rounds=stop_after_failed_rounds,
+        round_timeout_seconds=round_timeout_seconds,
         worker_count=worker_count,
         progress_callback=logger.write,
     )
@@ -288,6 +304,8 @@ def _run_batch_backfill(
     max_snapshots_per_match: int,
     max_rounds_per_league: int,
     stop_after_empty_matches: int,
+    stop_after_failed_rounds: int,
+    round_timeout_seconds: float | None,
     worker_count: int,
     progress_callback: Callable[[str], None] | None,
 ) -> BatchBackfillReport:
@@ -307,6 +325,8 @@ def _run_batch_backfill(
                 max_snapshots_per_match=max_snapshots_per_match,
                 max_rounds_per_league=max_rounds_per_league,
                 stop_after_empty_matches=stop_after_empty_matches,
+                stop_after_failed_rounds=stop_after_failed_rounds,
+                round_timeout_seconds=round_timeout_seconds,
                 progress_callback=progress_callback,
             )
             for job in jobs
@@ -333,24 +353,32 @@ def _run_league_backfill(
     max_snapshots_per_match: int,
     max_rounds_per_league: int,
     stop_after_empty_matches: int,
+    stop_after_failed_rounds: int,
+    round_timeout_seconds: float | None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> LeagueBackfillReport:
     totals = _MutableLeagueTotals()
     consecutive_empty_matches = 0
+    consecutive_failed_rounds = 0
     stop_reason = "达到联赛轮次上限"
     status = "stopped"
     for round_index in range(1, max_rounds_per_league + 1):
-        result = runner(
-            season=season,
-            max_matches=chunk_size,
-            request_budget=request_budget_per_league,
-            timeout_seconds=timeout_seconds,
-            max_snapshots_per_match=max_snapshots_per_match,
-            league_ids={job.league_id},
-            from_date=from_date,
-            historical_odds_cooldown_seconds=5,
-            progress_callback=None,
-        )
+        try:
+            result = _run_round_with_timeout(
+                runner=runner,
+                timeout_seconds=round_timeout_seconds,
+                season=season,
+                max_matches=chunk_size,
+                request_budget=request_budget_per_league,
+                request_timeout_seconds=timeout_seconds,
+                max_snapshots_per_match=max_snapshots_per_match,
+                league_id=job.league_id,
+                from_date=from_date,
+            )
+        except TimeoutError:
+            stop_reason = f"单轮回填超时 {round_timeout_seconds} 秒"
+            status = "stopped"
+            break
         totals.add(result)
         _emit_worker_progress(progress_callback, job, round_index, result)
         if result.error_message and "budget" in result.error_message.lower():
@@ -360,6 +388,14 @@ def _run_league_backfill(
         if _made_no_progress(result):
             stop_reason = "无候选或无进展"
             status = "done"
+            break
+        if _failed_round(result):
+            consecutive_failed_rounds += 1
+        else:
+            consecutive_failed_rounds = 0
+        if consecutive_failed_rounds >= stop_after_failed_rounds:
+            stop_reason = "连续失败轮次达到阈值"
+            status = "stopped"
             break
         if result.inserted_snapshot_count == 0:
             consecutive_empty_matches += result.processed_match_count
@@ -385,6 +421,42 @@ def _run_league_backfill(
         requests_used=totals.requests_used,
         stop_reason=stop_reason,
     )
+
+
+def _run_round_with_timeout(
+    *,
+    runner: OddsPapiSyncRunner,
+    timeout_seconds: float | None,
+    season: int,
+    max_matches: int,
+    request_budget: int,
+    request_timeout_seconds: int,
+    max_snapshots_per_match: int,
+    league_id: str,
+    from_date: datetime | None,
+) -> OddsPapiSyncResult:
+    kwargs = {
+        "season": season,
+        "max_matches": max_matches,
+        "request_budget": request_budget,
+        "timeout_seconds": request_timeout_seconds,
+        "max_snapshots_per_match": max_snapshots_per_match,
+        "league_ids": {league_id},
+        "from_date": from_date,
+        "historical_odds_cooldown_seconds": 5,
+        "progress_callback": None,
+    }
+    if timeout_seconds is None or timeout_seconds <= 0:
+        return runner(**kwargs)
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(runner, **kwargs)
+    try:
+        result = future.result(timeout=timeout_seconds)
+    except TimeoutError:
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    executor.shutdown(wait=True)
+    return result
 
 
 @dataclass
@@ -418,6 +490,14 @@ def _made_no_progress(result: OddsPapiSyncResult) -> bool:
         result.processed_match_count == 0
         and result.failed_match_count == 0
         and result.inserted_snapshot_count == 0
+    )
+
+
+def _failed_round(result: OddsPapiSyncResult) -> bool:
+    return (
+        result.inserted_snapshot_count == 0
+        and result.processed_match_count == 0
+        and result.failed_match_count > 0
     )
 
 

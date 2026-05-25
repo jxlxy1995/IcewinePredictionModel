@@ -37,6 +37,8 @@ def start_oddspapi_batch_worker_process(
     max_snapshots_per_match: int,
     max_rounds_per_league: int,
     stop_after_empty_matches: int,
+    stop_after_failed_rounds: int,
+    round_timeout_seconds: float,
     log_dir: str | Path,
     league_ids: set[str] | None,
     from_date: str | None,
@@ -57,6 +59,8 @@ def start_oddspapi_batch_worker_process(
         max_snapshots_per_match=max_snapshots_per_match,
         max_rounds_per_league=max_rounds_per_league,
         stop_after_empty_matches=stop_after_empty_matches,
+        stop_after_failed_rounds=stop_after_failed_rounds,
+        round_timeout_seconds=round_timeout_seconds,
         log_dir=log_dir,
         league_ids=league_ids,
         from_date=from_date,
@@ -88,6 +92,8 @@ def start_oddspapi_batch_worker_process(
         "league_ids": sorted(league_ids or []),
         "from_date": from_date,
         "notify_on_complete": notify_on_complete,
+        "stop_after_failed_rounds": stop_after_failed_rounds,
+        "round_timeout_seconds": round_timeout_seconds,
     }
     status_path.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
     return WorkerStartResult(
@@ -135,6 +141,8 @@ def _build_worker_command(
     max_snapshots_per_match: int,
     max_rounds_per_league: int,
     stop_after_empty_matches: int,
+    stop_after_failed_rounds: int,
+    round_timeout_seconds: float,
     log_dir: Path,
     league_ids: set[str] | None,
     from_date: str | None,
@@ -162,6 +170,10 @@ def _build_worker_command(
         str(max_rounds_per_league),
         "--stop-after-empty-matches",
         str(stop_after_empty_matches),
+        "--stop-after-failed-rounds",
+        str(stop_after_failed_rounds),
+        "--round-timeout-seconds",
+        str(round_timeout_seconds),
         "--log-dir",
         str(log_dir),
     ]

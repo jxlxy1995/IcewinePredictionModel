@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import date
 import os
+import time
 
 from icewine_prediction.oddspapi_batch_backfill_service import (
     BatchBackfillMode,
@@ -114,6 +115,82 @@ def test_batch_backfill_stops_league_when_round_makes_no_progress():
     assert report.league_reports[0].round_count == 1
     assert report.league_reports[0].status == "done"
     assert report.league_reports[0].stop_reason == "无候选或无进展"
+
+
+def test_batch_backfill_stops_league_when_round_times_out():
+    def slow_runner(**kwargs):
+        time.sleep(0.2)
+        return OddsPapiSyncResult(
+            processed_match_count=1,
+            matched_count=1,
+            failed_match_count=0,
+            inserted_snapshot_count=100,
+            skipped_duplicate_snapshot_count=0,
+            skipped_existing_odds_count=0,
+            asian_handicap_count=50,
+            total_goals_count=50,
+            requests_used=3,
+        )
+
+    started_at = time.monotonic()
+    report = run_oddspapi_batch_backfill_with_runner(
+        jobs=(LeagueBackfillJob("62", "Ligue 2", 84),),
+        runner=slow_runner,
+        season=2025,
+        from_date=date(2026, 1, 15),
+        mode=BatchBackfillMode.SAFE,
+        chunk_size=1,
+        request_budget_per_league=100,
+        timeout_seconds=20,
+        max_snapshots_per_match=120,
+        max_rounds_per_league=3,
+        stop_after_empty_matches=8,
+        round_timeout_seconds=0.05,
+    )
+
+    assert time.monotonic() - started_at < 0.15
+    assert report.league_reports[0].round_count == 0
+    assert report.league_reports[0].status == "stopped"
+    assert "超时" in report.league_reports[0].stop_reason
+
+
+def test_batch_backfill_stops_league_after_consecutive_failed_rounds():
+    calls = []
+
+    def failing_runner(**kwargs):
+        calls.append(kwargs)
+        return OddsPapiSyncResult(
+            processed_match_count=0,
+            matched_count=0,
+            failed_match_count=3,
+            inserted_snapshot_count=0,
+            skipped_duplicate_snapshot_count=0,
+            skipped_existing_odds_count=0,
+            asian_handicap_count=0,
+            total_goals_count=0,
+            requests_used=3,
+            error_message="3 场比赛失败，已跳过继续",
+        )
+
+    report = run_oddspapi_batch_backfill_with_runner(
+        jobs=(LeagueBackfillJob("62", "Ligue 2", 84),),
+        runner=failing_runner,
+        season=2025,
+        from_date=date(2026, 1, 15),
+        mode=BatchBackfillMode.SAFE,
+        chunk_size=3,
+        request_budget_per_league=100,
+        timeout_seconds=20,
+        max_snapshots_per_match=120,
+        max_rounds_per_league=10,
+        stop_after_empty_matches=8,
+        stop_after_failed_rounds=2,
+    )
+
+    assert len(calls) == 2
+    assert report.league_reports[0].round_count == 2
+    assert report.league_reports[0].status == "stopped"
+    assert "连续失败" in report.league_reports[0].stop_reason
 
 
 def test_batch_backfill_balanced_mode_reports_two_workers_and_multiple_leagues():

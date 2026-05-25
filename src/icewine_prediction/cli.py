@@ -720,7 +720,7 @@ def odds_source_oddspapi_fetch(
     league_ids: str = typer.Option("", "--league-ids"),
     from_date: str | None = typer.Option(None, "--from-date"),
     historical_odds_cooldown_seconds: float = typer.Option(
-        5,
+        6,
         "--historical-odds-cooldown-seconds",
     ),
 ):

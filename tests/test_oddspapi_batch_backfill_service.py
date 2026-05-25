@@ -229,7 +229,7 @@ def test_batch_backfill_balanced_mode_reports_two_workers_and_multiple_leagues()
 
     assert report.worker_count == 2
     assert sorted(call["league_ids"] for call in calls) == [{"39"}, {"62"}]
-    assert all(call["historical_odds_cooldown_seconds"] == 5 for call in calls)
+    assert all(call["historical_odds_cooldown_seconds"] == 6 for call in calls)
 
 
 def test_batch_backfill_passes_skip_match_ids_to_runner():

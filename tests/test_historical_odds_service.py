@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from icewine_prediction.historical_odds_service import (
     HistoricalOddsSnapshotInput,
     build_historical_odds_coverage_report,
+    sample_oddspapi_training_snapshots,
     sample_historical_odds_snapshots,
     store_historical_odds_snapshots,
 )
@@ -245,3 +246,71 @@ def test_sample_historical_odds_snapshots_preserves_main_market_pairs():
 
     assert len(sampled) == 50
     assert set(counts_by_time.values()) == {2}
+
+
+def test_sample_oddspapi_training_snapshots_prefers_24_hour_100_snapshot_target():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    snapshots = []
+    for market_type, outcome_sides in [
+        ("asian_handicap", ["home", "away"]),
+        ("total_goals", ["over", "under"]),
+    ]:
+        for index in range(80):
+            snapshot_time = kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=index * 10)
+            for outcome_side in outcome_sides:
+                snapshots.append(
+                    replace(
+                        _snapshot(match_id),
+                        market_type=market_type,
+                        outcome_side=outcome_side,
+                        snapshot_time=snapshot_time,
+                    )
+                )
+
+    sampled = sample_oddspapi_training_snapshots(snapshots, kickoff_time=kickoff_time)
+
+    counts_by_market_type = {}
+    for snapshot in sampled:
+        counts_by_market_type[snapshot.market_type] = (
+            counts_by_market_type.get(snapshot.market_type, 0) + 1
+        )
+        assert kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(hours=24) <= snapshot.snapshot_time
+        assert snapshot.snapshot_time <= kickoff_time.astimezone(ZoneInfo("UTC"))
+
+    assert len(sampled) == 100
+    assert counts_by_market_type == {
+        "asian_handicap": 50,
+        "total_goals": 50,
+    }
+
+
+def test_sample_oddspapi_training_snapshots_accepts_4_hour_30_snapshot_floor():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    snapshots = []
+    for market_type, outcome_sides in [
+        ("asian_handicap", ["home", "away"]),
+        ("total_goals", ["over", "under"]),
+    ]:
+        for index in range(20):
+            snapshot_time = kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=index * 10)
+            for outcome_side in outcome_sides:
+                snapshots.append(
+                    replace(
+                        _snapshot(match_id),
+                        market_type=market_type,
+                        outcome_side=outcome_side,
+                        snapshot_time=snapshot_time,
+                    )
+                )
+
+    sampled = sample_oddspapi_training_snapshots(snapshots, kickoff_time=kickoff_time)
+
+    assert len(sampled) == 30
+    assert all(
+        kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(hours=4)
+        <= snapshot.snapshot_time
+        <= kickoff_time.astimezone(ZoneInfo("UTC"))
+        for snapshot in sampled
+    )

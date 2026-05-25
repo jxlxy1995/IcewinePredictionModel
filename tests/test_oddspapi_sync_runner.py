@@ -11,6 +11,8 @@ from icewine_prediction.models import (
     Team,
 )
 from icewine_prediction.oddspapi_sync_runner import (
+    GLOBAL_MARKET_DEFINITIONS_CACHE,
+    OddsPapiRequestLimiter,
     OddsPapiSyncClient,
     build_oddspapi_match_report,
     build_oddspapi_match_report_for_session,
@@ -1002,6 +1004,77 @@ def test_run_oddspapi_sync_for_session_fetches_history_by_outcome_id(session):
     ]
 
 
+def test_run_oddspapi_sync_for_session_reuses_market_definitions_for_multiple_matches(session):
+    GLOBAL_MARKET_DEFINITIONS_CACHE.clear()
+    first = _match(
+        session,
+        source_match_id="first",
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+    second_home = Team(canonical_name="Second Home")
+    second_away = Team(canonical_name="Second Away")
+    session.add_all([second_home, second_away])
+    session.flush()
+    second = Match(
+        league=first.league,
+        home_team=second_home,
+        away_team=second_away,
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        season=2025,
+        status="finished",
+        home_score=1,
+        away_score=1,
+        source_name="api_football",
+        source_match_id="second",
+    )
+    session.add(second)
+    session.flush()
+    for match in [first, second]:
+        session.add(
+            OddsSourceMatch(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id=f"oddspapi-fixture-{match.source_match_id}",
+                matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                match_confidence=Decimal("1.0000"),
+                match_reason="cached",
+            )
+        )
+    session.commit()
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    market_calls = [
+        params
+        for endpoint, params in raw_client.calls
+        if endpoint == "markets"
+    ]
+    assert result.processed_match_count == 2
+    assert result.inserted_snapshot_count == 8
+    assert len(market_calls) == 1
+
+
+def test_oddspapi_sync_client_reuses_global_market_definitions_cache():
+    GLOBAL_MARKET_DEFINITIONS_CACHE.clear()
+    first_raw_client = FakeOddsPapiClient()
+    second_raw_client = FakeOddsPapiClient()
+    first_client = OddsPapiSyncClient(first_raw_client)
+    second_client = OddsPapiSyncClient(second_raw_client)
+
+    first_client.fetch_markets("oddspapi-fixture-1")
+    second_client.fetch_markets("oddspapi-fixture-2")
+
+    assert [call[0] for call in first_raw_client.calls] == ["markets"]
+    assert second_raw_client.calls == []
+
+
 def test_run_oddspapi_sync_for_session_stops_gracefully_on_request_budget(session):
     _match(session)
     raw_client = FakeOddsPapiClient()
@@ -1171,6 +1244,23 @@ def test_oddspapi_sync_client_respects_historical_odds_cooldown(monkeypatch):
 
     client.fetch_historical_odds(source_fixture_id="oddspapi-fixture-1", outcome_id="1070")
     client.fetch_historical_odds(source_fixture_id="oddspapi-fixture-1", outcome_id="1071")
+
+    assert sleeps == [4.0]
+
+
+def test_oddspapi_sync_client_can_share_historical_odds_limiter(monkeypatch):
+    first_raw_client = FakeOddsPapiClient()
+    second_raw_client = FakeOddsPapiClient()
+    limiter = OddsPapiRequestLimiter(cooldown_seconds=5)
+    first_client = OddsPapiSyncClient(first_raw_client, historical_odds_limiter=limiter)
+    second_client = OddsPapiSyncClient(second_raw_client, historical_odds_limiter=limiter)
+    now_values = iter([100.0, 100.0, 100.0, 101.0, 105.0, 105.0])
+    sleeps = []
+    monkeypatch.setattr(oddspapi_sync_runner.time, "monotonic", lambda: next(now_values))
+    monkeypatch.setattr(oddspapi_sync_runner.time, "sleep", sleeps.append)
+
+    first_client.fetch_historical_odds(source_fixture_id="oddspapi-fixture-1", outcome_id="1070")
+    second_client.fetch_historical_odds(source_fixture_id="oddspapi-fixture-1", outcome_id="1071")
 
     assert sleeps == [4.0]
 

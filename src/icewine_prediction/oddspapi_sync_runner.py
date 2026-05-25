@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time, timedelta
 from decimal import Decimal
+from threading import Lock
 import time
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -125,16 +126,44 @@ class HistoricalOddsStoreSummary:
     total_goals_count: int
 
 
+class OddsPapiRequestLimiter:
+    def __init__(self, cooldown_seconds: float = 0) -> None:
+        self.cooldown_seconds = cooldown_seconds
+        self._last_request_at = 0.0
+        self._lock = Lock()
+
+    def set_cooldown(self, cooldown_seconds: float) -> None:
+        with self._lock:
+            self.cooldown_seconds = cooldown_seconds
+
+    def wait(self) -> None:
+        if self.cooldown_seconds <= 0:
+            return
+        with self._lock:
+            elapsed = time.monotonic() - self._last_request_at
+            if self._last_request_at > 0 and elapsed < self.cooldown_seconds:
+                time.sleep(self.cooldown_seconds - elapsed)
+            self._last_request_at = time.monotonic()
+
+
+GLOBAL_HISTORICAL_ODDS_LIMITER = OddsPapiRequestLimiter()
+GLOBAL_MARKET_DEFINITIONS_CACHE: dict[tuple[int, str], list[dict[str, Any]]] = {}
+GLOBAL_MARKET_DEFINITIONS_CACHE_LOCK = Lock()
+
+
 class OddsPapiSyncClient:
     def __init__(
         self,
         client: OddsPapiClient,
         historical_odds_cooldown_seconds: float = 0,
+        historical_odds_limiter: OddsPapiRequestLimiter | None = None,
     ):
         self.client = client
         self._last_fixture_request_at = 0.0
         self._last_historical_odds_request_at = 0.0
         self.historical_odds_cooldown_seconds = historical_odds_cooldown_seconds
+        self.historical_odds_limiter = historical_odds_limiter
+        self._market_definitions_cache: list[dict[str, Any]] | None = None
 
     @property
     def request_count(self) -> int:
@@ -182,7 +211,15 @@ class OddsPapiSyncClient:
             self._last_historical_odds_request_at = time.monotonic()
 
     def fetch_markets(self, source_fixture_id: str) -> list[dict[str, Any]]:
-        return self.client.get(
+        if self._market_definitions_cache is not None:
+            return self._market_definitions_cache
+        cache_key = (SOCCER_SPORT_ID, SELECTED_BOOKMAKERS)
+        with GLOBAL_MARKET_DEFINITIONS_CACHE_LOCK:
+            cached_markets = GLOBAL_MARKET_DEFINITIONS_CACHE.get(cache_key)
+        if cached_markets is not None:
+            self._market_definitions_cache = cached_markets
+            return cached_markets
+        market_definitions = self.client.get(
             "markets",
             {
                 "sportId": SOCCER_SPORT_ID,
@@ -190,6 +227,23 @@ class OddsPapiSyncClient:
                 "bookmakers": SELECTED_BOOKMAKERS,
             },
         )
+        with GLOBAL_MARKET_DEFINITIONS_CACHE_LOCK:
+            cached_markets = GLOBAL_MARKET_DEFINITIONS_CACHE.setdefault(
+                cache_key,
+                market_definitions,
+            )
+        self._market_definitions_cache = cached_markets
+        return cached_markets
+
+    def clear_market_definitions_cache(self) -> None:
+        self._market_definitions_cache = None
+
+    def has_market_definitions_cache(self) -> bool:
+        if self._market_definitions_cache is not None:
+            return True
+        cache_key = (SOCCER_SPORT_ID, SELECTED_BOOKMAKERS)
+        with GLOBAL_MARKET_DEFINITIONS_CACHE_LOCK:
+            return cache_key in GLOBAL_MARKET_DEFINITIONS_CACHE
 
     def _respect_fixture_cooldown(self) -> None:
         elapsed = time.monotonic() - self._last_fixture_request_at
@@ -197,6 +251,9 @@ class OddsPapiSyncClient:
             time.sleep(2 - elapsed)
 
     def _respect_historical_odds_cooldown(self) -> None:
+        if self.historical_odds_limiter is not None:
+            self.historical_odds_limiter.wait()
+            return
         elapsed = time.monotonic() - self._last_historical_odds_request_at
         cooldown = self.historical_odds_cooldown_seconds
         if self._last_historical_odds_request_at > 0 and elapsed < cooldown:
@@ -229,10 +286,11 @@ def run_oddspapi_sync(
     skip_match_ids: set[int] | None = None,
     league_ids: set[str] | None = None,
     from_date: datetime | None = None,
-    historical_odds_cooldown_seconds: float = 5,
+    historical_odds_cooldown_seconds: float = 6,
     progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     settings = load_project_settings()
+    GLOBAL_HISTORICAL_ODDS_LIMITER.set_cooldown(historical_odds_cooldown_seconds)
     raw_client = OddsPapiClient(
         base_url=ODDSPAPI_BASE_URL,
         api_key=settings.odds_papi_key,
@@ -242,6 +300,7 @@ def run_oddspapi_sync(
     client = OddsPapiSyncClient(
         raw_client,
         historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
+        historical_odds_limiter=GLOBAL_HISTORICAL_ODDS_LIMITER,
     )
     with _open_session() as session:
         result = run_oddspapi_sync_for_session(
@@ -267,10 +326,11 @@ def run_oddspapi_sync_result(
     skip_match_ids: set[int] | None = None,
     league_ids: set[str] | None = None,
     from_date: datetime | None = None,
-    historical_odds_cooldown_seconds: float = 5,
+    historical_odds_cooldown_seconds: float = 6,
     progress_callback: Callable[[str], None] | None = None,
 ) -> OddsPapiSyncResult:
     settings = load_project_settings()
+    GLOBAL_HISTORICAL_ODDS_LIMITER.set_cooldown(historical_odds_cooldown_seconds)
     raw_client = OddsPapiClient(
         base_url=ODDSPAPI_BASE_URL,
         api_key=settings.odds_papi_key,
@@ -280,6 +340,7 @@ def run_oddspapi_sync_result(
     client = OddsPapiSyncClient(
         raw_client,
         historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
+        historical_odds_limiter=GLOBAL_HISTORICAL_ODDS_LIMITER,
     )
     with _open_session() as session:
         return run_oddspapi_sync_for_session(
@@ -684,7 +745,10 @@ def _fetch_and_store_historical_odds(
     max_snapshots_per_match: int,
     progress_callback: Callable[[str], None] | None = None,
 ) -> HistoricalOddsStoreSummary:
-    _emit_progress(progress_callback, f"  拉取盘口定义 fixture={source_fixture_id}")
+    if client.has_market_definitions_cache():
+        _emit_progress(progress_callback, f"  复用盘口定义缓存 fixture={source_fixture_id}")
+    else:
+        _emit_progress(progress_callback, f"  拉取盘口定义 fixture={source_fixture_id}")
     market_definitions = client.fetch_markets(source_fixture_id)
     _emit_progress(
         progress_callback,
@@ -730,6 +794,7 @@ def _fetch_and_store_historical_odds(
         max_snapshots_per_match=max_snapshots_per_match,
         kickoff_time=match.kickoff_time,
         max_snapshots_per_market_type=50,
+        use_oddspapi_training_sampler=True,
     )
     return HistoricalOddsStoreSummary(
         inserted_count=store_result.inserted_count,

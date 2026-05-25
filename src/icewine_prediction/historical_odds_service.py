@@ -78,6 +78,39 @@ def sample_historical_odds_snapshots(
     return _sample_snapshot_group(sampled, max_snapshots_per_match)
 
 
+def sample_oddspapi_training_snapshots(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    kickoff_time: datetime,
+    max_snapshots_per_match: int | None = None,
+    target_snapshots_per_market_type: int = 50,
+    fallback_window_hours: int = 4,
+    fallback_min_snapshots: int = 30,
+) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    if max_snapshots_per_match is not None and max_snapshots_per_match < fallback_min_snapshots:
+        return sample_historical_odds_snapshots(
+            snapshots,
+            max_snapshots_per_match=max_snapshots_per_match,
+            kickoff_time=kickoff_time,
+        )
+    primary = sample_historical_odds_snapshots(
+        snapshots,
+        max_snapshots_per_match=target_snapshots_per_market_type * 2,
+        kickoff_time=kickoff_time,
+        max_snapshots_per_market_type=target_snapshots_per_market_type,
+    )
+    target_snapshot_count = target_snapshots_per_market_type * 2
+    if len(primary) >= target_snapshot_count:
+        return primary
+    kickoff_utc = _as_utc(kickoff_time)
+    fallback_start = kickoff_utc - timedelta(hours=fallback_window_hours)
+    fallback_candidates = [
+        snapshot
+        for snapshot in snapshots
+        if fallback_start <= _as_utc(snapshot.snapshot_time) <= kickoff_utc
+    ]
+    return _sample_snapshot_group(fallback_candidates, fallback_min_snapshots)
+
+
 def _sample_snapshot_group(
     snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
     limit: int,
@@ -187,13 +220,21 @@ def store_historical_odds_snapshots(
     max_snapshots_per_match: int = 200,
     kickoff_time: datetime | None = None,
     max_snapshots_per_market_type: int | None = None,
+    use_oddspapi_training_sampler: bool = False,
 ) -> HistoricalOddsStoreResult:
-    snapshots = sample_historical_odds_snapshots(
-        snapshots,
-        max_snapshots_per_match=max_snapshots_per_match,
-        kickoff_time=kickoff_time,
-        max_snapshots_per_market_type=max_snapshots_per_market_type,
-    )
+    if use_oddspapi_training_sampler and kickoff_time is not None:
+        snapshots = sample_oddspapi_training_snapshots(
+            snapshots,
+            kickoff_time=kickoff_time,
+            max_snapshots_per_match=max_snapshots_per_match,
+        )
+    else:
+        snapshots = sample_historical_odds_snapshots(
+            snapshots,
+            max_snapshots_per_match=max_snapshots_per_match,
+            kickoff_time=kickoff_time,
+            max_snapshots_per_market_type=max_snapshots_per_market_type,
+        )
     return _store_sampled_historical_odds_snapshots(session, snapshots)
 
 

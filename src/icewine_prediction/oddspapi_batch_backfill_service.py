@@ -488,7 +488,7 @@ def _run_round_with_timeout(
         "league_ids": {league_id},
         "from_date": from_date,
         "skip_match_ids": skip_match_ids,
-        "historical_odds_cooldown_seconds": 5,
+        "historical_odds_cooldown_seconds": 6,
         "progress_callback": None,
     }
     if timeout_seconds is None or timeout_seconds <= 0:

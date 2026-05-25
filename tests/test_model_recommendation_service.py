@@ -2,6 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+from icewine_prediction.dixon_coles_model_service import DixonColesGoalModel
 from icewine_prediction.feature_service import MatchOddsFeatures, OddsMarketAggregate
 from icewine_prediction.model_training_service import (
     BaselineResultModel,
@@ -158,3 +159,26 @@ def test_model_recommendations_can_use_league_specific_model():
     )
 
     assert recommendations[0].side == "home"
+
+
+def test_model_recommendations_use_dixon_coles_score_distribution():
+    baseline_recommendations = build_model_recommendations_from_features(
+        features=_features(),
+        model=BaselineResultModel(
+            home_expected_goals=Decimal("1.20"),
+            away_expected_goals=Decimal("0.90"),
+        ),
+    )
+    dixon_coles_recommendations = build_model_recommendations_from_features(
+        features=_features(),
+        model=DixonColesGoalModel(
+            home_expected_goals=Decimal("1.20"),
+            away_expected_goals=Decimal("0.90"),
+            rho=Decimal("-0.2000"),
+        ),
+    )
+
+    assert (
+        dixon_coles_recommendations[1].model_probability
+        != baseline_recommendations[1].model_probability
+    )

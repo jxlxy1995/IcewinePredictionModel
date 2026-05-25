@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 import typer
 from sqlalchemy import text
@@ -8,6 +9,12 @@ from icewine_prediction.database import (
     create_database_engine,
     create_session_factory,
     initialize_database,
+)
+from icewine_prediction.dixon_coles_model_service import (
+    DixonColesAttackDefenseModel,
+    DixonColesGoalModel,
+    train_dixon_coles_attack_defense_model,
+    train_dixon_coles_goal_model,
 )
 from icewine_prediction.display_service import DisplayNameService
 from icewine_prediction.feature_service import MatchOddsFeatures, list_upcoming_match_odds_features
@@ -29,9 +36,11 @@ from icewine_prediction.match_query_service import list_upcoming_matches
 from icewine_prediction.model_training_service import (
     BaselineResultEvaluation,
     evaluate_baseline_result_model,
-    train_baseline_result_model,
     train_league_team_strength_goal_model,
-    train_team_strength_goal_model,
+)
+from icewine_prediction.negative_binomial_model_service import (
+    NegativeBinomialTotalGoalsModel,
+    train_negative_binomial_total_goals_model,
 )
 from icewine_prediction.oddspapi_batch_backfill_service import (
     run_oddspapi_batch_backfill,
@@ -66,6 +75,7 @@ from icewine_prediction.sample_report_service import (
     build_training_sample_report,
 )
 from icewine_prediction.settings import load_project_settings
+from icewine_prediction.skellam_model_service import SkellamMarginModel
 from icewine_prediction.sync_runner import (
     build_history_backfill_plan,
     run_history_backfill,
@@ -453,6 +463,82 @@ def format_baseline_result_evaluation(evaluation: BaselineResultEvaluation) -> s
             f"客队期望进球 {evaluation.away_expected_goals}",
             f"准确率 {evaluation.accuracy}",
             f"log loss {evaluation.average_log_loss}",
+        ]
+    )
+
+
+def format_dixon_coles_model(model: DixonColesGoalModel, sample_count: int) -> str:
+    prediction = model.predict_goal_distribution()
+    return "\n".join(
+        [
+            f"训练样本 {sample_count}",
+            f"主队期望进球 {model.home_expected_goals}",
+            f"客队期望进球 {model.away_expected_goals}",
+            f"rho {model.rho}",
+            f"主胜 {prediction.home_win_probability}",
+            f"平局 {prediction.draw_probability}",
+            f"客胜 {prediction.away_win_probability}",
+        ]
+    )
+
+
+def format_dixon_coles_attack_defense_model(
+    model: DixonColesAttackDefenseModel,
+    sample_count: int,
+) -> str:
+    return "\n".join(
+        [
+            f"训练样本 {sample_count}",
+            f"球队数 {model.team_count}",
+            f"主队基础期望进球 {model.home_base_expected_goals}",
+            f"客队基础期望进球 {model.away_base_expected_goals}",
+            f"主场优势 {model.home_advantage}",
+            f"rho {model.rho}",
+        ]
+    )
+
+
+def format_skellam_handicap_probability(
+    model: SkellamMarginModel,
+    line: Decimal,
+) -> str:
+    probability = model.asian_handicap_probability(line)
+    return "\n".join(
+        [
+            f"主队期望进球 {model.home_expected_goals}",
+            f"客队期望进球 {model.away_expected_goals}",
+            f"盘口 {probability.line}",
+            f"主队覆盖概率 {probability.home_cover_probability}",
+            f"客队覆盖概率 {probability.away_cover_probability}",
+        ]
+    )
+
+
+def format_negative_binomial_total_model(
+    model: NegativeBinomialTotalGoalsModel,
+    sample_count: int,
+) -> str:
+    return "\n".join(
+        [
+            f"训练样本 {sample_count}",
+            f"总进球均值 {model.mean_goals}",
+            f"离散度 {model.dispersion}",
+        ]
+    )
+
+
+def format_negative_binomial_total_probability(
+    model: NegativeBinomialTotalGoalsModel,
+    line: Decimal,
+) -> str:
+    probability = model.total_goals_probability(line)
+    return "\n".join(
+        [
+            f"总进球均值 {model.mean_goals}",
+            f"离散度 {model.dispersion}",
+            f"大小球盘口 {probability.line}",
+            f"大球概率 {probability.over_probability}",
+            f"小球概率 {probability.under_probability}",
         ]
     )
 
@@ -918,6 +1004,65 @@ def models_train_baseline(limit: int = typer.Option(1000, "--limit")):
         samples = list_training_samples(session, limit=limit)
         evaluation = evaluate_baseline_result_model(samples)
         typer.echo(format_baseline_result_evaluation(evaluation))
+
+
+@models_app.command("train-dixon-coles")
+def models_train_dixon_coles(limit: int = typer.Option(1000, "--limit")):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        samples = list_training_samples(session, limit=limit)
+        model = train_dixon_coles_goal_model(samples)
+        typer.echo(format_dixon_coles_model(model, sample_count=len(samples)))
+
+
+@models_app.command("train-dixon-coles-attack-defense")
+def models_train_dixon_coles_attack_defense(limit: int = typer.Option(1000, "--limit")):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        samples = list_training_samples(session, limit=limit)
+        model = train_dixon_coles_attack_defense_model(samples)
+        typer.echo(format_dixon_coles_attack_defense_model(model, sample_count=len(samples)))
+
+
+@models_app.command("skellam-handicap")
+def models_skellam_handicap(
+    home_expected_goals: str = typer.Option(..., "--home-eg"),
+    away_expected_goals: str = typer.Option(..., "--away-eg"),
+    line: str = typer.Option(..., "--line"),
+):
+    model = SkellamMarginModel(
+        home_expected_goals=Decimal(home_expected_goals),
+        away_expected_goals=Decimal(away_expected_goals),
+    )
+    typer.echo(format_skellam_handicap_probability(model, Decimal(line)))
+
+
+@models_app.command("train-negative-binomial-total")
+def models_train_negative_binomial_total(limit: int = typer.Option(1000, "--limit")):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        samples = list_training_samples(session, limit=limit)
+        model = train_negative_binomial_total_goals_model(samples)
+        typer.echo(format_negative_binomial_total_model(model, sample_count=len(samples)))
+
+
+@models_app.command("negative-binomial-total")
+def models_negative_binomial_total(
+    mean_goals: str = typer.Option(..., "--mean"),
+    dispersion: str = typer.Option(..., "--dispersion"),
+    line: str = typer.Option(..., "--line"),
+):
+    model = NegativeBinomialTotalGoalsModel(
+        mean_goals=Decimal(mean_goals),
+        dispersion=Decimal(dispersion),
+    )
+    typer.echo(format_negative_binomial_total_probability(model, Decimal(line)))
 
 
 if __name__ == "__main__":

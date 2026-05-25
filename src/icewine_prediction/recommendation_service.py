@@ -2,13 +2,16 @@ from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_HALF_UP
 
 from icewine_prediction.feature_service import MatchOddsFeatures
+from icewine_prediction.goal_distribution_service import GoalDistributionPrediction
 from icewine_prediction.market_probability_service import (
-    build_score_probability_grid,
     calculate_asian_handicap_cover_probability,
     calculate_total_goals_probability,
+    ScoreProbabilityGrid,
 )
-from icewine_prediction.model_training_service import BaselineResultModel
-from icewine_prediction.model_training_service import LeagueTeamStrengthGoalModel, TeamStrengthGoalModel
+from icewine_prediction.score_model_service import (
+    ScoreModelContext,
+    predict_goal_distribution_from_model,
+)
 
 
 @dataclass(frozen=True)
@@ -206,7 +209,7 @@ def _model_market_risk_tags(
 
 def _build_model_handicap_recommendation(
     features: MatchOddsFeatures,
-    model: BaselineResultModel,
+    prediction: GoalDistributionPrediction,
 ) -> Recommendation:
     risk_tags = _model_market_risk_tags(
         features=features,
@@ -220,7 +223,7 @@ def _build_model_handicap_recommendation(
     if risk_tags:
         return _watch_recommendation("asian_handicap", risk_tags)
 
-    grid = build_score_probability_grid(model.home_expected_goals, model.away_expected_goals)
+    grid = _score_probability_grid_from_prediction(prediction)
     home_probability = calculate_asian_handicap_cover_probability(
         grid,
         line=features.asian_handicap.mean,
@@ -241,7 +244,7 @@ def _build_model_handicap_recommendation(
                 similar_backtest_roi=Decimal("0.05"),
                 risk_tags=[],
             ),
-            model,
+            prediction,
             features.asian_handicap.mean,
         )
     return _with_model_context(
@@ -253,14 +256,14 @@ def _build_model_handicap_recommendation(
             similar_backtest_roi=Decimal("0.05"),
             risk_tags=[],
         ),
-        model,
+        prediction,
         features.asian_handicap.mean,
     )
 
 
 def _build_model_total_recommendation(
     features: MatchOddsFeatures,
-    model: BaselineResultModel,
+    prediction: GoalDistributionPrediction,
 ) -> Recommendation:
     risk_tags = _model_market_risk_tags(
         features=features,
@@ -274,7 +277,7 @@ def _build_model_total_recommendation(
     if risk_tags:
         return _watch_recommendation("total_goals", risk_tags)
 
-    grid = build_score_probability_grid(model.home_expected_goals, model.away_expected_goals)
+    grid = _score_probability_grid_from_prediction(prediction)
     over_probability = calculate_total_goals_probability(
         grid,
         line=features.total_line.mean,
@@ -295,7 +298,7 @@ def _build_model_total_recommendation(
                 similar_backtest_roi=Decimal("0.05"),
                 risk_tags=[],
             ),
-            model,
+            prediction,
             features.total_line.mean,
         )
     return _with_model_context(
@@ -307,40 +310,53 @@ def _build_model_total_recommendation(
             similar_backtest_roi=Decimal("0.05"),
             risk_tags=[],
         ),
-        model,
+        prediction,
         features.total_line.mean,
     )
 
 
 def _with_model_context(
     recommendation: Recommendation,
-    model: BaselineResultModel,
+    prediction: GoalDistributionPrediction,
     market_line: Decimal,
 ) -> Recommendation:
     return replace(
         recommendation,
-        home_expected_goals=model.home_expected_goals,
-        away_expected_goals=model.away_expected_goals,
+        home_expected_goals=prediction.home_expected_goals,
+        away_expected_goals=prediction.away_expected_goals,
         market_line=market_line,
+    )
+
+
+def _score_probability_grid_from_prediction(
+    prediction: GoalDistributionPrediction,
+) -> ScoreProbabilityGrid:
+    max_goals = max(
+        max(home_goals, away_goals)
+        for home_goals, away_goals in prediction.score_probabilities
+    )
+    return ScoreProbabilityGrid(
+        max_goals=max_goals,
+        probabilities=prediction.score_probabilities,
     )
 
 
 def build_model_recommendations_from_features(
     features: MatchOddsFeatures,
-    model: BaselineResultModel | TeamStrengthGoalModel | LeagueTeamStrengthGoalModel,
+    model,
     league_name: str | None = None,
     home_team_name: str | None = None,
     away_team_name: str | None = None,
 ) -> list[Recommendation]:
-    if isinstance(model, LeagueTeamStrengthGoalModel):
-        if league_name is None or home_team_name is None or away_team_name is None:
-            raise ValueError("league team strength model requires league, home, and away names")
-        model = model.predict_match_result_model(league_name, home_team_name, away_team_name)
-    elif isinstance(model, TeamStrengthGoalModel):
-        if home_team_name is None or away_team_name is None:
-            raise ValueError("team strength model requires home and away team names")
-        model = model.predict_match_result_model(home_team_name, away_team_name)
+    prediction = predict_goal_distribution_from_model(
+        model,
+        ScoreModelContext(
+            league_name=league_name,
+            home_team_name=home_team_name,
+            away_team_name=away_team_name,
+        ),
+    )
     return [
-        _build_model_handicap_recommendation(features, model),
-        _build_model_total_recommendation(features, model),
+        _build_model_handicap_recommendation(features, prediction),
+        _build_model_total_recommendation(features, prediction),
     ]

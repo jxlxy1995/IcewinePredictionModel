@@ -1,6 +1,9 @@
 from decimal import Decimal, ROUND_HALF_UP
 
-from icewine_prediction.goal_distribution_service import build_goal_distribution_prediction
+from icewine_prediction.goal_distribution_service import (
+    build_goal_distribution_prediction,
+    build_goal_distribution_prediction_from_scores,
+)
 
 
 def _round_probability(value: Decimal) -> Decimal:
@@ -22,6 +25,26 @@ def test_goal_distribution_prediction_returns_normalized_result_probabilities():
         + prediction.away_win_probability
     ) == Decimal("1.0000")
     assert prediction.score_probability(1, 0) > Decimal("0")
+
+
+def test_goal_distribution_prediction_from_scores_normalizes_probabilities():
+    prediction = build_goal_distribution_prediction_from_scores(
+        home_expected_goals=Decimal("1.20"),
+        away_expected_goals=Decimal("0.80"),
+        score_probabilities={
+            (0, 0): Decimal("2"),
+            (1, 0): Decimal("3"),
+            (0, 1): Decimal("1"),
+        },
+    )
+
+    assert sum(prediction.score_probabilities.values()) == Decimal("1.0000")
+    assert prediction.score_probability(1, 0) == Decimal("0.5000")
+    assert (
+        prediction.home_win_probability
+        + prediction.draw_probability
+        + prediction.away_win_probability
+    ) == Decimal("1.0000")
 
 
 def test_goal_distribution_prediction_supports_arbitrary_total_lines():

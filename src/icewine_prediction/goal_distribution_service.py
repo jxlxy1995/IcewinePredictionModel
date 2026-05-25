@@ -120,6 +120,44 @@ def build_goal_distribution_prediction(
     )
 
 
+def build_goal_distribution_prediction_from_scores(
+    home_expected_goals: Decimal,
+    away_expected_goals: Decimal,
+    score_probabilities: dict[tuple[int, int], Decimal],
+) -> GoalDistributionPrediction:
+    total_probability = sum(score_probabilities.values())
+    if total_probability <= Decimal("0"):
+        raise ValueError("score probabilities must have positive total probability")
+    normalized_scores = {
+        score: _round_probability(probability / total_probability)
+        for score, probability in score_probabilities.items()
+    }
+    rounding_gap = Decimal("1.0000") - sum(normalized_scores.values())
+    highest_score = max(normalized_scores, key=normalized_scores.get)
+    normalized_scores[highest_score] = _round_probability(
+        normalized_scores[highest_score] + rounding_gap
+    )
+
+    home_win = Decimal("0")
+    draw = Decimal("0")
+    away_win = Decimal("0")
+    for (home_goals, away_goals), probability in normalized_scores.items():
+        if home_goals > away_goals:
+            home_win += probability
+        elif home_goals == away_goals:
+            draw += probability
+        else:
+            away_win += probability
+    return _build_normalized_prediction(
+        home_expected_goals=home_expected_goals,
+        away_expected_goals=away_expected_goals,
+        score_probabilities=normalized_scores,
+        home_win=home_win,
+        draw=draw,
+        away_win=away_win,
+    )
+
+
 def _build_normalized_prediction(
     home_expected_goals: Decimal,
     away_expected_goals: Decimal,

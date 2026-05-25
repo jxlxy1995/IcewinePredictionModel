@@ -8,12 +8,24 @@ export function WorkerStatusTable({ workers }: WorkerStatusTableProps) {
   if (workers.length === 0) {
     return <div className="empty-state">暂无后台 Worker 状态</div>;
   }
+
   return (
     <div className="worker-list">
       {workers.map((worker) => (
         <div className="worker" key={worker.pid}>
-          <div>
+          <div className="worker-header">
             <strong>pid={worker.pid}</strong>
+            <span
+              className={
+                worker.runtime_status === "running"
+                  ? "runtime-badge running"
+                  : "runtime-badge stopped"
+              }
+            >
+              {worker.runtime_status === "running" ? "运行中" : "已停止"}
+            </span>
+          </div>
+          <div className="worker-meta">
             <span>
               {worker.mode ?? "-"} / {worker.season ?? "-"}
             </span>

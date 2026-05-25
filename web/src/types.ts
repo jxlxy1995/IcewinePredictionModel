@@ -21,6 +21,7 @@ export type WorkerStatus = {
   pid: number;
   started_at?: string;
   status: string;
+  runtime_status: "running" | "stopped" | string;
   mode: string | null;
   season: number | null;
   league_ids: string[];

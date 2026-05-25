@@ -19,12 +19,14 @@ from icewine_prediction.models import (
     OddsSourceMatch,
     RecommendationRecord,
 )
+from icewine_prediction.oddspapi_worker_process_service import _is_process_running
 
 
 def create_web_app(
     *,
     session_factory: Callable[[], Session] | None = None,
     log_dir: str | Path = "logs/odds",
+    process_running_checker: Callable[[int], bool] = _is_process_running,
 ) -> FastAPI:
     if session_factory is None:
         engine = create_database_engine()
@@ -49,7 +51,7 @@ def create_web_app(
 
     @app.get("/api/workers")
     def workers() -> list[dict[str, Any]]:
-        return build_worker_statuses(log_dir)
+        return build_worker_statuses(log_dir, process_running_checker=process_running_checker)
 
     @app.get("/api/unmatched")
     def unmatched() -> list[dict[str, Any]]:
@@ -145,20 +147,25 @@ def build_league_coverage(session: Session) -> list[dict[str, Any]]:
     ]
 
 
-def build_worker_statuses(log_dir: Path) -> list[dict[str, Any]]:
+def build_worker_statuses(
+    log_dir: Path,
+    *,
+    process_running_checker: Callable[[int], bool] = _is_process_running,
+) -> list[dict[str, Any]]:
     statuses = []
     for status_path in sorted((log_dir / "workers").glob("*.json")):
         try:
             payload = json.loads(status_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        statuses.append(_normalize_worker_status(payload))
+        statuses.append(_normalize_worker_status(payload, process_running_checker))
     current_status_path = log_dir / "oddspapi-worker-current.json"
     if current_status_path.exists() and not statuses:
         try:
             statuses.append(
                 _normalize_worker_status(
-                    json.loads(current_status_path.read_text(encoding="utf-8"))
+                    json.loads(current_status_path.read_text(encoding="utf-8")),
+                    process_running_checker,
                 )
             )
         except (OSError, json.JSONDecodeError):
@@ -280,11 +287,16 @@ def _build_market_points(
     return list(grouped.values())
 
 
-def _normalize_worker_status(payload: dict[str, Any]) -> dict[str, Any]:
+def _normalize_worker_status(
+    payload: dict[str, Any],
+    process_running_checker: Callable[[int], bool],
+) -> dict[str, Any]:
+    pid = int(payload.get("pid") or 0)
     return {
-        "pid": int(payload.get("pid") or 0),
+        "pid": pid,
         "started_at": payload.get("started_at"),
         "status": payload.get("status", "unknown"),
+        "runtime_status": "running" if process_running_checker(pid) else "stopped",
         "mode": payload.get("mode"),
         "season": payload.get("season"),
         "league_ids": payload.get("league_ids") or [],

@@ -99,6 +99,7 @@ export const mockDashboardData: DashboardData = {
     {
       pid: 27776,
       status: "running",
+      runtime_status: "running",
       mode: "balanced",
       season: 2025,
       league_ids: ["106", "114", "119", "128", "203", "235", "265", "283"],

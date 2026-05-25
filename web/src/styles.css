@@ -199,9 +199,14 @@ th {
   gap: 10px;
 }
 
-.worker div {
+.worker-header,
+.worker-meta {
   display: flex;
   justify-content: space-between;
+}
+
+.worker-header {
+  align-items: center;
 }
 
 .worker span,
@@ -218,6 +223,22 @@ th {
 
 .worker code {
   word-break: break-all;
+}
+
+.runtime-badge {
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.runtime-badge.running {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.runtime-badge.stopped {
+  background: #e2e8f0;
+  color: #475569;
 }
 
 .trend + .trend {

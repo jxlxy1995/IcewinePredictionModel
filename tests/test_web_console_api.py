@@ -81,7 +81,12 @@ def test_web_console_api_returns_worker_statuses(tmp_path):
         encoding="utf-8",
     )
 
-    client = TestClient(create_web_app(log_dir=tmp_path))
+    client = TestClient(
+        create_web_app(
+            log_dir=tmp_path,
+            process_running_checker=lambda pid: pid == 1234,
+        )
+    )
 
     response = client.get("/api/workers")
 
@@ -91,6 +96,7 @@ def test_web_console_api_returns_worker_statuses(tmp_path):
             "pid": 1234,
             "started_at": "2026-05-25T21:04:22+08:00",
             "status": "started",
+            "runtime_status": "running",
             "mode": "balanced",
             "season": 2025,
             "league_ids": ["39", "40"],

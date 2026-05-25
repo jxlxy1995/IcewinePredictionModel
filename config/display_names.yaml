@@ -82,20 +82,109 @@ leagues:
   Major League Soccer: 美职联
   Major League Soccer (USA): 美职联
 teams:
+  1. FC Kaiserslautern: 凯泽斯劳滕
+  1. FC Magdeburg: 马格德堡
+  1. FC Nürnberg: 纽伦堡
+  AFC Hermannstadt: 赫曼施塔特
+  AIK Stockholm: AIK索尔纳
+  AS Roma: 罗马
+  AZ Alkmaar: 阿尔克马尔
+  Ajax: 阿贾克斯
+  Alverca: 阿尔韦卡
+  Arsenal: 阿森纳
+  Atalanta: 亚特兰大
+  Atletico Madrid: 马德里竞技
+  Bayer Leverkusen: 勒沃库森
+  Bayern Munich: 拜仁慕尼黑
+  Benfica: 本菲卡
+  BK Hacken: 赫根
   Bologna: 博洛尼亚
+  Bodo/Glimt: 博德闪耀
+  Bournemouth: 伯恩茅斯
+  Brann: 布兰
+  Brentford: 布伦特福德
+  Brighton: 布莱顿
+  Burnley: 伯恩利
+  Cagliari: 卡利亚里
+  Cardiff: 卡迪夫城
+  Casa Pia: 卡萨皮亚
+  Catanzaro: 卡坦扎罗
+  Chelsea: 切尔西
+  Como: 科莫
+  Crystal Palace: 水晶宫
+  Deportivo La Coruna: 拉科鲁尼亚
+  Dinamo Bucuresti: 布加勒斯特迪纳摩
+  Dynamo Dresden: 德累斯顿迪纳摩
+  Everton: 埃弗顿
+  Feyenoord: 费耶诺德
+  Fiorentina: 佛罗伦萨
+  Fortuna Düsseldorf: 杜塞尔多夫
+  Frosinone: 弗罗西诺内
+  Gais: 哥德堡盖斯
+  Genoa: 热那亚
+  GIL Vicente: 吉维森特
+  GO Ahead Eagles: 前进之鹰
+  Groningen: 格罗宁根
+  Guimaraes: 吉马良斯
+  Hammarby FF: 哈马比
+  Hannover 96: 汉诺威96
+  Heerenveen: 海伦芬
+  Hellas Verona: 维罗纳
+  Heracles: 赫拉克勒斯
+  Hertha BSC: 柏林赫塔
+  Holstein Kiel: 荷尔斯泰因基尔
+  Inter Turku: 图尔库国际
   Inter: 国际米兰
+  Juventus: 尤文图斯
+  Kalmar FF: 卡尔马
+  Karlsruher SC: 卡尔斯鲁厄
   Lazio: 拉齐奥
+  Lecce: 莱切
+  Leeds: 利兹联
+  Leganes: 莱加内斯
+  Liverpool: 利物浦
+  Manchester City: 曼城
+  Manchester United: 曼联
+  Monza: 蒙扎
+  NAC Breda: 布雷达
+  Napoli: 那不勒斯
+  NEC Nijmegen: 奈梅亨
+  Newcastle: 纽卡斯尔联
+  Nottingham Forest: 诺丁汉森林
+  Palermo: 巴勒莫
+  Parma: 帕尔马
+  PEC Zwolle: 兹沃勒
   Pisa: 比萨
+  PSV Eindhoven: PSV埃因霍温
+  Rio Ave: 里奥阿维
+  SC Braga: 布拉加
+  SC Paderborn 07: 帕德博恩
+  Sassuolo: 萨索洛
+  Sevilla: 塞维利亚
+  Sparta Rotterdam: 鹿特丹斯巴达
+  Sporting CP: 葡萄牙体育
+  Sporting Gijon: 希洪竞技
+  Sunderland: 桑德兰
+  Swansea: 斯旺西
+  Torino: 都灵
+  Tottenham: 托特纳姆热刺
+  Twente: 特温特
+  Udinese: 乌迪内斯
+  Utrecht: 乌德勒支
+  Valencia: 瓦伦西亚
+  VfL Bochum: 波鸿
+  VfL Wolfsburg: 沃尔夫斯堡
+  Villarreal: 比利亚雷亚尔
+  West Ham: 西汉姆联
+  Wolves: 狼队
   Real Madrid: 皇家马德里
   Athletic Club: 毕尔巴鄂竞技
-  Valencia: 瓦伦西亚
   Barcelona: 巴塞罗那
   Alaves: 阿拉维斯
   Rayo Vallecano: 巴列卡诺
   Real Betis: 皇家贝蒂斯
   Levante: 莱万特
   Celta Vigo: 塞尔塔
-  Sevilla: 塞维利亚
   Espanyol: 西班牙人
   Real Sociedad: 皇家社会
   Getafe: 赫塔费

@@ -9,6 +9,7 @@ export type DashboardSummary = {
 export type LeagueCoverage = {
   league_id: number;
   league_name: string;
+  league_display_name?: string;
   country_or_region: string;
   season: number;
   finished_matches: number;
@@ -33,8 +34,11 @@ export type WorkerStatus = {
 export type UnmatchedMatch = {
   match_id: number;
   league_name: string;
+  league_display_name?: string;
   home_team_name: string;
+  home_team_display_name?: string;
   away_team_name: string;
+  away_team_display_name?: string;
   kickoff_time: string;
   source_name?: string;
   match_reason: string;
@@ -55,8 +59,11 @@ export type OddsPoint = {
 export type MatchOddsTrends = {
   match_id: number;
   league_name: string;
+  league_display_name?: string;
   home_team_name: string;
+  home_team_display_name?: string;
   away_team_name: string;
+  away_team_display_name?: string;
   kickoff_time: string;
   asian_handicap: OddsPoint[];
   total_goals: OddsPoint[];
@@ -65,8 +72,11 @@ export type MatchOddsTrends = {
 export type MatchWithOdds = {
   match_id: number;
   league_name: string;
+  league_display_name?: string;
   home_team_name: string;
+  home_team_display_name?: string;
   away_team_name: string;
+  away_team_display_name?: string;
   kickoff_time: string;
   snapshot_count: number;
 };
@@ -75,8 +85,11 @@ export type RecommendationRecord = {
   id: number;
   match_id: number;
   league_name: string;
+  league_display_name?: string;
   home_team_name: string;
+  home_team_display_name?: string;
   away_team_name: string;
+  away_team_display_name?: string;
   kickoff_time: string;
   market_type: string;
   side: string;

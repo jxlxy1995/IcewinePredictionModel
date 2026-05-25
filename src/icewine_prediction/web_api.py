@@ -12,6 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from icewine_prediction.database import create_database_engine, create_session_factory
+from icewine_prediction.display_service import DisplayNameService
 from icewine_prediction.models import (
     HistoricalOddsSnapshot,
     League,
@@ -27,11 +28,13 @@ def create_web_app(
     session_factory: Callable[[], Session] | None = None,
     log_dir: str | Path = "logs/odds",
     process_running_checker: Callable[[int], bool] = _is_process_running,
+    display_name_service: DisplayNameService | None = None,
 ) -> FastAPI:
     if session_factory is None:
         engine = create_database_engine()
         session_factory = create_session_factory(engine)
     log_dir = Path(log_dir)
+    display_name_service = display_name_service or DisplayNameService()
 
     app = FastAPI(title="Icewine Prediction Console API")
 
@@ -47,7 +50,7 @@ def create_web_app(
     @app.get("/api/leagues/coverage")
     def league_coverage() -> list[dict[str, Any]]:
         with session_factory() as session:
-            return build_league_coverage(session)
+            return build_league_coverage(session, display_name_service=display_name_service)
 
     @app.get("/api/workers")
     def workers() -> list[dict[str, Any]]:
@@ -56,17 +59,21 @@ def create_web_app(
     @app.get("/api/unmatched")
     def unmatched() -> list[dict[str, Any]]:
         with session_factory() as session:
-            return build_unmatched_matches(session)
+            return build_unmatched_matches(session, display_name_service=display_name_service)
 
     @app.get("/api/matches/with-odds")
     def matches_with_odds() -> list[dict[str, Any]]:
         with session_factory() as session:
-            return build_matches_with_odds(session)
+            return build_matches_with_odds(session, display_name_service=display_name_service)
 
     @app.get("/api/matches/{match_id}/odds-trends")
     def match_odds_trends(match_id: int) -> dict[str, Any]:
         with session_factory() as session:
-            payload = build_match_odds_trends(session, match_id=match_id)
+            payload = build_match_odds_trends(
+                session,
+                match_id=match_id,
+                display_name_service=display_name_service,
+            )
             if payload is None:
                 raise HTTPException(status_code=404, detail="比赛不存在")
             return payload
@@ -74,7 +81,7 @@ def create_web_app(
     @app.get("/api/recommendation-records")
     def recommendation_records() -> list[dict[str, Any]]:
         with session_factory() as session:
-            return build_recommendation_records(session)
+            return build_recommendation_records(session, display_name_service=display_name_service)
 
     return app
 
@@ -103,7 +110,12 @@ def build_dashboard_summary(session: Session) -> dict[str, int]:
     }
 
 
-def build_league_coverage(session: Session) -> list[dict[str, Any]]:
+def build_league_coverage(
+    session: Session,
+    *,
+    display_name_service: DisplayNameService | None = None,
+) -> list[dict[str, Any]]:
+    display_name_service = display_name_service or DisplayNameService()
     rows = (
         session.query(
             League.id,
@@ -134,6 +146,7 @@ def build_league_coverage(session: Session) -> list[dict[str, Any]]:
         {
             "league_id": league_id,
             "league_name": league_name,
+            "league_display_name": display_name_service.display_league(league_name),
             "country_or_region": country_or_region,
             "season": season,
             "finished_matches": finished_matches,
@@ -178,7 +191,12 @@ def build_worker_statuses(
     return statuses
 
 
-def build_unmatched_matches(session: Session) -> list[dict[str, Any]]:
+def build_unmatched_matches(
+    session: Session,
+    *,
+    display_name_service: DisplayNameService | None = None,
+) -> list[dict[str, Any]]:
+    display_name_service = display_name_service or DisplayNameService()
     rows = (
         session.query(OddsSourceMatch)
         .options(
@@ -193,11 +211,7 @@ def build_unmatched_matches(session: Session) -> list[dict[str, Any]]:
     )
     return [
         {
-            "match_id": row.match_id,
-            "league_name": row.match.league.name,
-            "home_team_name": row.match.home_team.canonical_name,
-            "away_team_name": row.match.away_team.canonical_name,
-            "kickoff_time": _format_datetime(row.match.kickoff_time),
+            **_format_match_names(row.match, display_name_service),
             "source_name": row.source_name,
             "match_reason": row.match_reason,
             "historical_odds_error": row.historical_odds_error,
@@ -206,7 +220,13 @@ def build_unmatched_matches(session: Session) -> list[dict[str, Any]]:
     ]
 
 
-def build_matches_with_odds(session: Session, *, limit: int = 100) -> list[dict[str, Any]]:
+def build_matches_with_odds(
+    session: Session,
+    *,
+    limit: int = 100,
+    display_name_service: DisplayNameService | None = None,
+) -> list[dict[str, Any]]:
+    display_name_service = display_name_service or DisplayNameService()
     snapshot_counts = (
         session.query(
             HistoricalOddsSnapshot.match_id.label("match_id"),
@@ -229,18 +249,20 @@ def build_matches_with_odds(session: Session, *, limit: int = 100) -> list[dict[
     )
     return [
         {
-            "match_id": match.id,
-            "league_name": match.league.name,
-            "home_team_name": match.home_team.canonical_name,
-            "away_team_name": match.away_team.canonical_name,
-            "kickoff_time": _format_datetime(match.kickoff_time),
+            **_format_match_names(match, display_name_service),
             "snapshot_count": snapshot_count,
         }
         for match, snapshot_count in rows
     ]
 
 
-def build_match_odds_trends(session: Session, *, match_id: int) -> dict[str, Any] | None:
+def build_match_odds_trends(
+    session: Session,
+    *,
+    match_id: int,
+    display_name_service: DisplayNameService | None = None,
+) -> dict[str, Any] | None:
+    display_name_service = display_name_service or DisplayNameService()
     match = (
         session.query(Match)
         .options(joinedload(Match.league), joinedload(Match.home_team), joinedload(Match.away_team))
@@ -256,17 +278,18 @@ def build_match_odds_trends(session: Session, *, match_id: int) -> dict[str, Any
         .all()
     )
     return {
-        "match_id": match.id,
-        "league_name": match.league.name,
-        "home_team_name": match.home_team.canonical_name,
-        "away_team_name": match.away_team.canonical_name,
-        "kickoff_time": _format_datetime(match.kickoff_time),
+        **_format_match_names(match, display_name_service),
         "asian_handicap": _build_market_points(snapshots, market_type="asian_handicap"),
         "total_goals": _build_market_points(snapshots, market_type="total_goals"),
     }
 
 
-def build_recommendation_records(session: Session) -> list[dict[str, Any]]:
+def build_recommendation_records(
+    session: Session,
+    *,
+    display_name_service: DisplayNameService | None = None,
+) -> list[dict[str, Any]]:
+    display_name_service = display_name_service or DisplayNameService()
     records = (
         session.query(RecommendationRecord)
         .order_by(RecommendationRecord.created_at.desc(), RecommendationRecord.id.desc())
@@ -278,8 +301,11 @@ def build_recommendation_records(session: Session) -> list[dict[str, Any]]:
             "id": record.id,
             "match_id": record.match_id,
             "league_name": record.league_name,
+            "league_display_name": display_name_service.display_league(record.league_name),
             "home_team_name": record.home_team_name,
+            "home_team_display_name": display_name_service.display_team(record.home_team_name),
             "away_team_name": record.away_team_name,
+            "away_team_display_name": display_name_service.display_team(record.away_team_name),
             "kickoff_time": _format_datetime(record.kickoff_time),
             "market_type": record.market_type,
             "side": record.side,
@@ -342,6 +368,22 @@ def _normalize_worker_status(
         "process_log_path": payload.get("process_log_path"),
         "worker_log_dir": payload.get("worker_log_dir"),
         "notify_on_complete": bool(payload.get("notify_on_complete", False)),
+    }
+
+
+def _format_match_names(match: Match, display_name_service: DisplayNameService) -> dict[str, Any]:
+    league_name = match.league.name
+    home_team_name = match.home_team.canonical_name
+    away_team_name = match.away_team.canonical_name
+    return {
+        "match_id": match.id,
+        "league_name": league_name,
+        "league_display_name": display_name_service.display_league(league_name),
+        "home_team_name": home_team_name,
+        "home_team_display_name": display_name_service.display_team(home_team_name),
+        "away_team_name": away_team_name,
+        "away_team_display_name": display_name_service.display_team(away_team_name),
+        "kickoff_time": _format_datetime(match.kickoff_time),
     }
 
 

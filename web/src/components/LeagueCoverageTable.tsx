@@ -17,7 +17,7 @@ export function LeagueCoverageTable({
       if (!normalizedFilterText) {
         return true;
       }
-      return `${league.league_name} ${league.country_or_region} ${league.season}`
+      return `${league.league_display_name ?? ""} ${league.league_name} ${league.country_or_region} ${league.season}`
         .toLowerCase()
         .includes(normalizedFilterText);
     })
@@ -49,7 +49,7 @@ export function LeagueCoverageTable({
       <tbody>
         {visibleLeagues.map((league) => (
           <tr key={`${league.league_id}-${league.season}`}>
-            <td>{league.league_name}</td>
+            <td>{league.league_display_name ?? league.league_name}</td>
             <td>{league.season}</td>
             <td>{league.finished_matches}</td>
             <td>{league.matches_with_historical_odds}</td>

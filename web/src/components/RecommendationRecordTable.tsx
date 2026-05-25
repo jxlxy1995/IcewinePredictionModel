@@ -25,7 +25,9 @@ export function RecommendationRecordTable({ records }: RecommendationRecordTable
         {records.map((record) => (
           <tr key={record.id}>
             <td>
-              {record.league_name} {record.home_team_name} vs {record.away_team_name}
+              {record.league_display_name ?? record.league_name}{" "}
+              {record.home_team_display_name ?? record.home_team_name} vs{" "}
+              {record.away_team_display_name ?? record.away_team_name}
             </td>
             <td>
               {formatMarket(record.market_type)} {record.market_line} {formatSide(record.side)}

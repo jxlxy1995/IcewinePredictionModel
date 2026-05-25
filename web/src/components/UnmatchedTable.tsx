@@ -21,9 +21,10 @@ export function UnmatchedTable({ matches }: UnmatchedTableProps) {
         return (
           <div className={`unmatched ${decision}`} key={item.match_id}>
             <div className="unmatched-main">
-              <strong>{item.league_name}</strong>
+              <strong>{item.league_display_name ?? item.league_name}</strong>
               <span>
-                {item.home_team_name} vs {item.away_team_name}
+                {item.home_team_display_name ?? item.home_team_name} vs{" "}
+                {item.away_team_display_name ?? item.away_team_name}
               </span>
               <small>{item.match_reason}</small>
             </div>

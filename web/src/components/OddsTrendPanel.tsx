@@ -9,7 +9,9 @@ export function OddsTrendPanel({ trends }: OddsTrendPanelProps) {
     <>
       <div className="match-heading">
         <strong>
-          {trends.league_name}：{trends.home_team_name} vs {trends.away_team_name}
+          {trends.league_display_name ?? trends.league_name}：
+          {trends.home_team_display_name ?? trends.home_team_name} vs{" "}
+          {trends.away_team_display_name ?? trends.away_team_name}
         </strong>
         <span>{formatKickoff(trends.kickoff_time)}</span>
       </div>

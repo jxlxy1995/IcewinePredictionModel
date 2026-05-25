@@ -274,7 +274,9 @@ function OddsView({
           >
             {data.matchesWithOdds.map((match) => (
               <option key={match.match_id} value={match.match_id}>
-                {match.league_name} {match.home_team_name} vs {match.away_team_name} ·{" "}
+                {match.league_display_name ?? match.league_name}{" "}
+                {match.home_team_display_name ?? match.home_team_name} vs{" "}
+                {match.away_team_display_name ?? match.away_team_name} ·{" "}
                 {formatShortDateTime(match.kickoff_time)} · {match.snapshot_count} 快照
               </option>
             ))}

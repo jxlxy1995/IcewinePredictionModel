@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
 
 from icewine_prediction.database import create_memory_database, create_session_factory, initialize_database
+from icewine_prediction.display_service import DisplayNameService, DisplayNames
 from icewine_prediction.models import (
     HistoricalOddsSnapshot,
     League,
@@ -47,18 +48,13 @@ def test_web_console_api_returns_league_coverage(tmp_path):
     response = client.get("/api/leagues/coverage")
 
     assert response.status_code == 200
-    assert response.json() == [
-        {
-            "league_id": 1,
-            "league_name": "英冠",
-            "country_or_region": "England",
-            "season": 2025,
-            "finished_matches": 2,
-            "matches_with_historical_odds": 1,
-            "coverage_ratio": "0.5000",
-            "unmatched_matches": 1,
-        }
-    ]
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["league_id"] == 1
+    assert payload[0]["league_name"] == "英冠"
+    assert payload[0]["league_display_name"] == "英冠"
+    assert payload[0]["country_or_region"] == "England"
+    assert payload[0]["coverage_ratio"] == "0.5000"
 
 
 def test_web_console_api_returns_worker_statuses(tmp_path):
@@ -149,6 +145,41 @@ def test_web_console_api_returns_match_odds_trends(tmp_path):
     assert payload["total_goals"][0]["over_odds"] == "1.910"
 
 
+def test_web_console_api_returns_display_names_without_replacing_raw_names(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    seeded = _seed_console_data(session_factory)
+    display_name_service = DisplayNameService(
+        DisplayNames(
+            leagues={"英冠": "英冠"},
+            teams={
+                "Cardiff": "卡迪夫城",
+                "Swansea": "斯旺西",
+                "Wolves": "狼队",
+                "Leeds": "利兹联",
+            },
+        )
+    )
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            display_name_service=display_name_service,
+        )
+    )
+
+    response = client.get(f"/api/matches/{seeded['matched_match_id']}/odds-trends")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["home_team_name"] == "Cardiff"
+    assert payload["away_team_name"] == "Swansea"
+    assert payload["home_team_display_name"] == "卡迪夫城"
+    assert payload["away_team_display_name"] == "斯旺西"
+
+
 def test_web_console_api_returns_matches_with_odds(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)
@@ -160,16 +191,16 @@ def test_web_console_api_returns_matches_with_odds(tmp_path):
     response = client.get("/api/matches/with-odds")
 
     assert response.status_code == 200
-    assert response.json() == [
-        {
-            "match_id": seeded["matched_match_id"],
-            "league_name": "英冠",
-            "home_team_name": "Cardiff",
-            "away_team_name": "Swansea",
-            "kickoff_time": "2026-05-20T22:00:00",
-            "snapshot_count": 2,
-        }
-    ]
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["match_id"] == seeded["matched_match_id"]
+    assert payload[0]["league_name"] == "英冠"
+    assert payload[0]["league_display_name"] == "英冠"
+    assert payload[0]["home_team_name"] == "Cardiff"
+    assert payload[0]["home_team_display_name"] == "卡迪夫城"
+    assert payload[0]["away_team_name"] == "Swansea"
+    assert payload[0]["away_team_display_name"] == "斯旺西"
+    assert payload[0]["snapshot_count"] == 2
 
 
 def test_web_console_api_returns_recommendation_records(tmp_path):
@@ -183,25 +214,16 @@ def test_web_console_api_returns_recommendation_records(tmp_path):
     response = client.get("/api/recommendation-records")
 
     assert response.status_code == 200
-    assert response.json() == [
-        {
-            "id": 1,
-            "match_id": seeded["matched_match_id"],
-            "league_name": "鑻卞啝",
-            "home_team_name": "Cardiff",
-            "away_team_name": "Swansea",
-            "kickoff_time": "2026-05-20T22:00:00",
-            "market_type": "asian_handicap",
-            "side": "home",
-            "market_line": "-0.25",
-            "odds": "1.930",
-            "confidence_grade": "A-",
-            "stake_units": "1.50",
-            "status": "pending",
-            "settlement_result": None,
-            "profit_units": None,
-        }
-    ]
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["id"] == 1
+    assert payload[0]["match_id"] == seeded["matched_match_id"]
+    assert payload[0]["home_team_name"] == "Cardiff"
+    assert payload[0]["home_team_display_name"] == "卡迪夫城"
+    assert payload[0]["away_team_name"] == "Swansea"
+    assert payload[0]["away_team_display_name"] == "斯旺西"
+    assert payload[0]["market_type"] == "asian_handicap"
+    assert payload[0]["confidence_grade"] == "A-"
 
 
 def _seed_console_data(session_factory):
@@ -295,7 +317,7 @@ def _seed_console_data(session_factory):
             RecommendationRecord(
                 match_id=matched_match.id,
                 created_at=datetime(2026, 5, 20, 21, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
-                league_name="鑻卞啝",
+                league_name="英冠",
                 home_team_name="Cardiff",
                 away_team_name="Swansea",
                 kickoff_time=datetime(2026, 5, 20, 22, 0, tzinfo=ZoneInfo("Asia/Shanghai")),

@@ -110,9 +110,9 @@ export function DashboardPage() {
       setData(loadedData);
       setOddsTrends(loadedData.oddsTrends);
       setSelectedOddsMatchId(loadedData.oddsTrends.match_id);
-      const firstMissingTeam = loadedData.missingTeamDisplayNames[0];
-      if (firstMissingTeam?.season != null) {
-        loadTeamDisplayNameWorkspace(firstMissingTeam.league_id, firstMissingTeam.season)
+      const firstLeague = loadedData.leagues[0];
+      if (firstLeague?.season != null) {
+        loadTeamDisplayNameWorkspace(firstLeague.league_id, firstLeague.season)
           .then((workspace) => {
             if (isMounted) {
               setTeamDisplayWorkspace(workspace);
@@ -327,7 +327,7 @@ function DisplayNamesView({
 }) {
   const workspaceOptions = Array.from(
     new Map(
-      data.missingTeamDisplayNames
+      data.leagues
         .filter((item) => item.season != null)
         .map((item) => [
           `${item.league_id}-${item.season}`,
@@ -335,7 +335,7 @@ function DisplayNamesView({
             league_id: item.league_id,
             league_name: item.league_name,
             league_display_name: item.league_display_name,
-            season: item.season as number
+            season: item.season
           }
         ])
     ).values()
@@ -345,14 +345,14 @@ function DisplayNamesView({
     if (!normalizedFilterText) {
       return true;
     }
-    return `${item.league_display_name ?? ""} ${item.league_name} ${item.season ?? ""} ${item.team_name}`
+    return `${item.team_display_name ?? ""} ${item.team_name}`
       .toLowerCase()
       .includes(normalizedFilterText);
   });
 
   return (
     <section className="single-column">
-      <Panel title="缺失中文名球队">
+      <Panel title="球队中文名校验">
         <div className="table-toolbar">
           <select
             onChange={(event) => {
@@ -369,7 +369,7 @@ function DisplayNamesView({
           </select>
           <input
             onChange={(event) => onFilterTextChange(event.target.value)}
-            placeholder="筛选联赛、赛季或球队英文名"
+            placeholder="筛选球队英文名或当前中文名"
             type="search"
             value={filterText}
           />

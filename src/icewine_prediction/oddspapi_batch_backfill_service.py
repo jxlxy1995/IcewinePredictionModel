@@ -279,6 +279,9 @@ def run_oddspapi_batch_worker_with_runner(
             _build_completion_notification_message(report),
         )
         logger.write(f"通知发送结果 sent={notification_sent}")
+    if hard_timeout_seconds is not None and hard_timeout_seconds > 0:
+        logger.write("硬超时保护已启用，完成后强制结束 OddsPapi worker")
+        os._exit(0)
     return report
 
 

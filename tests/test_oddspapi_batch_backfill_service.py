@@ -418,3 +418,47 @@ def test_batch_worker_sends_completion_notification_when_enabled(tmp_path):
     assert "OddsPapi" in title
     assert "Ligue 2" in message
     assert "requests=0" in message
+
+
+def test_batch_worker_forces_process_exit_after_completion_when_hard_timeout_is_enabled(
+    monkeypatch,
+    tmp_path,
+):
+    exit_codes = []
+
+    def fake_runner(**kwargs):
+        return OddsPapiSyncResult(
+            processed_match_count=0,
+            matched_count=0,
+            failed_match_count=0,
+            inserted_snapshot_count=0,
+            skipped_duplicate_snapshot_count=0,
+            skipped_existing_odds_count=0,
+            asian_handicap_count=0,
+            total_goals_count=0,
+            requests_used=0,
+        )
+
+    monkeypatch.setattr(
+        "icewine_prediction.oddspapi_batch_backfill_service.os._exit",
+        exit_codes.append,
+    )
+
+    run_oddspapi_batch_worker_with_runner(
+        jobs=(LeagueBackfillJob("62", "Ligue 2", 84),),
+        runner=fake_runner,
+        season=2025,
+        from_date=date(2026, 1, 15),
+        mode=BatchBackfillMode.SAFE,
+        chunk_size=1,
+        request_budget_per_league=100,
+        timeout_seconds=20,
+        max_snapshots_per_match=120,
+        max_rounds_per_league=1,
+        stop_after_empty_matches=8,
+        hard_timeout_seconds=60,
+        log_dir=tmp_path,
+        output_callback=None,
+    )
+
+    assert exit_codes == [0]

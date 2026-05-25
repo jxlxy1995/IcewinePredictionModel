@@ -7,6 +7,7 @@ import { LeagueCoverageTable } from "../components/LeagueCoverageTable";
 import { MetricCard } from "../components/MetricCard";
 import { OddsTrendPanel } from "../components/OddsTrendPanel";
 import { Panel } from "../components/Panel";
+import { RecommendationRecordTable } from "../components/RecommendationRecordTable";
 import { UnmatchedTable } from "../components/UnmatchedTable";
 import { WorkerStatusTable } from "../components/WorkerStatusTable";
 import { mockDashboardData } from "../mockData";
@@ -118,7 +119,7 @@ export function DashboardPage() {
         {activeView === "workers" && <WorkersView data={data} />}
         {activeView === "unmatched" && <UnmatchedView data={data} />}
         {activeView === "odds" && <OddsView data={data} />}
-        {activeView === "records" && <RecordsView />}
+        {activeView === "records" && <RecordsView data={data} />}
       </main>
     </div>
   );
@@ -195,43 +196,11 @@ function OddsView({ data }: { data: DashboardData }) {
   );
 }
 
-function RecordsView() {
+function RecordsView({ data }: { data: DashboardData }) {
   return (
     <section className="single-column">
       <Panel title="推荐记录">
-        <div className="record-placeholder">
-          <div>
-            <strong>下一阶段接入</strong>
-            <span>推荐记录、信心等级、出手手数和复盘收益</span>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>比赛</th>
-                <th>盘口</th>
-                <th>信心</th>
-                <th>手数</th>
-                <th>结果</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Cardiff vs Swansea</td>
-                <td>亚盘 -0.25 主队</td>
-                <td>A-</td>
-                <td>1.50</td>
-                <td>待复盘</td>
-              </tr>
-              <tr>
-                <td>Roma vs Lazio</td>
-                <td>大小球 2.75 大</td>
-                <td>B+</td>
-                <td>1.00</td>
-                <td>待复盘</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <RecommendationRecordTable records={data.recommendationRecords} />
       </Panel>
     </section>
   );

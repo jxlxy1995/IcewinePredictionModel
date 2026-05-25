@@ -11,6 +11,7 @@ from icewine_prediction.models import (
     League,
     Match,
     OddsSourceMatch,
+    RecommendationRecord,
     Team,
 )
 from icewine_prediction.web_api import create_web_app
@@ -142,6 +143,38 @@ def test_web_console_api_returns_match_odds_trends(tmp_path):
     assert payload["total_goals"][0]["over_odds"] == "1.910"
 
 
+def test_web_console_api_returns_recommendation_records(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    seeded = _seed_console_data(session_factory)
+
+    client = TestClient(create_web_app(session_factory=session_factory, log_dir=tmp_path))
+
+    response = client.get("/api/recommendation-records")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": 1,
+            "match_id": seeded["matched_match_id"],
+            "league_name": "鑻卞啝",
+            "home_team_name": "Cardiff",
+            "away_team_name": "Swansea",
+            "kickoff_time": "2026-05-20T22:00:00",
+            "market_type": "asian_handicap",
+            "side": "home",
+            "market_line": "-0.25",
+            "odds": "1.930",
+            "confidence_grade": "A-",
+            "stake_units": "1.50",
+            "status": "pending",
+            "settlement_result": None,
+            "profit_units": None,
+        }
+    ]
+
+
 def _seed_console_data(session_factory):
     with session_factory() as session:
         league = League(
@@ -228,6 +261,26 @@ def _seed_console_data(session_factory):
                     period="prematch",
                 ),
             ]
+        )
+        session.add(
+            RecommendationRecord(
+                match_id=matched_match.id,
+                created_at=datetime(2026, 5, 20, 21, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+                league_name="鑻卞啝",
+                home_team_name="Cardiff",
+                away_team_name="Swansea",
+                kickoff_time=datetime(2026, 5, 20, 22, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                market_type="asian_handicap",
+                side="home",
+                market_line=Decimal("-0.25"),
+                odds=Decimal("1.930"),
+                model_probability=Decimal("0.5650"),
+                market_implied_probability=Decimal("0.5181"),
+                edge=Decimal("0.0469"),
+                confidence_grade="A-",
+                stake_units=Decimal("1.50"),
+                status="pending",
+            )
         )
         session.commit()
         return {"matched_match_id": matched_match.id}

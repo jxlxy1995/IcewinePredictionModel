@@ -4,6 +4,7 @@ import type {
   DashboardSummary,
   LeagueCoverage,
   MatchOddsTrends,
+  RecommendationRecord,
   UnmatchedMatch,
   WorkerStatus
 } from "./types";
@@ -12,11 +13,12 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export async function loadDashboardData(): Promise<DashboardData> {
   try {
-    const [summary, leagues, workers, unmatched] = await Promise.all([
+    const [summary, leagues, workers, unmatched, recommendationRecords] = await Promise.all([
       getJson<DashboardSummary>("/api/dashboard/summary"),
       getJson<LeagueCoverage[]>("/api/leagues/coverage"),
       getJson<WorkerStatus[]>("/api/workers"),
-      getJson<UnmatchedMatch[]>("/api/unmatched")
+      getJson<UnmatchedMatch[]>("/api/unmatched"),
+      getJson<RecommendationRecord[]>("/api/recommendation-records")
     ]);
     const oddsTrends = await loadFirstOddsTrend(unmatched);
     return {
@@ -25,7 +27,8 @@ export async function loadDashboardData(): Promise<DashboardData> {
       leagues,
       workers,
       unmatched,
-      oddsTrends
+      oddsTrends,
+      recommendationRecords
     };
   } catch {
     return mockDashboardData;

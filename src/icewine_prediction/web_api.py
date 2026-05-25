@@ -17,6 +17,7 @@ from icewine_prediction.models import (
     League,
     Match,
     OddsSourceMatch,
+    RecommendationRecord,
 )
 
 
@@ -62,6 +63,11 @@ def create_web_app(
             if payload is None:
                 raise HTTPException(status_code=404, detail="比赛不存在")
             return payload
+
+    @app.get("/api/recommendation-records")
+    def recommendation_records() -> list[dict[str, Any]]:
+        with session_factory() as session:
+            return build_recommendation_records(session)
 
     return app
 
@@ -212,6 +218,39 @@ def build_match_odds_trends(session: Session, *, match_id: int) -> dict[str, Any
         "asian_handicap": _build_market_points(snapshots, market_type="asian_handicap"),
         "total_goals": _build_market_points(snapshots, market_type="total_goals"),
     }
+
+
+def build_recommendation_records(session: Session) -> list[dict[str, Any]]:
+    records = (
+        session.query(RecommendationRecord)
+        .order_by(RecommendationRecord.created_at.desc(), RecommendationRecord.id.desc())
+        .limit(100)
+        .all()
+    )
+    return [
+        {
+            "id": record.id,
+            "match_id": record.match_id,
+            "league_name": record.league_name,
+            "home_team_name": record.home_team_name,
+            "away_team_name": record.away_team_name,
+            "kickoff_time": _format_datetime(record.kickoff_time),
+            "market_type": record.market_type,
+            "side": record.side,
+            "market_line": _format_decimal(record.market_line, "0.00"),
+            "odds": _format_decimal(record.odds, "0.000"),
+            "confidence_grade": record.confidence_grade,
+            "stake_units": _format_decimal(record.stake_units, "0.00"),
+            "status": record.status,
+            "settlement_result": record.settlement_result,
+            "profit_units": (
+                _format_decimal(record.profit_units, "0.000")
+                if record.profit_units is not None
+                else None
+            ),
+        }
+        for record in records
+    ]
 
 
 def _build_market_points(

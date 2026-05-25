@@ -124,5 +124,41 @@ export const mockDashboardData: DashboardData = {
       match_reason: "队名相似度低于阈值"
     }
   ],
-  oddsTrends: mockOddsTrends
+  oddsTrends: mockOddsTrends,
+  recommendationRecords: [
+    {
+      id: 1,
+      match_id: 1001,
+      league_name: "英冠",
+      home_team_name: "Cardiff",
+      away_team_name: "Swansea",
+      kickoff_time: "2026-05-20T22:00:00+08:00",
+      market_type: "asian_handicap",
+      side: "home",
+      market_line: "-0.25",
+      odds: "1.930",
+      confidence_grade: "A-",
+      stake_units: "1.50",
+      status: "pending",
+      settlement_result: null,
+      profit_units: null
+    },
+    {
+      id: 2,
+      match_id: 1003,
+      league_name: "意甲",
+      home_team_name: "Roma",
+      away_team_name: "Lazio",
+      kickoff_time: "2026-05-24T02:45:00+08:00",
+      market_type: "total_goals",
+      side: "over",
+      market_line: "2.75",
+      odds: "1.910",
+      confidence_grade: "B+",
+      stake_units: "1.00",
+      status: "pending",
+      settlement_result: null,
+      profit_units: null
+    }
+  ]
 };

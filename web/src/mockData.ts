@@ -113,7 +113,8 @@ export const mockDashboardData: DashboardData = {
       home_team_name: "Wolves",
       away_team_name: "Leeds",
       kickoff_time: "2026-05-21T22:00:00+08:00",
-      match_reason: "未匹配到 OddsPapi 比赛"
+      match_reason: "未匹配到 OddsPapi 比赛",
+      alias_candidates: ["Wolverhampton Wanderers", "Wolverhampton", "Wolves FC"]
     },
     {
       match_id: 1308,
@@ -121,7 +122,8 @@ export const mockDashboardData: DashboardData = {
       home_team_name: "Istanbul Basaksehir",
       away_team_name: "Rizespor",
       kickoff_time: "2026-05-18T01:00:00+08:00",
-      match_reason: "队名相似度低于阈值"
+      match_reason: "队名相似度低于阈值",
+      alias_candidates: ["Başakşehir", "Istanbul BB", "Basaksehir FK"]
     }
   ],
   oddsTrends: mockOddsTrends,

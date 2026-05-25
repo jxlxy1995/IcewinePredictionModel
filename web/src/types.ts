@@ -38,6 +38,7 @@ export type UnmatchedMatch = {
   source_name?: string;
   match_reason: string;
   historical_odds_error?: string | null;
+  alias_candidates?: string[];
 };
 
 export type OddsPoint = {

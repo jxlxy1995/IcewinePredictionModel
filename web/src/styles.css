@@ -38,17 +38,22 @@ nav {
   gap: 6px;
 }
 
-nav a {
+nav button {
   align-items: center;
+  background: transparent;
+  border: 0;
   border-radius: 6px;
   color: #cbd5e1;
+  cursor: pointer;
   display: flex;
+  font: inherit;
   gap: 10px;
   padding: 10px 12px;
+  text-align: left;
 }
 
-nav a.active,
-nav a:hover {
+nav button.active,
+nav button:hover {
   background: #263241;
   color: #ffffff;
 }
@@ -128,6 +133,11 @@ h1 {
   gap: 16px;
   grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.75fr);
   margin-bottom: 16px;
+}
+
+.single-column {
+  display: grid;
+  gap: 16px;
 }
 
 .panel {
@@ -284,6 +294,26 @@ th {
   font-size: 14px;
   min-height: 76px;
   padding: 16px;
+}
+
+.note-list,
+.record-placeholder {
+  display: grid;
+  gap: 12px;
+}
+
+.note-list p,
+.record-placeholder span {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.record-placeholder > div {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
 }
 
 @media (max-width: 1040px) {

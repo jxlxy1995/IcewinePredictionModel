@@ -149,6 +149,29 @@ def test_web_console_api_returns_match_odds_trends(tmp_path):
     assert payload["total_goals"][0]["over_odds"] == "1.910"
 
 
+def test_web_console_api_returns_matches_with_odds(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    seeded = _seed_console_data(session_factory)
+
+    client = TestClient(create_web_app(session_factory=session_factory, log_dir=tmp_path))
+
+    response = client.get("/api/matches/with-odds")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "match_id": seeded["matched_match_id"],
+            "league_name": "英冠",
+            "home_team_name": "Cardiff",
+            "away_team_name": "Swansea",
+            "kickoff_time": "2026-05-20T22:00:00",
+            "snapshot_count": 2,
+        }
+    ]
+
+
 def test_web_console_api_returns_recommendation_records(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

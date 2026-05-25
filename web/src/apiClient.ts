@@ -3,6 +3,7 @@ import type {
   DashboardData,
   DashboardSummary,
   LeagueCoverage,
+  MatchWithOdds,
   MatchOddsTrends,
   RecommendationRecord,
   UnmatchedMatch,
@@ -13,14 +14,15 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export async function loadDashboardData(): Promise<DashboardData> {
   try {
-    const [summary, leagues, workers, unmatched, recommendationRecords] = await Promise.all([
+    const [summary, leagues, workers, unmatched, matchesWithOdds, recommendationRecords] = await Promise.all([
       getJson<DashboardSummary>("/api/dashboard/summary"),
       getJson<LeagueCoverage[]>("/api/leagues/coverage"),
       getJson<WorkerStatus[]>("/api/workers"),
       getJson<UnmatchedMatch[]>("/api/unmatched"),
+      getJson<MatchWithOdds[]>("/api/matches/with-odds"),
       getJson<RecommendationRecord[]>("/api/recommendation-records")
     ]);
-    const oddsTrends = await loadFirstOddsTrend(unmatched);
+    const oddsTrends = await loadFirstOddsTrend(matchesWithOdds);
     return {
       source: "api",
       summary,
@@ -28,6 +30,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
       workers,
       unmatched,
       oddsTrends,
+      matchesWithOdds,
       recommendationRecords
     };
   } catch {
@@ -35,16 +38,16 @@ export async function loadDashboardData(): Promise<DashboardData> {
   }
 }
 
-async function loadFirstOddsTrend(unmatched: UnmatchedMatch[]): Promise<MatchOddsTrends> {
-  const matchId = unmatched[0]?.match_id;
+async function loadFirstOddsTrend(matchesWithOdds: MatchWithOdds[]): Promise<MatchOddsTrends> {
+  const matchId = matchesWithOdds[0]?.match_id;
   if (!matchId) {
     return mockOddsTrends;
   }
-  try {
-    return await getJson<MatchOddsTrends>(`/api/matches/${matchId}/odds-trends`);
-  } catch {
-    return mockOddsTrends;
-  }
+  return loadMatchOddsTrend(matchId);
+}
+
+export async function loadMatchOddsTrend(matchId: number): Promise<MatchOddsTrends> {
+  return getJson<MatchOddsTrends>(`/api/matches/${matchId}/odds-trends`);
 }
 
 async function getJson<T>(path: string): Promise<T> {

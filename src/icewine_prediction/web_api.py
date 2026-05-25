@@ -58,6 +58,11 @@ def create_web_app(
         with session_factory() as session:
             return build_unmatched_matches(session)
 
+    @app.get("/api/matches/with-odds")
+    def matches_with_odds() -> list[dict[str, Any]]:
+        with session_factory() as session:
+            return build_matches_with_odds(session)
+
     @app.get("/api/matches/{match_id}/odds-trends")
     def match_odds_trends(match_id: int) -> dict[str, Any]:
         with session_factory() as session:
@@ -198,6 +203,40 @@ def build_unmatched_matches(session: Session) -> list[dict[str, Any]]:
             "historical_odds_error": row.historical_odds_error,
         }
         for row in rows
+    ]
+
+
+def build_matches_with_odds(session: Session, *, limit: int = 100) -> list[dict[str, Any]]:
+    snapshot_counts = (
+        session.query(
+            HistoricalOddsSnapshot.match_id.label("match_id"),
+            func.count(HistoricalOddsSnapshot.id).label("snapshot_count"),
+        )
+        .group_by(HistoricalOddsSnapshot.match_id)
+        .subquery()
+    )
+    rows = (
+        session.query(Match, snapshot_counts.c.snapshot_count)
+        .options(
+            joinedload(Match.league),
+            joinedload(Match.home_team),
+            joinedload(Match.away_team),
+        )
+        .join(snapshot_counts, snapshot_counts.c.match_id == Match.id)
+        .order_by(Match.kickoff_time.desc(), Match.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "match_id": match.id,
+            "league_name": match.league.name,
+            "home_team_name": match.home_team.canonical_name,
+            "away_team_name": match.away_team.canonical_name,
+            "kickoff_time": _format_datetime(match.kickoff_time),
+            "snapshot_count": snapshot_count,
+        }
+        for match, snapshot_count in rows
     ]
 
 

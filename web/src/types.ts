@@ -62,6 +62,15 @@ export type MatchOddsTrends = {
   total_goals: OddsPoint[];
 };
 
+export type MatchWithOdds = {
+  match_id: number;
+  league_name: string;
+  home_team_name: string;
+  away_team_name: string;
+  kickoff_time: string;
+  snapshot_count: number;
+};
+
 export type RecommendationRecord = {
   id: number;
   match_id: number;
@@ -86,6 +95,7 @@ export type DashboardData = {
   workers: WorkerStatus[];
   unmatched: UnmatchedMatch[];
   oddsTrends: MatchOddsTrends;
+  matchesWithOdds: MatchWithOdds[];
   recommendationRecords: RecommendationRecord[];
   source: "api" | "mock";
 };

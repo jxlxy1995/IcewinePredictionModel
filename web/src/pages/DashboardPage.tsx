@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Activity, BarChart3, CircleAlert, Database, ListChecks, Radio } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-import { loadDashboardData } from "../apiClient";
+import { loadDashboardData, loadMatchOddsTrend } from "../apiClient";
 import { LeagueCoverageTable } from "../components/LeagueCoverageTable";
 import { MetricCard } from "../components/MetricCard";
 import { OddsTrendPanel } from "../components/OddsTrendPanel";
@@ -11,7 +11,7 @@ import { RecommendationRecordTable } from "../components/RecommendationRecordTab
 import { UnmatchedTable } from "../components/UnmatchedTable";
 import { WorkerStatusTable } from "../components/WorkerStatusTable";
 import { mockDashboardData } from "../mockData";
-import type { DashboardData } from "../types";
+import type { DashboardData, MatchOddsTrends } from "../types";
 
 type ViewKey = "overview" | "coverage" | "workers" | "unmatched" | "odds" | "records";
 
@@ -61,6 +61,11 @@ export function DashboardPage() {
   const [activeView, setActiveView] = useState<ViewKey>("overview");
   const [data, setData] = useState<DashboardData>(mockDashboardData);
   const [isLoading, setIsLoading] = useState(true);
+  const [oddsTrends, setOddsTrends] = useState<MatchOddsTrends>(mockDashboardData.oddsTrends);
+  const [selectedOddsMatchId, setSelectedOddsMatchId] = useState<number>(
+    mockDashboardData.oddsTrends.match_id
+  );
+  const [oddsTrendError, setOddsTrendError] = useState<string | null>(null);
   const [coverageFilter, setCoverageFilter] = useState("");
   const [coverageSort, setCoverageSort] = useState<
     "coverage_desc" | "coverage_asc" | "unmatched_desc"
@@ -73,6 +78,8 @@ export function DashboardPage() {
         return;
       }
       setData(loadedData);
+      setOddsTrends(loadedData.oddsTrends);
+      setSelectedOddsMatchId(loadedData.oddsTrends.match_id);
       setIsLoading(false);
     });
     return () => {
@@ -118,7 +125,7 @@ export function DashboardPage() {
           <span className="status-dot">{statusText}</span>
         </section>
 
-        {activeView === "overview" && <OverviewView data={data} />}
+        {activeView === "overview" && <OverviewView data={data} oddsTrends={oddsTrends} />}
         {activeView === "coverage" && (
           <CoverageView
             data={data}
@@ -130,14 +137,30 @@ export function DashboardPage() {
         )}
         {activeView === "workers" && <WorkersView data={data} />}
         {activeView === "unmatched" && <UnmatchedView data={data} />}
-        {activeView === "odds" && <OddsView data={data} />}
+        {activeView === "odds" && (
+          <OddsView
+            data={data}
+            errorText={oddsTrendError}
+            oddsTrends={oddsTrends}
+            onMatchChange={(matchId) => {
+              setSelectedOddsMatchId(matchId);
+              setOddsTrendError(null);
+              loadMatchOddsTrend(matchId)
+                .then(setOddsTrends)
+                .catch(() => {
+                  setOddsTrendError("读取该场赔率走势失败，请稍后重试");
+                });
+            }}
+            selectedMatchId={selectedOddsMatchId}
+          />
+        )}
         {activeView === "records" && <RecordsView data={data} />}
       </main>
     </div>
   );
 }
 
-function OverviewView({ data }: { data: DashboardData }) {
+function OverviewView({ data, oddsTrends }: { data: DashboardData; oddsTrends: MatchOddsTrends }) {
   return (
     <>
       <SummaryMetrics data={data} />
@@ -151,7 +174,7 @@ function OverviewView({ data }: { data: DashboardData }) {
       </section>
       <section className="grid">
         <Panel title="单场赔率走势">
-          <OddsTrendPanel trends={data.oddsTrends} />
+          <OddsTrendPanel trends={oddsTrends} />
         </Panel>
         <Panel title="待处理未匹配">
           <UnmatchedTable matches={data.unmatched.slice(0, 6)} />
@@ -228,14 +251,44 @@ function UnmatchedView({ data }: { data: DashboardData }) {
   );
 }
 
-function OddsView({ data }: { data: DashboardData }) {
+function OddsView({
+  data,
+  errorText,
+  oddsTrends,
+  selectedMatchId,
+  onMatchChange
+}: {
+  data: DashboardData;
+  errorText: string | null;
+  oddsTrends: MatchOddsTrends;
+  selectedMatchId: number;
+  onMatchChange: (matchId: number) => void;
+}) {
   return (
     <section className="single-column">
       <Panel title="赔率走势预览">
-        <OddsTrendPanel trends={data.oddsTrends} />
+        <div className="table-toolbar">
+          <select
+            onChange={(event) => onMatchChange(Number(event.target.value))}
+            value={selectedMatchId}
+          >
+            {data.matchesWithOdds.map((match) => (
+              <option key={match.match_id} value={match.match_id}>
+                {match.league_name} {match.home_team_name} vs {match.away_team_name} ·{" "}
+                {formatShortDateTime(match.kickoff_time)} · {match.snapshot_count} 快照
+              </option>
+            ))}
+          </select>
+        </div>
+        {errorText && <div className="inline-warning">{errorText}</div>}
+        <OddsTrendPanel trends={oddsTrends} />
       </Panel>
     </section>
   );
+}
+
+function formatShortDateTime(value: string) {
+  return value.replace("T", " ").slice(0, 16);
 }
 
 function RecordsView({ data }: { data: DashboardData }) {

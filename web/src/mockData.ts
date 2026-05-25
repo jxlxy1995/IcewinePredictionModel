@@ -128,6 +128,16 @@ export const mockDashboardData: DashboardData = {
     }
   ],
   oddsTrends: mockOddsTrends,
+  matchesWithOdds: [
+    {
+      match_id: 1001,
+      league_name: "英冠",
+      home_team_name: "Cardiff",
+      away_team_name: "Swansea",
+      kickoff_time: "2026-05-20T22:00:00+08:00",
+      snapshot_count: 6
+    }
+  ],
   recommendationRecords: [
     {
       id: 1,

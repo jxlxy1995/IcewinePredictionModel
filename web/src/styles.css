@@ -163,6 +163,11 @@ th {
   padding: 12px;
 }
 
+.worker-list {
+  display: grid;
+  gap: 10px;
+}
+
 .worker div {
   display: flex;
   justify-content: space-between;
@@ -186,6 +191,20 @@ th {
 
 .trend + .trend {
   margin-top: 18px;
+}
+
+.match-heading {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+}
+
+.match-heading span {
+  color: #64748b;
+  font-size: 13px;
 }
 
 .trend-title {
@@ -253,6 +272,18 @@ th {
 
 .unmatched span {
   color: #334155;
+}
+
+.empty-state {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  display: flex;
+  font-size: 14px;
+  min-height: 76px;
+  padding: 16px;
 }
 
 @media (max-width: 1040px) {

@@ -201,6 +201,37 @@ th {
   width: 24px;
 }
 
+.editor-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.inline-input {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #1d2733;
+  font: inherit;
+  min-height: 32px;
+  min-width: 180px;
+  padding: 0 10px;
+}
+
+.yaml-preview {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.yaml-preview pre {
+  color: #334155;
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 13px;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
 .worker {
   border: 1px solid #e2e8f0;
   border-radius: 8px;

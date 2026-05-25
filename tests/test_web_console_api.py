@@ -215,10 +215,109 @@ def test_web_console_api_returns_missing_team_display_names(tmp_path):
             "season": 2025,
             "team_id": 3,
             "team_name": "Wolves",
+            "team_display_name": None,
             "team_logo_url": "https://media.api-sports.io/football/teams/wolves.png",
+            "is_missing_display_name": True,
             "match_count": 1,
             "latest_kickoff_time": "2026-05-21T22:00:00",
+            "rank": None,
+            "points": None,
         }
+    ]
+
+
+def test_web_console_api_returns_team_display_name_workspace(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    _seed_console_data(session_factory)
+    display_name_service = DisplayNameService(
+        DisplayNames(
+            leagues={"英冠": "英冠"},
+            teams={
+                "Cardiff": "卡迪夫城",
+                "Swansea": "斯旺西",
+                "Leeds": "利兹联",
+            },
+        )
+    )
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            display_name_service=display_name_service,
+        )
+    )
+
+    response = client.get("/api/display/team-name-workspace?league_id=1&season=2025")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["league_id"] == 1
+    assert payload["league_display_name"] == "英冠"
+    assert payload["season"] == 2025
+    assert payload["teams"] == [
+        {
+            "league_id": 1,
+            "league_name": "英冠",
+            "league_display_name": "英冠",
+            "season": 2025,
+            "team_id": 1,
+            "team_name": "Cardiff",
+            "team_display_name": "卡迪夫城",
+            "team_logo_url": None,
+            "is_missing_display_name": False,
+            "match_count": 1,
+            "latest_kickoff_time": "2026-05-20T22:00:00",
+            "rank": None,
+            "points": None,
+        },
+        {
+            "league_id": 1,
+            "league_name": "英冠",
+            "league_display_name": "英冠",
+            "season": 2025,
+            "team_id": 4,
+            "team_name": "Leeds",
+            "team_display_name": "利兹联",
+            "team_logo_url": None,
+            "is_missing_display_name": False,
+            "match_count": 1,
+            "latest_kickoff_time": "2026-05-21T22:00:00",
+            "rank": None,
+            "points": None,
+        },
+        {
+            "league_id": 1,
+            "league_name": "英冠",
+            "league_display_name": "英冠",
+            "season": 2025,
+            "team_id": 2,
+            "team_name": "Swansea",
+            "team_display_name": "斯旺西",
+            "team_logo_url": None,
+            "is_missing_display_name": False,
+            "match_count": 1,
+            "latest_kickoff_time": "2026-05-20T22:00:00",
+            "rank": None,
+            "points": None,
+        },
+        {
+            "league_id": 1,
+            "league_name": "英冠",
+            "league_display_name": "英冠",
+            "season": 2025,
+            "team_id": 3,
+            "team_name": "Wolves",
+            "team_display_name": None,
+            "team_logo_url": "https://media.api-sports.io/football/teams/wolves.png",
+            "is_missing_display_name": True,
+            "match_count": 1,
+            "latest_kickoff_time": "2026-05-21T22:00:00",
+            "rank": None,
+            "points": None,
+        },
     ]
 
 

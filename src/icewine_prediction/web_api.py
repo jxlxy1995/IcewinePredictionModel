@@ -70,6 +70,19 @@ def create_web_app(
                 display_name_service=display_name_service,
             )
 
+    @app.get("/api/display/team-name-workspace")
+    def team_name_workspace(league_id: int, season: int) -> dict[str, Any]:
+        with session_factory() as session:
+            payload = build_team_display_name_workspace(
+                session,
+                league_id=league_id,
+                season=season,
+                display_name_service=display_name_service,
+            )
+            if payload is None:
+                raise HTTPException(status_code=404, detail="联赛或赛季不存在")
+            return payload
+
     @app.get("/api/matches/with-odds")
     def matches_with_odds() -> list[dict[str, Any]]:
         with session_factory() as session:
@@ -236,11 +249,28 @@ def build_missing_team_display_names(
     limit: int = 300,
 ) -> list[dict[str, Any]]:
     display_name_service = display_name_service or DisplayNameService()
+    return _build_team_display_rows(
+        session,
+        display_name_service=display_name_service,
+        missing_only=True,
+        limit=limit,
+    )
+
+
+def _build_team_display_rows(
+    session: Session,
+    *,
+    display_name_service: DisplayNameService,
+    league_id: int | None = None,
+    season: int | None = None,
+    missing_only: bool,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
     rows_by_key: dict[tuple[int, int | None, int], dict[str, Any]] = {}
 
     for side in ("home", "away"):
         team_id_column = Match.home_team_id if side == "home" else Match.away_team_id
-        rows = (
+        query = (
             session.query(
                 League.id.label("league_id"),
                 League.name.label("league_name"),
@@ -253,18 +283,23 @@ def build_missing_team_display_names(
             )
             .join(Match, Match.league_id == League.id)
             .join(Team, Team.id == team_id_column)
-            .group_by(
-                League.id,
-                League.name,
-                Match.season,
-                Team.id,
-                Team.canonical_name,
-                Team.logo_url,
-            )
-            .all()
         )
+        if league_id is not None:
+            query = query.filter(League.id == league_id)
+        if season is not None:
+            query = query.filter(Match.season == season)
+        rows = query.group_by(
+            League.id,
+            League.name,
+            Match.season,
+            Team.id,
+            Team.canonical_name,
+            Team.logo_url,
+        ).all()
         for row in rows:
-            if display_name_service.display_team(row.team_name) != row.team_name:
+            team_display_name = display_name_service.display_team(row.team_name)
+            is_missing_display_name = team_display_name == row.team_name
+            if missing_only and not is_missing_display_name:
                 continue
             key = (row.league_id, row.season, row.team_id)
             item = rows_by_key.setdefault(
@@ -276,9 +311,13 @@ def build_missing_team_display_names(
                     "season": row.season,
                     "team_id": row.team_id,
                     "team_name": row.team_name,
+                    "team_display_name": None if is_missing_display_name else team_display_name,
                     "team_logo_url": row.team_logo_url,
+                    "is_missing_display_name": is_missing_display_name,
                     "match_count": 0,
                     "latest_kickoff_time": None,
+                    "rank": None,
+                    "points": None,
                 },
             )
             item["match_count"] += row.match_count
@@ -290,17 +329,49 @@ def build_missing_team_display_names(
         key=lambda item: (
             item["league_display_name"],
             -(item["season"] or 0),
+            item["rank"] or 9999,
             -item["match_count"],
             item["team_name"],
         ),
     )
+    if limit is not None:
+        items = items[:limit]
     return [
         {
             **item,
             "latest_kickoff_time": _format_datetime(item["latest_kickoff_time"]),
         }
-        for item in items[:limit]
+        for item in items
     ]
+
+
+def build_team_display_name_workspace(
+    session: Session,
+    *,
+    league_id: int,
+    season: int,
+    display_name_service: DisplayNameService | None = None,
+) -> dict[str, Any] | None:
+    display_name_service = display_name_service or DisplayNameService()
+    league = session.query(League).filter(League.id == league_id).one_or_none()
+    if league is None:
+        return None
+    items = _build_team_display_rows(
+        session,
+        display_name_service=display_name_service,
+        league_id=league_id,
+        season=season,
+        missing_only=False,
+    )
+    if not items:
+        return None
+    return {
+        "league_id": league.id,
+        "league_name": league.name,
+        "league_display_name": display_name_service.display_league(league.name),
+        "season": season,
+        "teams": items,
+    }
 
 
 def build_matches_with_odds(

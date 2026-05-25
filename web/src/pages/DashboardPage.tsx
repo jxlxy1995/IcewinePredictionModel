@@ -10,17 +10,21 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-import { loadDashboardData, loadMatchOddsTrend } from "../apiClient";
+import {
+  loadDashboardData,
+  loadMatchOddsTrend,
+  loadTeamDisplayNameWorkspace
+} from "../apiClient";
 import { LeagueCoverageTable } from "../components/LeagueCoverageTable";
 import { MetricCard } from "../components/MetricCard";
-import { MissingTeamDisplayNameTable } from "../components/MissingTeamDisplayNameTable";
 import { OddsTrendPanel } from "../components/OddsTrendPanel";
 import { Panel } from "../components/Panel";
 import { RecommendationRecordTable } from "../components/RecommendationRecordTable";
+import { TeamDisplayNameEditor } from "../components/TeamDisplayNameEditor";
 import { UnmatchedTable } from "../components/UnmatchedTable";
 import { WorkerStatusTable } from "../components/WorkerStatusTable";
 import { mockDashboardData } from "../mockData";
-import type { DashboardData, MatchOddsTrends } from "../types";
+import type { DashboardData, TeamDisplayNameWorkspace, MatchOddsTrends } from "../types";
 
 type ViewKey =
   | "overview"
@@ -89,6 +93,10 @@ export function DashboardPage() {
   const [oddsTrendError, setOddsTrendError] = useState<string | null>(null);
   const [coverageFilter, setCoverageFilter] = useState("");
   const [displayNameFilter, setDisplayNameFilter] = useState("");
+  const [teamDisplayWorkspace, setTeamDisplayWorkspace] = useState<TeamDisplayNameWorkspace | null>(
+    null
+  );
+  const [displayWorkspaceError, setDisplayWorkspaceError] = useState<string | null>(null);
   const [coverageSort, setCoverageSort] = useState<
     "coverage_desc" | "coverage_asc" | "unmatched_desc"
   >("coverage_desc");
@@ -102,6 +110,20 @@ export function DashboardPage() {
       setData(loadedData);
       setOddsTrends(loadedData.oddsTrends);
       setSelectedOddsMatchId(loadedData.oddsTrends.match_id);
+      const firstMissingTeam = loadedData.missingTeamDisplayNames[0];
+      if (firstMissingTeam?.season != null) {
+        loadTeamDisplayNameWorkspace(firstMissingTeam.league_id, firstMissingTeam.season)
+          .then((workspace) => {
+            if (isMounted) {
+              setTeamDisplayWorkspace(workspace);
+            }
+          })
+          .catch(() => {
+            if (isMounted) {
+              setDisplayWorkspaceError("读取球队中文名维护列表失败");
+            }
+          });
+      }
       setIsLoading(false);
     });
     return () => {
@@ -164,6 +186,14 @@ export function DashboardPage() {
             data={data}
             filterText={displayNameFilter}
             onFilterTextChange={setDisplayNameFilter}
+            onWorkspaceChange={(leagueId, season) => {
+              setDisplayWorkspaceError(null);
+              loadTeamDisplayNameWorkspace(leagueId, season)
+                .then(setTeamDisplayWorkspace)
+                .catch(() => setDisplayWorkspaceError("读取球队中文名维护列表失败"));
+            }}
+            workspace={teamDisplayWorkspace}
+            workspaceError={displayWorkspaceError}
           />
         )}
         {activeView === "odds" && (
@@ -283,14 +313,35 @@ function UnmatchedView({ data }: { data: DashboardData }) {
 function DisplayNamesView({
   data,
   filterText,
-  onFilterTextChange
+  onFilterTextChange,
+  onWorkspaceChange,
+  workspace,
+  workspaceError
 }: {
   data: DashboardData;
   filterText: string;
   onFilterTextChange: (value: string) => void;
+  onWorkspaceChange: (leagueId: number, season: number) => void;
+  workspace: TeamDisplayNameWorkspace | null;
+  workspaceError: string | null;
 }) {
+  const workspaceOptions = Array.from(
+    new Map(
+      data.missingTeamDisplayNames
+        .filter((item) => item.season != null)
+        .map((item) => [
+          `${item.league_id}-${item.season}`,
+          {
+            league_id: item.league_id,
+            league_name: item.league_name,
+            league_display_name: item.league_display_name,
+            season: item.season as number
+          }
+        ])
+    ).values()
+  );
   const normalizedFilterText = filterText.trim().toLowerCase();
-  const visibleItems = data.missingTeamDisplayNames.filter((item) => {
+  const visibleTeams = (workspace?.teams ?? []).filter((item) => {
     if (!normalizedFilterText) {
       return true;
     }
@@ -303,6 +354,19 @@ function DisplayNamesView({
     <section className="single-column">
       <Panel title="缺失中文名球队">
         <div className="table-toolbar">
+          <select
+            onChange={(event) => {
+              const [leagueId, season] = event.target.value.split("-").map(Number);
+              onWorkspaceChange(leagueId, season);
+            }}
+            value={workspace ? `${workspace.league_id}-${workspace.season}` : ""}
+          >
+            {workspaceOptions.map((option) => (
+              <option key={`${option.league_id}-${option.season}`} value={`${option.league_id}-${option.season}`}>
+                {option.league_display_name ?? option.league_name} · {option.season}
+              </option>
+            ))}
+          </select>
           <input
             onChange={(event) => onFilterTextChange(event.target.value)}
             placeholder="筛选联赛、赛季或球队英文名"
@@ -310,7 +374,16 @@ function DisplayNamesView({
             value={filterText}
           />
         </div>
-        <MissingTeamDisplayNameTable items={visibleItems} />
+        {workspaceError && <div className="inline-warning">{workspaceError}</div>}
+        {workspace && (
+          <div className="match-heading">
+            <strong>
+              {workspace.league_display_name ?? workspace.league_name} · {workspace.season}
+            </strong>
+            <span>{workspace.teams.length} 支球队</span>
+          </div>
+        )}
+        <TeamDisplayNameEditor teams={visibleTeams} />
       </Panel>
     </section>
   );

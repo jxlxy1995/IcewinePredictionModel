@@ -102,16 +102,28 @@ export type RecommendationRecord = {
   profit_units: string | null;
 };
 
-export type MissingTeamDisplayName = {
+export type TeamDisplayNameRow = {
   league_id: number;
   league_name: string;
   league_display_name?: string;
   season: number | null;
   team_id: number;
   team_name: string;
+  team_display_name?: string | null;
   team_logo_url?: string | null;
+  is_missing_display_name?: boolean;
   match_count: number;
   latest_kickoff_time: string | null;
+  rank?: number | null;
+  points?: number | null;
+};
+
+export type TeamDisplayNameWorkspace = {
+  league_id: number;
+  league_name: string;
+  league_display_name?: string;
+  season: number;
+  teams: TeamDisplayNameRow[];
 };
 
 export type DashboardData = {
@@ -121,7 +133,7 @@ export type DashboardData = {
   unmatched: UnmatchedMatch[];
   oddsTrends: MatchOddsTrends;
   matchesWithOdds: MatchWithOdds[];
-  missingTeamDisplayNames: MissingTeamDisplayName[];
+  missingTeamDisplayNames: TeamDisplayNameRow[];
   recommendationRecords: RecommendationRecord[];
   source: "api" | "mock";
 };

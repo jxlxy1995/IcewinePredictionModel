@@ -5,8 +5,9 @@ import type {
   LeagueCoverage,
   MatchWithOdds,
   MatchOddsTrends,
-  MissingTeamDisplayName,
   RecommendationRecord,
+  TeamDisplayNameRow,
+  TeamDisplayNameWorkspace,
   UnmatchedMatch,
   WorkerStatus
 } from "./types";
@@ -29,7 +30,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
       getJson<WorkerStatus[]>("/api/workers"),
       getJson<UnmatchedMatch[]>("/api/unmatched"),
       getJson<MatchWithOdds[]>("/api/matches/with-odds"),
-      getJson<MissingTeamDisplayName[]>("/api/display/missing-team-names"),
+      getJson<TeamDisplayNameRow[]>("/api/display/missing-team-names"),
       getJson<RecommendationRecord[]>("/api/recommendation-records")
     ]);
     const oddsTrends = await loadFirstOddsTrend(matchesWithOdds);
@@ -59,6 +60,15 @@ async function loadFirstOddsTrend(matchesWithOdds: MatchWithOdds[]): Promise<Mat
 
 export async function loadMatchOddsTrend(matchId: number): Promise<MatchOddsTrends> {
   return getJson<MatchOddsTrends>(`/api/matches/${matchId}/odds-trends`);
+}
+
+export async function loadTeamDisplayNameWorkspace(
+  leagueId: number,
+  season: number
+): Promise<TeamDisplayNameWorkspace> {
+  return getJson<TeamDisplayNameWorkspace>(
+    `/api/display/team-name-workspace?league_id=${leagueId}&season=${season}`
+  );
 }
 
 async function getJson<T>(path: string): Promise<T> {

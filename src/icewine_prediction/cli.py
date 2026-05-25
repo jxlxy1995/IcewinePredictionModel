@@ -37,6 +37,10 @@ from icewine_prediction.model_training_service import (
     evaluate_baseline_result_model,
     train_league_team_strength_goal_model,
 )
+from icewine_prediction.negative_binomial_model_service import (
+    NegativeBinomialTotalGoalsModel,
+    train_negative_binomial_total_goals_model,
+)
 from icewine_prediction.oddspapi_sync_runner import (
     build_oddspapi_match_report,
     build_oddspapi_probe_report,
@@ -499,6 +503,35 @@ def format_skellam_handicap_probability(
     )
 
 
+def format_negative_binomial_total_model(
+    model: NegativeBinomialTotalGoalsModel,
+    sample_count: int,
+) -> str:
+    return "\n".join(
+        [
+            f"训练样本 {sample_count}",
+            f"总进球均值 {model.mean_goals}",
+            f"离散度 {model.dispersion}",
+        ]
+    )
+
+
+def format_negative_binomial_total_probability(
+    model: NegativeBinomialTotalGoalsModel,
+    line: Decimal,
+) -> str:
+    probability = model.total_goals_probability(line)
+    return "\n".join(
+        [
+            f"总进球均值 {model.mean_goals}",
+            f"离散度 {model.dispersion}",
+            f"大小球盘口 {probability.line}",
+            f"大球概率 {probability.over_probability}",
+            f"小球概率 {probability.under_probability}",
+        ]
+    )
+
+
 @matches_app.command("upcoming")
 def matches_upcoming(hours: int = 24):
     engine = create_database_engine()
@@ -815,6 +848,30 @@ def models_skellam_handicap(
         away_expected_goals=Decimal(away_expected_goals),
     )
     typer.echo(format_skellam_handicap_probability(model, Decimal(line)))
+
+
+@models_app.command("train-negative-binomial-total")
+def models_train_negative_binomial_total(limit: int = typer.Option(1000, "--limit")):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        samples = list_training_samples(session, limit=limit)
+        model = train_negative_binomial_total_goals_model(samples)
+        typer.echo(format_negative_binomial_total_model(model, sample_count=len(samples)))
+
+
+@models_app.command("negative-binomial-total")
+def models_negative_binomial_total(
+    mean_goals: str = typer.Option(..., "--mean"),
+    dispersion: str = typer.Option(..., "--dispersion"),
+    line: str = typer.Option(..., "--line"),
+):
+    model = NegativeBinomialTotalGoalsModel(
+        mean_goals=Decimal(mean_goals),
+        dispersion=Decimal(dispersion),
+    )
+    typer.echo(format_negative_binomial_total_probability(model, Decimal(line)))
 
 
 if __name__ == "__main__":

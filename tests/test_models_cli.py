@@ -8,6 +8,7 @@ from icewine_prediction.dixon_coles_model_service import (
     DixonColesGoalModel,
 )
 from icewine_prediction.model_training_service import BaselineResultEvaluation
+from icewine_prediction.negative_binomial_model_service import NegativeBinomialTotalGoalsModel
 
 
 def test_format_baseline_result_evaluation_outputs_metrics():
@@ -131,3 +132,50 @@ def test_models_skellam_handicap_outputs_probabilities():
     assert "盘口 -0.25" in result.stdout
     assert "主队覆盖概率" in result.stdout
     assert "客队覆盖概率" in result.stdout
+
+
+def test_models_train_negative_binomial_total_outputs_parameters(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.list_training_samples",
+        lambda session, limit: ["sample"] * limit,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.train_negative_binomial_total_goals_model",
+        lambda samples: NegativeBinomialTotalGoalsModel(
+            mean_goals=Decimal("2.60"),
+            dispersion=Decimal("0.2000"),
+        ),
+    )
+
+    result = runner.invoke(app, ["models", "train-negative-binomial-total", "--limit", "10"])
+
+    assert result.exit_code == 0
+    assert "训练样本 10" in result.stdout
+    assert "总进球均值 2.60" in result.stdout
+    assert "离散度 0.2000" in result.stdout
+
+
+def test_models_negative_binomial_total_outputs_probabilities():
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        [
+            "models",
+            "negative-binomial-total",
+            "--mean",
+            "2.60",
+            "--dispersion",
+            "0.20",
+            "--line",
+            "2.75",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "总进球均值 2.60" in result.stdout
+    assert "离散度 0.20" in result.stdout
+    assert "大小球盘口 2.75" in result.stdout
+    assert "大球概率" in result.stdout
+    assert "小球概率" in result.stdout

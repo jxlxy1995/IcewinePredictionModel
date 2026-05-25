@@ -123,7 +123,12 @@ export type TeamDisplayNameWorkspace = {
   league_name: string;
   league_display_name?: string;
   season: number;
+  is_translation_done: boolean;
   teams: TeamDisplayNameRow[];
+};
+
+export type DisplayTranslationStatus = {
+  done_league_seasons: string[];
 };
 
 export type DashboardData = {
@@ -134,6 +139,7 @@ export type DashboardData = {
   oddsTrends: MatchOddsTrends;
   matchesWithOdds: MatchWithOdds[];
   missingTeamDisplayNames: TeamDisplayNameRow[];
+  doneDisplayTranslationKeys: string[];
   recommendationRecords: RecommendationRecord[];
   source: "api" | "mock";
 };

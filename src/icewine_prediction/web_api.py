@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from icewine_prediction.database import create_database_engine, create_session_factory
 from icewine_prediction.display_service import DisplayNameService
+from icewine_prediction.display_translation_status_service import DisplayTranslationStatusService
 from icewine_prediction.models import (
     HistoricalOddsSnapshot,
     League,
@@ -30,12 +31,16 @@ def create_web_app(
     log_dir: str | Path = "logs/odds",
     process_running_checker: Callable[[int], bool] = _is_process_running,
     display_name_service: DisplayNameService | None = None,
+    display_translation_status_service: DisplayTranslationStatusService | None = None,
 ) -> FastAPI:
     if session_factory is None:
         engine = create_database_engine()
         session_factory = create_session_factory(engine)
     log_dir = Path(log_dir)
     display_name_service = display_name_service or DisplayNameService()
+    display_translation_status_service = (
+        display_translation_status_service or DisplayTranslationStatusService()
+    )
 
     app = FastAPI(title="Icewine Prediction Console API")
 
@@ -47,6 +52,14 @@ def create_web_app(
     def dashboard_summary() -> dict[str, int]:
         with session_factory() as session:
             return build_dashboard_summary(session)
+
+    @app.get("/api/display/translation-status")
+    def display_translation_status() -> dict[str, Any]:
+        return {
+            "done_league_seasons": sorted(
+                display_translation_status_service.list_done_keys()
+            )
+        }
 
     @app.get("/api/leagues/coverage")
     def league_coverage() -> list[dict[str, Any]]:
@@ -78,10 +91,22 @@ def create_web_app(
                 league_id=league_id,
                 season=season,
                 display_name_service=display_name_service,
+                display_translation_status_service=display_translation_status_service,
             )
             if payload is None:
                 raise HTTPException(status_code=404, detail="联赛或赛季不存在")
             return payload
+
+    @app.post("/api/display/team-name-workspace/done")
+    def mark_team_name_workspace_done(payload: dict[str, int]) -> dict[str, Any]:
+        league_id = int(payload["league_id"])
+        season = int(payload["season"])
+        display_translation_status_service.mark_done(league_id=league_id, season=season)
+        return {
+            "league_id": league_id,
+            "season": season,
+            "is_translation_done": True,
+        }
 
     @app.get("/api/matches/with-odds")
     def matches_with_odds() -> list[dict[str, Any]]:
@@ -351,8 +376,12 @@ def build_team_display_name_workspace(
     league_id: int,
     season: int,
     display_name_service: DisplayNameService | None = None,
+    display_translation_status_service: DisplayTranslationStatusService | None = None,
 ) -> dict[str, Any] | None:
     display_name_service = display_name_service or DisplayNameService()
+    display_translation_status_service = (
+        display_translation_status_service or DisplayTranslationStatusService()
+    )
     league = session.query(League).filter(League.id == league_id).one_or_none()
     if league is None:
         return None
@@ -370,6 +399,10 @@ def build_team_display_name_workspace(
         "league_name": league.name,
         "league_display_name": display_name_service.display_league(league.name),
         "season": season,
+        "is_translation_done": display_translation_status_service.is_done(
+            league_id=league_id,
+            season=season,
+        ),
         "teams": items,
     }
 

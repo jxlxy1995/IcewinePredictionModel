@@ -2,6 +2,7 @@ import { mockDashboardData, mockOddsTrends } from "./mockData";
 import type {
   DashboardData,
   DashboardSummary,
+  DisplayTranslationStatus,
   LeagueCoverage,
   MatchWithOdds,
   MatchOddsTrends,
@@ -23,6 +24,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
       unmatched,
       matchesWithOdds,
       missingTeamDisplayNames,
+      displayTranslationStatus,
       recommendationRecords
     ] = await Promise.all([
       getJson<DashboardSummary>("/api/dashboard/summary"),
@@ -31,6 +33,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
       getJson<UnmatchedMatch[]>("/api/unmatched"),
       getJson<MatchWithOdds[]>("/api/matches/with-odds"),
       getJson<TeamDisplayNameRow[]>("/api/display/missing-team-names"),
+      getJson<DisplayTranslationStatus>("/api/display/translation-status"),
       getJson<RecommendationRecord[]>("/api/recommendation-records")
     ]);
     const oddsTrends = await loadFirstOddsTrend(matchesWithOdds);
@@ -43,6 +46,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
       oddsTrends,
       matchesWithOdds,
       missingTeamDisplayNames,
+      doneDisplayTranslationKeys: displayTranslationStatus.done_league_seasons,
       recommendationRecords
     };
   } catch {
@@ -71,8 +75,30 @@ export async function loadTeamDisplayNameWorkspace(
   );
 }
 
+export async function markTeamDisplayNameWorkspaceDone(
+  leagueId: number,
+  season: number
+): Promise<{ league_id: number; season: number; is_translation_done: boolean }> {
+  return postJson("/api/display/team-name-workspace/done", {
+    league_id: leagueId,
+    season
+  });
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`);
+  if (!response.ok) {
+    throw new Error(`API request failed: ${path}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+    method: "POST"
+  });
   if (!response.ok) {
     throw new Error(`API request failed: ${path}`);
   }

@@ -13,6 +13,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   loadDashboardData,
   loadMatchOddsTrend,
+  markTeamDisplayNameWorkspaceDone,
   loadTeamDisplayNameWorkspace
 } from "../apiClient";
 import { LeagueCoverageTable } from "../components/LeagueCoverageTable";
@@ -97,6 +98,9 @@ export function DashboardPage() {
     null
   );
   const [displayWorkspaceError, setDisplayWorkspaceError] = useState<string | null>(null);
+  const [doneDisplayTranslationKeys, setDoneDisplayTranslationKeys] = useState<Set<string>>(
+    new Set(mockDashboardData.doneDisplayTranslationKeys)
+  );
   const [coverageSort, setCoverageSort] = useState<
     "coverage_desc" | "coverage_asc" | "unmatched_desc"
   >("coverage_desc");
@@ -108,6 +112,7 @@ export function DashboardPage() {
         return;
       }
       setData(loadedData);
+      setDoneDisplayTranslationKeys(new Set(loadedData.doneDisplayTranslationKeys));
       setOddsTrends(loadedData.oddsTrends);
       setSelectedOddsMatchId(loadedData.oddsTrends.match_id);
       const firstLeague = loadedData.leagues[0];
@@ -184,8 +189,23 @@ export function DashboardPage() {
         {activeView === "displayNames" && (
           <DisplayNamesView
             data={data}
+            doneKeys={doneDisplayTranslationKeys}
             filterText={displayNameFilter}
             onFilterTextChange={setDisplayNameFilter}
+            onMarkDone={(leagueId, season) => {
+              setDisplayWorkspaceError(null);
+              markTeamDisplayNameWorkspaceDone(leagueId, season)
+                .then(() => {
+                  const doneKey = `${leagueId}-${season}`;
+                  setDoneDisplayTranslationKeys(new Set([...doneDisplayTranslationKeys, doneKey]));
+                  setTeamDisplayWorkspace((current) =>
+                    current && current.league_id === leagueId && current.season === season
+                      ? { ...current, is_translation_done: true }
+                      : current
+                  );
+                })
+                .catch(() => setDisplayWorkspaceError("标记中文名校验完成失败"));
+            }}
             onWorkspaceChange={(leagueId, season) => {
               setDisplayWorkspaceError(null);
               loadTeamDisplayNameWorkspace(leagueId, season)
@@ -312,15 +332,19 @@ function UnmatchedView({ data }: { data: DashboardData }) {
 
 function DisplayNamesView({
   data,
+  doneKeys,
   filterText,
   onFilterTextChange,
+  onMarkDone,
   onWorkspaceChange,
   workspace,
   workspaceError
 }: {
   data: DashboardData;
+  doneKeys: Set<string>;
   filterText: string;
   onFilterTextChange: (value: string) => void;
+  onMarkDone: (leagueId: number, season: number) => void;
   onWorkspaceChange: (leagueId: number, season: number) => void;
   workspace: TeamDisplayNameWorkspace | null;
   workspaceError: string | null;
@@ -332,6 +356,7 @@ function DisplayNamesView({
         .map((item) => [
           `${item.league_id}-${item.season}`,
           {
+            is_done: doneKeys.has(`${item.league_id}-${item.season}`),
             league_id: item.league_id,
             league_name: item.league_name,
             league_display_name: item.league_display_name,
@@ -339,7 +364,14 @@ function DisplayNamesView({
           }
         ])
     ).values()
-  );
+  ).sort((left, right) => {
+    if (left.is_done !== right.is_done) {
+      return left.is_done ? 1 : -1;
+    }
+    return `${left.league_display_name ?? left.league_name} ${left.season}`.localeCompare(
+      `${right.league_display_name ?? right.league_name} ${right.season}`
+    );
+  });
   const normalizedFilterText = filterText.trim().toLowerCase();
   const visibleTeams = (workspace?.teams ?? []).filter((item) => {
     if (!normalizedFilterText) {
@@ -364,6 +396,7 @@ function DisplayNamesView({
             {workspaceOptions.map((option) => (
               <option key={`${option.league_id}-${option.season}`} value={`${option.league_id}-${option.season}`}>
                 {option.league_display_name ?? option.league_name} · {option.season}
+                {option.is_done ? " · 已完成" : ""}
               </option>
             ))}
           </select>
@@ -380,7 +413,18 @@ function DisplayNamesView({
             <strong>
               {workspace.league_display_name ?? workspace.league_name} · {workspace.season}
             </strong>
-            <span>{workspace.teams.length} 支球队</span>
+            <span>{workspace.is_translation_done ? "已完成校验" : `${workspace.teams.length} 支球队`}</span>
+          </div>
+        )}
+        {workspace && (
+          <div className="inline-actions">
+            <button
+              disabled={workspace.is_translation_done}
+              onClick={() => onMarkDone(workspace.league_id, workspace.season)}
+              type="button"
+            >
+              {workspace.is_translation_done ? "已完成校验" : "整联赛已翻译完成"}
+            </button>
           </div>
         )}
         <TeamDisplayNameEditor teams={visibleTeams} />

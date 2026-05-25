@@ -10,6 +10,7 @@ __pycache__/
 *.sqlite3
 *.log
 .env
+config/display_translation_status.yaml
 local_data/
 logs/
 web/node_modules/

@@ -40,6 +40,7 @@ def start_oddspapi_batch_worker_process(
     log_dir: str | Path,
     league_ids: set[str] | None,
     from_date: str | None,
+    notify_on_complete: bool = False,
     popen_factory: Callable[..., subprocess.Popen] | None = None,
 ) -> WorkerStartResult:
     log_dir = Path(log_dir)
@@ -59,6 +60,7 @@ def start_oddspapi_batch_worker_process(
         log_dir=log_dir,
         league_ids=league_ids,
         from_date=from_date,
+        notify_on_complete=notify_on_complete,
     )
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
@@ -85,6 +87,7 @@ def start_oddspapi_batch_worker_process(
         "mode": mode,
         "league_ids": sorted(league_ids or []),
         "from_date": from_date,
+        "notify_on_complete": notify_on_complete,
     }
     status_path.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
     return WorkerStartResult(
@@ -135,6 +138,7 @@ def _build_worker_command(
     log_dir: Path,
     league_ids: set[str] | None,
     from_date: str | None,
+    notify_on_complete: bool = False,
 ) -> tuple[str, ...]:
     command = [
         sys.executable,
@@ -165,6 +169,8 @@ def _build_worker_command(
         command.extend(["--league-ids", ",".join(sorted(league_ids))])
     if from_date:
         command.extend(["--from-date", from_date])
+    if notify_on_complete:
+        command.append("--notify-on-complete")
     return tuple(command)
 
 

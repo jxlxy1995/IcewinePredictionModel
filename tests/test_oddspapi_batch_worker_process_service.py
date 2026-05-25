@@ -31,6 +31,7 @@ def test_start_batch_worker_process_writes_status_and_launches_python(monkeypatc
         log_dir=tmp_path,
         league_ids={"41", "89"},
         from_date="2026-01-15",
+        notify_on_complete=True,
     )
 
     command = captured["command"]
@@ -38,6 +39,7 @@ def test_start_batch_worker_process_writes_status_and_launches_python(monkeypatc
     assert "oddspapi-batch-worker" in command
     assert command[command.index("--league-ids") + 1] == "41,89"
     assert command[command.index("--from-date") + 1] == "2026-01-15"
+    assert "--notify-on-complete" in command
     assert captured["kwargs"]["cwd"] == Path.cwd()
     assert captured["kwargs"]["env"]["PYTHONIOENCODING"] == "utf-8"
     assert captured["kwargs"]["env"]["PYTHONPATH"].split(";")[0] == "src"
@@ -63,6 +65,7 @@ def test_batch_worker_status_reads_current_status_and_log_tail(monkeypatch, tmp_
         log_dir=tmp_path,
         league_ids={"62"},
         from_date=None,
+        notify_on_complete=False,
         popen_factory=lambda command, **kwargs: type("FakeProcess", (), {"pid": 9876})(),
     )
     start_result.log_path.write_text("第一行\n第二行\n第三行\n", encoding="utf-8")

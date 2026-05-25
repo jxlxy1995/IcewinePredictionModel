@@ -335,6 +335,46 @@ def test_select_oddspapi_candidate_matches_skips_unavailable_or_empty_historical
     assert matches == [retryable_match, fresh_match]
 
 
+def test_select_oddspapi_candidate_matches_skips_unmatched_historical_odds(session):
+    unmatched_match = _match(
+        session,
+        source_match_id="unmatched",
+        league_name="La Liga Unmatched",
+        kickoff_time=datetime(2026, 5, 23, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Barcelona",
+        away_team_name="Real Betis",
+    )
+    fresh_match = _match(
+        session,
+        source_match_id="fresh-after-unmatched",
+        league_name="La Liga Fresh",
+        kickoff_time=datetime(2026, 5, 22, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Valencia",
+        away_team_name="Getafe",
+    )
+    session.add(
+        OddsSourceMatch(
+            match_id=unmatched_match.id,
+            source_name="oddspapi",
+            source_fixture_id="",
+            matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_confidence=Decimal("0.0000"),
+            match_reason="unmatched",
+            historical_odds_status="unmatched",
+        )
+    )
+    session.commit()
+
+    matches, skipped = select_oddspapi_candidate_matches(
+        session=session,
+        season=2025,
+        max_matches=10,
+    )
+
+    assert skipped == 1
+    assert matches == [fresh_match]
+
+
 def test_select_oddspapi_candidate_matches_filters_by_league_ids_and_from_date(session):
     old_laliga = _match(
         session,
@@ -720,6 +760,34 @@ def test_run_oddspapi_sync_for_session_stops_gracefully_on_api_error(session):
     assert result.requests_used == 1
     assert result.failed_match_count == 1
     assert result.error_message == "1 场比赛失败，已跳过继续"
+
+
+def test_run_oddspapi_sync_for_session_marks_unmatched_match_as_terminal(session):
+    unmatched_match = _match(
+        session,
+        source_match_id="unmatched",
+        source_league_id="140",
+        kickoff_time=datetime(2026, 5, 23, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Unknown Home",
+        away_team_name="Unknown Away",
+    )
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    source_match = session.query(OddsSourceMatch).filter_by(match_id=unmatched_match.id).one()
+    assert result.processed_match_count == 0
+    assert result.failed_match_count == 0
+    assert source_match.source_fixture_id == ""
+    assert source_match.match_confidence == Decimal("0.0000")
+    assert source_match.match_reason == "未匹配到 OddsPapi 比赛"
+    assert source_match.historical_odds_status == "unmatched"
 
 
 def test_run_oddspapi_sync_for_session_continues_after_single_match_odds_error(session):

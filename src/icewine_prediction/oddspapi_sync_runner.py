@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time, timedelta
+from decimal import Decimal
 import time
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -30,7 +31,7 @@ ODDSPAPI_BASE_URL = "https://api.oddspapi.io/v4"
 ODDSPAPI_SOURCE_NAME = "oddspapi"
 SOCCER_SPORT_ID = 10
 SELECTED_BOOKMAKERS = "pinnacle"
-TERMINAL_HISTORICAL_ODDS_STATUSES = {"empty", "unavailable"}
+TERMINAL_HISTORICAL_ODDS_STATUSES = {"empty", "unavailable", "unmatched"}
 
 API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "39": 17,
@@ -51,6 +52,7 @@ API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "135": 23,
     "136": 53,
     "140": 8,
+    "141": 54,
     "203": 36,
     "235": 203,
     "244": 41,
@@ -529,6 +531,7 @@ def run_oddspapi_sync_for_session(
                 team_aliases=team_aliases,
             )
             if candidate is None:
+                _store_unmatched_odds_source_match(session, match, "未匹配到 OddsPapi 比赛")
                 _emit_progress(
                     progress_callback,
                     _format_progress_skip(index, total, match, "未匹配到 OddsPapi 比赛"),
@@ -853,6 +856,35 @@ def _store_odds_source_match(session: Session, match: Match, candidate) -> None:
         existing.matched_at = now_beijing()
         existing.match_confidence = candidate.confidence
         existing.match_reason = candidate.reason
+    session.commit()
+
+
+def _store_unmatched_odds_source_match(session: Session, match: Match, reason: str) -> None:
+    existing = (
+        session.query(OddsSourceMatch)
+        .filter_by(match_id=match.id, source_name=ODDSPAPI_SOURCE_NAME)
+        .one_or_none()
+    )
+    if existing is None:
+        session.add(
+            OddsSourceMatch(
+                match_id=match.id,
+                source_name=ODDSPAPI_SOURCE_NAME,
+                source_fixture_id="",
+                matched_at=now_beijing(),
+                match_confidence=Decimal("0.0000"),
+                match_reason=reason,
+                historical_odds_status="unmatched",
+                historical_odds_checked_at=now_beijing(),
+                historical_odds_error=reason,
+            )
+        )
+    else:
+        existing.match_confidence = Decimal("0.0000")
+        existing.match_reason = reason
+        existing.historical_odds_status = "unmatched"
+        existing.historical_odds_checked_at = now_beijing()
+        existing.historical_odds_error = reason
     session.commit()
 
 

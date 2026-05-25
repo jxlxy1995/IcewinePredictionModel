@@ -226,11 +226,12 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
         log_dir,
         league_ids=None,
         from_date=None,
+        notify_on_complete=False,
         output_callback=None: (
             f"worker:{season}:{mode}:{chunk_size}:{request_budget_per_league}:"
             f"{timeout_seconds}:{max_snapshots_per_match}:{max_rounds_per_league}:"
             f"{stop_after_empty_matches}:{log_dir}:{league_ids}:{from_date}:"
-            f"{output_callback is not None}"
+            f"{notify_on_complete}:{output_callback is not None}"
         ),
     )
 
@@ -261,6 +262,7 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
             "41,89",
             "--from-date",
             "2026-01-15",
+            "--notify-on-complete",
         ],
     )
 
@@ -268,7 +270,7 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
     assert "worker:2025:balanced:10:500:20:120:2:8:logs/odds:" in result.stdout
     assert "'41'" in result.stdout
     assert "'89'" in result.stdout
-    assert ":2026-01-15:True" in result.stdout
+    assert ":2026-01-15:True:True" in result.stdout
 
 
 def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
@@ -285,14 +287,16 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
         stop_after_empty_matches,
         log_dir,
         league_ids=None,
-        from_date=None: type(
+        from_date=None,
+        notify_on_complete=False: type(
             "FakeResult",
             (),
             {
                 "to_text": lambda self: (
                     f"start:{season}:{mode}:{chunk_size}:{request_budget_per_league}:"
                     f"{timeout_seconds}:{max_snapshots_per_match}:{max_rounds_per_league}:"
-                    f"{stop_after_empty_matches}:{log_dir}:{league_ids}:{from_date}"
+                    f"{stop_after_empty_matches}:{log_dir}:{league_ids}:{from_date}:"
+                    f"{notify_on_complete}"
                 )
             },
         )(),
@@ -325,6 +329,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
             "62,89",
             "--from-date",
             "2026-01-15",
+            "--notify-on-complete",
         ],
     )
 
@@ -332,7 +337,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
     assert "start:2025:fast:12:900:18:100:30:10:logs/odds:" in result.stdout
     assert "'62'" in result.stdout
     assert "'89'" in result.stdout
-    assert ":2026-01-15" in result.stdout
+    assert ":2026-01-15:True" in result.stdout
 
 
 def test_oddspapi_worker_status_accepts_log_dir_and_tail(monkeypatch):

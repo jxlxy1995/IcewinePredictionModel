@@ -42,3 +42,22 @@ batches:
     league_ids:
       - 41   # 英甲 League One England
       - 89   # 荷乙 Eerste Divisie Netherlands
+
+  - name: 第二优先级A-多联赛新回填
+    season: 2025
+    from_date: 2026-01-01
+    mode: balanced
+    chunk_size: 10
+    request_budget_per_league: 800
+    max_snapshots_per_match: 120
+    max_rounds_per_league: 18
+    stop_after_empty_matches: 8
+    league_ids:
+      - 203  # 土超 Süper Lig Turkey
+      - 106  # 波兰超 Ekstraklasa Poland
+      - 119  # 丹麦超 Superliga Denmark
+      - 283  # 罗甲 Liga I Romania
+      - 235  # 俄超 Premier League Russia
+      - 114  # 瑞典超甲 Superettan Sweden
+      - 128  # 阿甲 Liga Profesional Argentina
+      - 265  # 智利甲 Primera División Chile

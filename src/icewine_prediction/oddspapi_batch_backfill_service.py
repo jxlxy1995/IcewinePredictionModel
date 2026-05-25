@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time
 from enum import Enum
+import os
 from pathlib import Path
 from typing import Callable, Protocol
 from zoneinfo import ZoneInfo
@@ -11,6 +12,7 @@ from icewine_prediction.oddspapi_sync_runner import (
     OddsPapiSyncResult,
     run_oddspapi_sync_result,
 )
+from icewine_prediction.notification_service import notify_local_completion
 from icewine_prediction.settings import LeagueSettings, load_project_settings
 from icewine_prediction.time_utils import now_beijing
 
@@ -112,6 +114,7 @@ def run_oddspapi_batch_worker(
     log_dir: str | Path = "logs/odds",
     league_ids: set[str] | None = None,
     from_date: date | datetime | None = None,
+    notify_on_complete: bool = False,
     output_callback: Callable[[str], None] | None = None,
 ) -> str:
     settings = load_project_settings()
@@ -129,6 +132,8 @@ def run_oddspapi_batch_worker(
         max_rounds_per_league=max_rounds_per_league,
         stop_after_empty_matches=stop_after_empty_matches,
         log_dir=Path(log_dir),
+        notify_on_complete=notify_on_complete,
+        notification_callback=notify_local_completion,
         output_callback=output_callback,
     )
     return format_batch_backfill_report(report)
@@ -203,6 +208,8 @@ def run_oddspapi_batch_worker_with_runner(
     max_rounds_per_league: int,
     stop_after_empty_matches: int,
     log_dir: Path,
+    notify_on_complete: bool = False,
+    notification_callback: Callable[[str, str], bool] | None = None,
     output_callback: Callable[[str], None] | None,
 ) -> BatchBackfillReport:
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -230,7 +237,24 @@ def run_oddspapi_batch_worker_with_runner(
     )
     logger.write("完成 OddsPapi 后台回填")
     logger.write(format_batch_backfill_report(report))
+    if notify_on_complete:
+        notifier = notification_callback or notify_local_completion
+        notification_sent = notifier(
+            "OddsPapi 回填完成",
+            _build_completion_notification_message(report),
+        )
+        logger.write(f"通知发送结果 sent={notification_sent}")
     return report
+
+
+def _build_completion_notification_message(report: BatchBackfillReport) -> str:
+    league_names = "、".join(league.league_name for league in report.league_reports) or "无联赛"
+    requests_used = sum(league.requests_used for league in report.league_reports)
+    snapshots = sum(league.inserted_snapshot_count for league in report.league_reports)
+    return (
+        f"{league_names} 已完成，"
+        f"leagues={len(report.league_reports)} snapshots={snapshots} requests={requests_used}"
+    )
 
 
 def format_batch_backfill_report(report) -> str:
@@ -431,7 +455,7 @@ def _emit_worker_progress(
 
 
 def _build_worker_log_filename() -> str:
-    return f"{now_beijing().strftime('%Y%m%d-%H%M%S')}-oddspapi-batch-worker.log"
+    return f"{now_beijing().strftime('%Y%m%d-%H%M%S')}-pid{os.getpid()}-oddspapi-batch-worker.log"
 
 
 @dataclass

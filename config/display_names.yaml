@@ -82,114 +82,710 @@ leagues:
   Major League Soccer: 美职联
   Major League Soccer (USA): 美职联
 teams:
+  1. FC Heidenheim: 海登海姆
   1. FC Kaiserslautern: 凯泽斯劳滕
+  1. FC Köln: 科隆
   1. FC Magdeburg: 马格德堡
   1. FC Nürnberg: 纽伦堡
+  1899 Hoffenheim: 霍芬海姆
+  A. Italiano: 奥达科斯
+  AC Milan: AC米兰
+  AC Oulu: 奥卢
+  AD Ceuta FC: 休达
+  ADO Den Haag: 海牙
+  AEK Athens FC: 雅典AEK
   AFC Hermannstadt: 赫曼施塔特
-  AIK Stockholm: AIK索尔纳
+  AFC Wimbledon: AFC温布尔登
+  AIK Stockholm: 索尔纳
   AS Roma: 罗马
+  AVS: 阿维什镇
   AZ Alkmaar: 阿尔克马尔
+  Aalesund: 奥勒松
+  Aarhus: 奥胡斯
+  Aberdeen: 阿伯丁
+  Adelaide United: 阿德莱德联
   Ajax: 阿贾克斯
-  Alverca: 阿尔韦卡
+  Akhmat: 格罗兹尼
+  Akron: 阿克伦陶里亚蒂
+  Al Khaleej Saihat: 塞哈特海湾
+  Al Kholood: 拉斯永恒
+  Al Najma: 纳杰马体育
+  Al Okhdood: 阿科多
+  Al Riyadh: 利雅得体育
+  Al Shabab: 利雅得青年人
+  Al Taawon: 布赖代合作
+  Al-Ahli Jeddah: 吉达国民
+  Al-Ettifaq: 达曼协作
+  Al-Fateh: 哈萨征服
+  Al-Fayha: 费哈
+  Al-Hazm: 哈森姆
+  Al-Hilal Saudi FC: 利雅得新月
+  Al-Ittihad FC: 吉达联合
+  Al-Nassr: 利雅得胜利
+  Al-Qadisiyah FC: 胡拜尔库迪西亚
+  Alanyaspor: 阿拉尼亚体育
+  Alaves: 阿拉维斯
+  Albacete: 阿尔瓦塞特
+  Albirex Niigata: 新泻天鹅
+  Aldosivi: 阿尔多斯维
+  Almere City FC: 阿尔梅勒城
+  Almeria: 阿尔梅里亚
+  Alverca: 艾华卡
+  Amiens: 亚眠
+  Anderlecht: 安德莱赫特
+  Angers: 昂热
+  Annecy: 昂纳西
+  Ansan Greeners: 安山小绿人
+  Antalyaspor: 安塔利亚
+  Antwerp: 安特卫普
+  Arbroath: 阿布罗斯
+  Argentinos JRS: 阿根廷青年人
+  Arges Pitesti: 阿格斯
+  Aris Thessalonikis: 阿里斯
+  Arka Gdynia: 阿尔卡
+  Arminia Bielefeld: 比勒菲尔德
+  Arouca: 阿罗卡
   Arsenal: 阿森纳
+  Asan Mugunghwa: 忠南牙山
+  Asteras Tripolis: 特里波利斯
+  Aston Villa: 阿斯顿维拉
   Atalanta: 亚特兰大
+  Athletic Club: 毕尔巴鄂竞技
+  Atlanta United FC: 亚特兰大联
   Atletico Madrid: 马德里竞技
+  Atletico Tucuman: 图库曼竞技
+  Atletico-MG: 米内罗竞技
+  Atromitos: 阿特罗米托斯
+  Auckland: 奥克兰FC
+  Austin: 奥斯汀FC
+  Austria Vienna: 奥地利维也纳
+  Auxerre: 欧塞尔
+  Avellino: 阿维利诺
+  Avispa Fukuoka: 福冈黄蜂
+  BK Hacken: 赫根
+  BSC Young Boys: 年轻人
+  Bahia: 巴伊亚
+  Baltika: 巴蒂卡
+  Banfield: 班菲尔德
+  Barcelona: 巴塞罗那
+  Bari: 巴里
+  Barnsley: 巴恩斯利
+  Barracas Central: 巴拉卡斯中央
+  Bastia: 巴斯蒂亚
   Bayer Leverkusen: 勒沃库森
   Bayern Munich: 拜仁慕尼黑
+  Bayern München: 拜仁慕尼黑
+  Başakşehir: 巴萨克赛尔
+  Beerschot VA: 比肖特VA
+  Beijing Guoan: 北京国安
+  Belgrano Cordoba: 贝尔格拉诺
   Benfica: 本菲卡
-  BK Hacken: 赫根
-  Bologna: 博洛尼亚
+  Beşiktaş: 贝西克塔斯
+  Birmingham: 伯明翰
+  Blackburn: 布莱克本
+  Blackpool: 布莱克浦
+  Boca Juniors: 博卡青年
   Bodo/Glimt: 博德闪耀
+  Bologna: 博洛尼亚
+  Bolton: 博尔顿
+  Borussia Dortmund: 多特蒙德
+  Borussia Mönchengladbach: 门兴格拉德巴赫
+  Botafogo: 博塔弗戈
+  Boulogne: 布洛涅
   Bournemouth: 伯恩茅斯
+  Bradford: 布拉德福德
   Brann: 布兰
+  Breidablik: 贝雷达比历克
   Brentford: 布伦特福德
   Brighton: 布莱顿
+  Brisbane Roar: 布里斯班狮吼
+  Bristol City: 布里斯托尔城
+  Brondby: 布隆德比
+  Bucheon FC 1995: 富川FC
+  Burgos: 布尔戈斯
   Burnley: 伯恩利
+  Burton Albion: 伯顿
+  Busan I Park: 釜山偶像
+  CF Montreal: 蒙特利尔FC
+  CFR 1907 Cluj: 克卢日
+  CSKA Moscow: 莫斯科中央陆军
+  Cadiz: 加的斯
   Cagliari: 卡利亚里
+  Cambuur: 坎布尔
   Cardiff: 卡迪夫城
-  Casa Pia: 卡萨皮亚
+  Carrarese: 凯勒雷斯
+  Casa Pia: 卡萨比亚
+  Castellón: 卡斯迪隆
   Catanzaro: 卡坦扎罗
+  Ceara: 塞阿拉
+  Celta Vigo: 塞尔塔
+  Celtic: 凯尔特人
+  Central Coast Mariners: 中央海岸水手
+  Central Cordoba de Santiago: 科尔多瓦中央
+  Cercle Brugge: 色拉格布鲁日
+  Cerezo Osaka: 大阪樱花
+  Cesena: 切塞纳
+  Changchun Yatai: 长春亚泰
+  Charleroi: 沙勒罗瓦
+  Charlotte: 夏洛特FC
+  Charlton: 查尔顿
   Chelsea: 切尔西
+  Chengdu Better City: 成都蓉城
+  Cheonan City: 天安城
+  Cheongju: 忠北清州
+  Chicago Fire: 芝加哥火焰
+  Chindia Targoviste: 赤尼达塔高维斯
+  Clermont Foot: 克莱蒙
+  Club Brugge KV: 布鲁日
+  Cobresal: 科布雷萨尔
+  Colo Colo: 科洛科洛
+  Colorado Rapids: 科罗拉多急流
+  Columbus Crew: 哥伦布机员
   Como: 科莫
+  Coquimbo Unido: 科其姆波
+  Cordoba: 科尔多瓦
+  Corinthians: 科林蒂安
+  Coventry: 考文垂
+  Cracovia Krakow: 克拉科维亚
+  Cremonese: 克雷莫纳
+  Cruzeiro: 克鲁塞罗
   Crystal Palace: 水晶宫
+  Csikszereda: FK米耶尔库雷亚丘克
+  Cultural Leonesa: 莱昂文体
+  D. La Serena: 塞雷那
+  DC United: 华盛顿联
+  Daegu FC: 大邱FC
+  Daejeon Citizen: 大田市民
+  Dalian Zhixing: 大连英博
+  Damac: 达马克
+  De Graafschap: 格拉夫夏普
+  Defensa Y Justicia: 国防与司法
+  Degerfors IF: 代格福什
+  Den Bosch: 邓伯什
+  Dender: 登德
+  Deportes Iquique: 伊基克体育
+  Deportes Limache: 利马切颜色
   Deportivo La Coruna: 拉科鲁尼亚
+  Deportivo Riestra: 利斯特雷
+  Derby: 德比郡
   Dinamo Bucuresti: 布加勒斯特迪纳摩
-  Dynamo Dresden: 德累斯顿迪纳摩
+  Dinamo Makhachkala: 莫斯科迪纳摩
+  Djurgardens IF: 尤尔加登
+  Doncaster: 汤卡斯特
+  Dordrecht: 多德勒支
+  Drita: 德利塔
+  Dundee: 邓迪FC
+  Dundee Utd: 邓迪联
+  Dunfermline: 邓弗姆林
+  Dunkerque: 敦刻尔克
+  Dynamo: 马哈奇卡拉迪纳摩
+  Dynamo Dresden: 德累斯顿
+  Dynamo Kyiv: 基辅迪纳摩
+  Eibar: 埃瓦尔
+  Eintracht Braunschweig: 布伦瑞克
+  Eintracht Frankfurt: 法兰克福
+  Elche: 埃尔切
+  Emmen: 埃门
+  Empoli: 恩波利
+  Espanyol: 西班牙人
+  Estac Troyes: 特鲁瓦
+  Estoril: 埃斯托里尔
+  Estrela: 阿马多拉之星
+  Estudiantes L.P.: 拉普拉塔大学生
   Everton: 埃弗顿
+  Everton de Vina: 埃弗顿VM
+  Excelsior: SBV精英
+  Exeter City: 埃克塞特城
+  Eyüpspor: 埃于普体育
+  FC Aarau: 阿劳
+  FC Andorra: 安道尔FC
+  FC Anyang: 安养FC
+  FC Augsburg: 奥格斯堡
+  FC BW Linz: BW林茨
+  FC Basel 1893: 巴塞尔
+  FC Botosani: 波图森尼
+  FC Cincinnati: 辛辛那提FC
+  FC Copenhagen: 哥本哈根
+  FC Dallas: 达拉斯FC
+  FC Eindhoven: FC埃因霍温
+  FC Fredericia: 弗雷德里西亚
+  FC Krasnodar: 克拉斯诺
+  FC Lugano: 卢加诺
+  FC Luzern: 卢塞恩
+  FC Midtjylland: 中日德兰
+  FC Noah: 诺亚FC
+  FC Nordsjaelland: 北西兰
+  FC OSS: 奥斯
+  FC Orenburg: 奥伦堡
+  FC Porto: 波尔图
+  FC Rostov: 罗斯托夫
+  FC ST. Gallen: 圣加伦
+  FC Schalke 04: 沙尔克04
+  FC Seoul: 首尔FC
+  FC Sion: 锡永
+  FC Sochi: 索契
+  FC St. Pauli: 圣保利
+  FC Thun: 图恩
+  FC Tokyo: 东京FC
+  FC Volendam: 福伦丹
+  FC Voluntari: 沃伦塔利
+  FC Winterthur: 温特图尔
+  FC Zurich: 苏黎世
+  FCSB: 布加勒斯特星
+  FF Jaro: 雅罗
+  FK Crvena Zvezda: 贝尔格莱德红星
+  FSV Mainz 05: 美因茨
+  Fagiano Okayama: 冈山绿雉
+  Falkenbergs FF: 法尔肯堡
+  Falkirk: 福尔柯克
+  Famalicao: 法马利康
+  Farul Constanta: 法鲁尔
+  Fatih Karagümrük: 卡拉古鲁克
+  Fenerbahçe: 费内巴切
+  Ferencvarosi TC: 费伦茨罗斯
   Feyenoord: 费耶诺德
   Fiorentina: 佛罗伦萨
+  Flamengo: 弗拉门戈
+  Fluminense: 弗鲁米嫩塞
+  Fortaleza EC: 福塔雷萨
   Fortuna Düsseldorf: 杜塞尔多夫
+  Fortuna Sittard: 福图纳锡塔德
+  Fredrikstad: 腓特烈四天
   Frosinone: 弗罗西诺内
-  Gais: 哥德堡盖斯
-  Genoa: 热那亚
-  GIL Vicente: 吉维森特
+  Fulham: 富勒姆
+  GIF Sundsvall: 松兹瓦尔
+  GIL Vicente: 吉尔维森特
+  GKS Katowice: GKS卡托威斯
   GO Ahead Eagles: 前进之鹰
+  Gais: 哥德堡盖斯
+  Galatasaray: 加拉塔萨雷
+  Gamba Osaka: 大阪钢巴
+  Gangwon FC: 江原FC
+  Gaziantep FK: 加济安泰普
+  Genk: 亨克
+  Genoa: 热那亚
+  Gent: 根特
+  Gençlerbirliği S.K.: 根克勒比利吉
+  Getafe: 赫塔菲
+  Gimcheon Sangmu FC: 金泉尚武
+  Gimnasia L.P.: 拉普拉塔体操
+  Gimpo Citizen: 金浦市民
+  Girona: 赫罗纳
+  Gnistan: 格尼斯坦
+  Godoy Cruz: 戈多伊克鲁斯
+  Gornik Zabrze: 扎布热矿工
+  Granada CF: 格拉纳达
+  Grasshoppers: 草蜢
+  Grazer AK: 格拉茨AK
+  Gremio: 格雷米奥
+  Grenoble: 格勒诺布尔
   Groningen: 格罗宁根
   Guimaraes: 吉马良斯
+  Guingamp: 甘冈
+  Gwangju FC: 光州FC
+  Gyeongnam FC: 庆南FC
+  Göztepe: 哥兹塔比
+  HJK Helsinki: 赫尔辛基
+  Haka: 哈卡
+  Halmstad: 哈姆斯塔德
+  Ham-Kam: 汉坎
+  Hamburger SV: 汉堡
   Hammarby FF: 哈马比
+  Hammarby Talang: 哈马比TFF
+  Hamrun Spartans: 阿姆伦斯巴达
+  Hangzhou Greentown: 浙江队
   Hannover 96: 汉诺威96
+  Heart Of Midlothian: 哈茨
   Heerenveen: 海伦芬
   Hellas Verona: 维罗纳
+  Helmond Sport: 赫尔蒙德
+  Helsingborg: 赫尔辛堡
+  Henan Jianye: 河南队
   Heracles: 赫拉克勒斯
   Hertha BSC: 柏林赫塔
-  Holstein Kiel: 荷尔斯泰因基尔
-  Inter Turku: 图尔库国际
+  Hibernian: 希伯尼安
+  Holstein Kiel: 荷尔斯泰因
+  Houston Dynamo: 休斯顿迪纳摩
+  Huachipato: 瓦奇巴托
+  Huddersfield: 哈德斯菲尔德
+  Huesca: 韦斯卡
+  Hull City: 赫尔城
+  Huracan: 飓风队
+  Hwaseong: 华城FC
+  IF Brommapojkarna: 布洛马波卡纳
+  IF Elfsborg: 埃尔夫斯堡
+  IFK Goteborg: 哥德堡
+  IFK Norrkoping: 北雪平
+  IFK Varnamo: IFK瓦纳默
+  IK brage: 布莱格
+  Ilves: 埃尔维斯
+  Incheon United: 仁川联
+  Independ. Rivadavia: 门多萨独立
+  Independiente: 阿根廷独立
+  Instituto Cordoba: 科尔多瓦学院
   Inter: 国际米兰
+  Inter Miami: 迈阿密国际
+  Inter Turku: 图尔库国际
+  Internacional: 巴西国际
+  Ipswich: 伊普斯维奇
+  Jagiellonia: 雅盖隆
+  Jeju United FC: 济州SKFC
+  Jeonbuk Motors: 全北现代
+  Jeonnam Dragons: 龙仁FC
+  Jong AZ: 阿尔克马尔青年队
+  Jong Ajax: 阿贾克斯青年队
+  Jong PSV U21: 埃因霍温青年队
+  Jong Utrecht: 乌德勒支青年队
+  Juve Stabia: 史泰比亚
+  Juventude: 尤文图德
   Juventus: 尤文图斯
+  KFUM Oslo: KFUM奥斯陆
+  KV Mechelen: 梅赫伦
+  KVC Westerlo: 韦斯特洛
+  Kairat Almaty: 凯拉特
   Kalmar FF: 卡尔马
   Karlsruher SC: 卡尔斯鲁厄
+  Kashima: 鹿岛鹿角
+  Kashiwa Reysol: 柏太阳神
+  Kasımpaşa: 卡斯帕萨
+  Kawasaki Frontale: 川崎前锋
+  Kayserispor: 开塞利体育
+  Kifisia: 基菲萨
+  Kilmarnock: 基尔马诺克
+  Kocaelispor: 高尔卡利
+  Konyaspor: 科尼亚
+  Kooteepee: KTP科特卡
+  Korona Kielce: 凯尔采科罗纳
+  Kristiansund BK: 克里斯蒂安松
+  Krylia Sovetov: 苏维埃之翼
+  KuPS: 古比斯
+  Kyoto Sanga: 京都不死鸟
+  Lahti: 拉蒂赫
+  Landskrona BoIS: 兰斯科罗纳
+  Lanus: 拉努斯
+  Larisa: 拉里萨
+  Las Palmas: 拉斯帕尔马斯
+  Lask Linz: 林茨
+  Lausanne: 洛桑
+  Laval: 拉瓦勒
   Lazio: 拉齐奥
+  Le Havre: 勒阿弗尔
+  Le Mans: 勒芒
   Lecce: 莱切
+  Lech Poznan: 波兹南莱赫
+  Lechia Gdansk: 格但斯克
   Leeds: 利兹联
   Leganes: 莱加内斯
+  Legia Warszawa: 华沙莱吉亚
+  Leicester: 莱斯特城
+  Lens: 朗斯
+  Levadiakos: 莱瓦贾克斯
+  Levante: 莱万特
+  Leyton Orient: 莱顿东方
+  Lille: 里尔
+  Lillestrom: 利勒斯特罗姆
+  Lincoln: 林肯城
+  Lincoln Red Imps FC: 林肯红魔
   Liverpool: 利物浦
+  Livingston: 利文斯顿
+  Liège: RFC列日
+  Lokomotiv: 莫火车头
+  Lommel United: 洛默尔
+  Lorient: 洛里昂
+  Los Angeles FC: 洛杉矶FC
+  Los Angeles Galaxy: 洛杉矶银河
+  Ludogorets: 卢多格雷茨
+  Luton: 卢顿
+  Lyon: 里昂
+  MVV: 马斯特里赫特
+  Macarthur: 麦克阿瑟FC
+  Machida Zelvia: 町田泽维亚
+  Malaga: 马拉加
+  Mallorca: 马略卡
+  Malmo FF: 马尔默
   Manchester City: 曼城
   Manchester United: 曼联
+  Mansfield Town: 曼斯菲尔德
+  Mantova: 曼托瓦
+  Mariehamn: 玛丽港
+  Marseille: 马赛
+  Meizhou Kejia: 梅州客家
+  Melbourne City: 墨尔本城
+  Melbourne Victory: 墨尔本胜利
+  Metaloglobus: 梅塔洛格布斯
+  Metz: 梅斯
+  Middlesbrough: 米德尔斯堡
+  Millwall: 米尔沃尔
+  Minnesota United FC: 明尼苏达联
+  Mirandes: 米兰德斯
+  Mirassol: 米拉索
+  Mjallby AIF: 米亚尔比
+  Modena: 摩德纳
+  Molde: 莫尔德
+  Monaco: 摩纳哥
+  Montpellier: 蒙彼利埃
   Monza: 蒙扎
+  Moreirense: 莫雷拉人
+  Motherwell: 马瑟韦尔
+  Motor Lublin: 摩托路宾
   NAC Breda: 布雷达
-  Napoli: 那不勒斯
   NEC Nijmegen: 奈梅亨
+  NEOM: 新未来城体育
+  Nacional: 马德拉国民
+  Nagoya Grampus: 名古屋鲸鱼
+  Nancy: 南锡
+  Nantes: 南特
+  Napoli: 那不勒斯
+  Nashville SC: 纳什维尔FC
+  New England Revolution: 新英格兰革命
+  New York City FC: 纽约城
+  New York Red Bulls: 纽约红牛
   Newcastle: 纽卡斯尔联
+  Newcastle Jets: 纽卡斯尔喷气机
+  Newells Old Boys: 纽维尔老男孩
+  Nice: 尼斯
+  Nieciecza: 特马利卡
+  Nizhny Novgorod: 下诺夫哥罗德
+  Norrby IF: 诺尔比
+  Northampton: 备案浦东
+  Norwich: 诺维奇
   Nottingham Forest: 诺丁汉森林
-  Palermo: 巴勒莫
-  Parma: 帕尔马
+  Nublense: 努布伦斯
+  O'Higgins: 奥伊金斯
+  OFI: OFI克里特
+  OH Leuven: 旧海弗莱鲁汶
+  Oddevold: 奥迪沃特
+  Odense: 欧登塞
+  Olympiakos Piraeus: 奥林匹亚科斯
+  Orebro SK: 奥雷布洛
+  Orgryte IS: 奥尔格里特
+  Orlando City SC: 奥克兰城
+  Osasuna: 奥萨苏纳
+  Osters IF: 奥斯达
+  Ostersunds FK: 厄斯特松德
+  Oviedo: 皇家奥维耶多
+  Oxford United: 牛津联
+  Oţelul: 加拉茨钢铁
+  PAOK: 塞萨洛尼基
+  PAU: 波城
   PEC Zwolle: 兹沃勒
+  PSV Eindhoven: 埃因霍温
+  Padova: 帕多瓦
+  Pafos: 帕福斯FC
+  Palermo: 巴勒莫
+  Palestino: 帕莱斯蒂诺
+  Palmeiras: 帕尔梅拉斯
+  Panathinaikos: 帕纳辛纳科斯
+  Panetolikos: 帕纳托利克斯
+  Panserraikos: 潘塞莱科斯
+  Paris FC: 巴黎FC
+  Paris Saint Germain: 巴黎圣日耳曼
+  Parma: 帕尔马
+  Partick: 帕尔蒂克
+  Patro Eisden: 艾斯登
+  Perth Glory: 珀斯光荣
+  Pescara: 佩斯卡拉
+  Peterborough: 彼得堡联
+  Petrolul Ploiesti: 佩特罗鲁
+  Philadelphia Union: 费城联合
+  Piast Gliwice: 皮亚斯特
   Pisa: 比萨
-  PSV Eindhoven: PSV埃因霍温
+  Platense: 普拉滕斯
+  Plymouth: 普利茅斯
+  Plzen: 比尔森胜利
+  Pogon Szczecin: 什切青波贡
+  Pohang Steelers: 浦项铁人
+  Port Vale: 维尔港
+  Portland Timbers: 波特兰伐木工
+  Portsmouth: 朴茨茅斯
+  Preston: 普雷斯顿
+  Preußen Münster: 普鲁士明斯特
+  QPR: 女王公园
+  Qarabag: 卡拉巴克
+  Qingdao Jonoon: 青岛海牛
+  Qingdao Youth Island: 青岛西海岸
+  RAAL La Louvière: 拉路维尔
+  RB Bragantino: 布拉干蒂诺RB
+  RB Leipzig: RB莱比锡
+  RED Star FC 93: 红星
+  Racing Club: 竞技
+  Racing Santander: 桑坦德竞技
+  Radomiak Radom: 拉多米亚克
+  Raków Częstochowa: 琴斯托霍瓦
+  Randers FC: 兰讷斯
+  Rangers: 流浪者
+  Rapid: 布加勒斯特快速
+  Rapid Vienna: 维也纳快速
+  Rayo Vallecano: 巴列卡诺
+  Reading: 雷丁
+  Real Betis: 皇家贝蒂斯
+  Real Madrid: 皇家马德里
+  Real Salt Lake: 皇家盐湖城
+  Real Sociedad: 皇家社会
+  Real Sociedad II: 皇家社会B队
+  Red Bull Salzburg: 萨尔茨堡红牛
+  Reggiana: 雷吉亚纳
+  Reims: 兰斯
+  Rennes: 雷恩
+  Ried: 里德
   Rio Ave: 里奥阿维
+  River Plate: 河床
+  Rizespor: 里泽体育
+  Roda: 罗达JC
+  Rodez: 罗德兹
+  Rosario Central: 罗萨里奥中央
+  Rosenborg: 罗森博格
+  Rot-Weiß Essen: 埃森
+  Rotherham: 罗瑟汉姆
+  Rotor Volgograd: 伏尔加格勒
+  Rouen: 鲁昂
+  Rubin: 喀山
   SC Braga: 布拉加
+  SC Freiburg: 弗赖堡
   SC Paderborn 07: 帕德博恩
+  SCR Altach: 阿尔塔奇
+  SHANGHAI SIPG: 上海海港
+  SJK: 塞纳乔其
+  ST Mirren: 圣米伦
+  SV Darmstadt 98: 达姆斯塔特
+  SV Elversberg: 艾禾斯堡
+  Saint Etienne: 圣埃蒂安
+  Sampdoria: 桑普多利亚
+  Samsunspor: 萨姆松体育
+  San Diego: 圣地亚哥FC
+  San Jose Earthquakes: 圣何塞地震
+  San Lorenzo: 圣索洛伦
+  San Martin S.J.: 圣胡安圣马丁
+  Sandefjord: 桑德菲杰
+  Sandviken: 桑德维根斯
+  Sanfrecce Hiroshima: 广岛三箭
+  Santa Clara: 圣克拉拉
+  Santos: 桑托斯
+  Sao Paulo: 圣保罗
+  Sarmiento Junin: 萨米恩托
+  Sarpsborg 08 FF: 萨普斯堡
   Sassuolo: 萨索洛
+  Seattle Sounders: 西雅图海湾人
+  Seongnam FC: 城南FC
+  Seoul E-Land FC: 首尔衣恋
+  Servette FC: 塞尔维特
   Sevilla: 塞维利亚
+  Shandong Luneng: 山东泰山
+  Shanghai Shenhua: 上海申花
+  Sheffield Utd: 谢菲联
+  Sheffield Wednesday: 谢周三
+  Shimizu S-pulse: 清水心跳
+  Shkendija: 斯肯迪亚
+  Shonan Bellmare: 湘南丽海
+  Sichuan Jiuniu: 四川九牛
+  Silkeborg: 锡尔克堡
+  Sirius: 天狼星
+  Slavia Praha: 布拉格斯拉维亚
+  Sonderjyske: 桑德捷斯基
+  Southampton: 南安普顿
+  SpVgg Greuther Fürth: 菲尔特
   Sparta Rotterdam: 鹿特丹斯巴达
+  Spartak Moscow: 莫斯巴达
+  Spezia: 斯佩齐亚
+  Sport Recife: 累西腓体育
   Sporting CP: 葡萄牙体育
   Sporting Gijon: 希洪竞技
+  Sporting Kansas City: 堪萨斯城竞技
+  St. Louis City: 圣路易斯城
+  St. Truiden: 圣图尔登
+  Stade Brestois 29: 布雷斯特
+  Standard Liege: 标准列日
+  Start: 斯达
+  Stevenage: 斯蒂夫维奇
+  Stockport County: 斯托克港
+  Stoke City: 斯托克城
+  Strasbourg: 斯特拉斯堡
+  Sturm Graz: 格拉茨风暴
+  Sudtirol: 南蒂罗尔
   Sunderland: 桑德兰
+  Suwon Bluewings: 水原三星
+  Suwon City FC: 水原FC
   Swansea: 斯旺西
+  Sydney: 悉尼FC
+  TSV Hartberg: 哈特堡格
+  Talleres Cordoba: 塔勒雷斯
+  Telstar: 特尔斯达
+  Tianjin Teda: 天津津门虎
+  Tigre: 提格雷
+  Tokyo Verdy: 东京绿茵
+  Tondela: 通德拉
   Torino: 都灵
-  Tottenham: 托特纳姆热刺
+  Toronto FC: 多伦多FC
+  Torreense: 托伦斯
+  Tottenham: 热刺
+  Toulouse: 图卢兹
+  Trabzonspor: 特拉布宗
+  Trelleborg: 特雷勒堡
+  Tromso: 特罗姆瑟
+  Turku PS: TPS图尔库
   Twente: 特温特
+  U. Catolica: 天主大学
   Udinese: 乌迪内斯
+  Ulsan Hyundai FC: 蔚山HD
+  Umeå FC: 于默奥
+  Union Berlin: 柏林联合
+  Union Espanola: 西班牙联合
+  Union La Calera: 拉卡莱拉联
+  Union Santa Fe: 圣塔菲联
+  Union St. Gilloise: 圣吉罗斯
+  Unirea Slobozia: 斯洛博齐亚
+  Universidad de Chile: 智利大学
+  Universitatea Cluj: 克卢日大学
+  Universitatea Craiova: 克拉约瓦大学
+  Ural: 乌拉尔
+  Urawa: 浦和红钻
+  Uta Arad: UTA阿拉德
   Utrecht: 乌德勒支
+  Utsikten: 尤特斯科腾
+  VPS: VPS瓦萨
+  VVV Venlo: 芬洛
   Valencia: 瓦伦西亚
+  Valerenga: 瓦勒伦加
+  Valladolid: 巴拉多利德
+  Vancouver Whitecaps: 温哥华白浪
+  Varbergs BoIS FC: 瓦尔贝里
+  Vasco DA Gama: 瓦斯科达伽马
+  Vasteras SK FK: 瓦斯特拉斯
+  Vejle: 瓦埃勒
+  Velez Sarsfield: 萨斯菲尔德
+  Venezia: 威尼斯
+  VfB Stuttgart: 斯图加特
   VfL Bochum: 波鸿
   VfL Wolfsburg: 沃尔夫斯堡
+  Viborg: 维堡
+  Viking: 维京
   Villarreal: 比利亚雷亚尔
+  Virtus Entella: 恩特拉
+  Vissel Kobe: 神户胜利船
+  Vitesse: 维特斯
+  Vitoria: 维多利亚
+  Volos NFC: 沃格斯NPS
+  WSG Wattens: WSG蒂罗尔
+  Waalwijk: 瓦尔韦克
+  Watford: 沃特福德
+  Wellington Phoenix: 惠灵顿凤凰
+  Werder Bremen: 云达不莱梅
+  West Brom: 西布罗姆维奇
   West Ham: 西汉姆联
+  Western Sydney Wanderers: 西悉尼流浪者
+  Widzew Łódź: 维德祖罗兹
+  Wigan: 维冈竞技
+  Willem II: 威廉二世
+  Wisla Plock: 华沙普洛克
+  Wolfsberger AC: 沃尔夫斯贝格
   Wolves: 狼队
-  Real Madrid: 皇家马德里
-  Athletic Club: 毕尔巴鄂竞技
-  Barcelona: 巴塞罗那
-  Alaves: 阿拉维斯
-  Rayo Vallecano: 巴列卡诺
-  Real Betis: 皇家贝蒂斯
-  Levante: 莱万特
-  Celta Vigo: 塞尔塔
-  Espanyol: 西班牙人
-  Real Sociedad: 皇家社会
-  Getafe: 赫塔费
-  Osasuna: 奥萨苏纳
-  Girona: 赫罗纳
-  Elche: 埃尔切
-  Mallorca: 马略卡
-  Oviedo: 奥维耶多
+  Wrexham: 雷克瑟姆
+  Wuhan Three Towns: 武汉三镇
+  Wycombe: 韦康比流浪者
+  Yokohama F. Marinos: 横滨水手
+  Yokohama FC: 横滨FC
+  Yunnan Yukun: 云南玉昆
+  Zaglebie Lubin: 卢宾
+  Zaragoza: 萨拉戈萨
+  Zenit: 泽尼特
+  Zulte Waregem: 瓦勒海姆

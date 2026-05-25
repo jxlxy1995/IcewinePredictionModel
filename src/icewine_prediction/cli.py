@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 import typer
 from sqlalchemy import text
@@ -61,6 +62,7 @@ from icewine_prediction.sample_report_service import (
     build_training_sample_report,
 )
 from icewine_prediction.settings import load_project_settings
+from icewine_prediction.skellam_model_service import SkellamMarginModel
 from icewine_prediction.sync_runner import (
     build_history_backfill_plan,
     run_history_backfill,
@@ -481,6 +483,22 @@ def format_dixon_coles_attack_defense_model(
     )
 
 
+def format_skellam_handicap_probability(
+    model: SkellamMarginModel,
+    line: Decimal,
+) -> str:
+    probability = model.asian_handicap_probability(line)
+    return "\n".join(
+        [
+            f"主队期望进球 {model.home_expected_goals}",
+            f"客队期望进球 {model.away_expected_goals}",
+            f"盘口 {probability.line}",
+            f"主队覆盖概率 {probability.home_cover_probability}",
+            f"客队覆盖概率 {probability.away_cover_probability}",
+        ]
+    )
+
+
 @matches_app.command("upcoming")
 def matches_upcoming(hours: int = 24):
     engine = create_database_engine()
@@ -784,6 +802,19 @@ def models_train_dixon_coles_attack_defense(limit: int = typer.Option(1000, "--l
         samples = list_training_samples(session, limit=limit)
         model = train_dixon_coles_attack_defense_model(samples)
         typer.echo(format_dixon_coles_attack_defense_model(model, sample_count=len(samples)))
+
+
+@models_app.command("skellam-handicap")
+def models_skellam_handicap(
+    home_expected_goals: str = typer.Option(..., "--home-eg"),
+    away_expected_goals: str = typer.Option(..., "--away-eg"),
+    line: str = typer.Option(..., "--line"),
+):
+    model = SkellamMarginModel(
+        home_expected_goals=Decimal(home_expected_goals),
+        away_expected_goals=Decimal(away_expected_goals),
+    )
+    typer.echo(format_skellam_handicap_probability(model, Decimal(line)))
 
 
 if __name__ == "__main__":

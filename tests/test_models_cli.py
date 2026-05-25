@@ -106,3 +106,28 @@ def test_models_train_dixon_coles_attack_defense_outputs_parameters(monkeypatch)
     assert "主场优势 0.1800" in result.stdout
     assert "rho -0.0800" in result.stdout
     assert "主队基础期望进球" in result.stdout
+
+
+def test_models_skellam_handicap_outputs_probabilities():
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        [
+            "models",
+            "skellam-handicap",
+            "--home-eg",
+            "1.50",
+            "--away-eg",
+            "1.10",
+            "--line",
+            "-0.25",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "主队期望进球 1.50" in result.stdout
+    assert "客队期望进球 1.10" in result.stdout
+    assert "盘口 -0.25" in result.stdout
+    assert "主队覆盖概率" in result.stdout
+    assert "客队覆盖概率" in result.stdout

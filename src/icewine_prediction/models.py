@@ -114,6 +114,9 @@ class OddsSourceMatch(Base):
     matched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     match_confidence: Mapped[Decimal] = mapped_column(Numeric(6, 4), nullable=False)
     match_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    historical_odds_status: Mapped[str | None] = mapped_column(String(40))
+    historical_odds_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    historical_odds_error: Mapped[str | None] = mapped_column(Text)
 
     match: Mapped["Match"] = relationship()
 
@@ -149,6 +152,26 @@ class HistoricalOddsSnapshot(Base):
     raw_payload: Mapped[str | None] = mapped_column(Text)
 
     match: Mapped["Match"] = relationship()
+
+
+class ExternalAlias(Base):
+    __tablename__ = "external_aliases"
+    __table_args__ = (
+        UniqueConstraint(
+            "entity_type",
+            "source_name",
+            "normalized_alias",
+            name="uq_external_alias",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entity_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    canonical_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    alias_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    normalized_alias: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class RecommendationRecord(Base):

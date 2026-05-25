@@ -8,5 +8,8 @@ __pycache__/
 *.db
 *.sqlite
 *.sqlite3
+*.log
 .env
+local_data/
+logs/
 本地数据/

@@ -1,4 +1,5 @@
 import pytest
+import requests
 
 from icewine_prediction.sources.oddspapi_client import (
     MissingOddsPapiKeyError,
@@ -95,5 +96,28 @@ def test_oddspapi_client_api_error_does_not_expose_api_key_in_url():
     with pytest.raises(OddsPapiApiError) as exc_info:
         client.get("fixtures")
 
+    assert "secret" not in str(exc_info.value)
+    assert "apiKey" not in str(exc_info.value)
+
+
+def test_oddspapi_client_wraps_request_errors_without_exposing_api_key():
+    class RequestFailingSession:
+        def get(self, url, params, timeout):
+            raise requests.exceptions.ProxyError(
+                "Proxy failed for url: "
+                "https://api.oddspapi.io/v4/fixtures?apiKey=secret&sportId=10"
+            )
+
+    client = OddsPapiClient(
+        base_url="https://api.oddspapi.io/v4",
+        api_key="secret",
+        session=RequestFailingSession(),
+    )
+
+    with pytest.raises(OddsPapiApiError) as exc_info:
+        client.get("fixtures", {"sportId": 10})
+
+    assert client.request_count == 1
+    assert "ProxyError" in str(exc_info.value)
     assert "secret" not in str(exc_info.value)
     assert "apiKey" not in str(exc_info.value)

@@ -1,0 +1,44 @@
+# OddsPapi 历史赔率回填批次配置
+# league_ids 使用 API-Football 联赛 id，后续按批次逐步填入。
+batches:
+  - name: 第一优先级A-北欧新赛季回填
+    season: 2026
+    from_date: 2026-01-01
+    mode: balanced
+    chunk_size: 10
+    request_budget_per_league: 900
+    max_snapshots_per_match: 120
+    max_rounds_per_league: 24
+    stop_after_empty_matches: 8
+    league_ids:
+      - 103  # 挪超 Eliteserien Norway
+      - 113  # 瑞典超 Allsvenskan Sweden
+      - 244  # 芬超 Veikkausliiga Finland
+
+  - name: 第一优先级B-主流联赛新回填
+    season: 2025
+    from_date: 2026-01-01
+    mode: balanced
+    chunk_size: 10
+    request_budget_per_league: 900
+    max_snapshots_per_match: 120
+    max_rounds_per_league: 30
+    stop_after_empty_matches: 8
+    league_ids:
+      - 141  # 西乙 Segunda División Spain
+      - 136  # 意乙 Serie B Italy
+      - 94   # 葡超 Primeira Liga Portugal
+      - 88   # 荷甲 Eredivisie Netherlands
+
+  - name: 第一优先级C-英甲荷乙补漏
+    season: 2025
+    from_date: 2026-01-01
+    mode: balanced
+    chunk_size: 10
+    request_budget_per_league: 600
+    max_snapshots_per_match: 120
+    max_rounds_per_league: 12
+    stop_after_empty_matches: 8
+    league_ids:
+      - 41   # 英甲 League One England
+      - 89   # 荷乙 Eerste Divisie Netherlands

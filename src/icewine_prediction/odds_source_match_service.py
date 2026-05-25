@@ -27,6 +27,12 @@ class OddsSourceMatchCandidate:
     reason: str
 
 
+@dataclass(frozen=True)
+class ExternalAliasInput:
+    canonical_name: str
+    alias_name: str
+
+
 COMMON_TEAM_PREFIXES = {
     "afc",
     "as",
@@ -80,6 +86,7 @@ def find_best_odds_source_match(
     fixtures: list[OddsPapiFixture],
     api_football_to_oddspapi_tournament_ids: dict[str, int],
     max_time_delta_seconds: int = 7200,
+    team_aliases: list[ExternalAliasInput] | None = None,
 ) -> OddsSourceMatchCandidate | None:
     expected_tournament_id = api_football_to_oddspapi_tournament_ids.get(
         str(match.league.source_league_id)
@@ -99,8 +106,16 @@ def find_best_odds_source_match(
         )
         if time_delta > max_time_delta_seconds:
             continue
-        home_score = _team_name_similarity(match.home_team.canonical_name, fixture.home_team_name)
-        away_score = _team_name_similarity(match.away_team.canonical_name, fixture.away_team_name)
+        home_score = _best_team_name_similarity(
+            match.home_team.canonical_name,
+            fixture.home_team_name,
+            team_aliases or [],
+        )
+        away_score = _best_team_name_similarity(
+            match.away_team.canonical_name,
+            fixture.away_team_name,
+            team_aliases or [],
+        )
         if home_score == Decimal("0") or away_score == Decimal("0"):
             continue
         confidence = min(home_score, away_score)
@@ -141,6 +156,20 @@ def _team_name_similarity(left: str, right: str) -> Decimal:
     if not overlap:
         return Decimal("0")
     return Decimal(len(overlap)) / Decimal(max(len(left_tokens), len(right_tokens)))
+
+
+def _best_team_name_similarity(
+    canonical_name: str,
+    external_name: str,
+    aliases: list[ExternalAliasInput],
+) -> Decimal:
+    candidate_names = [canonical_name]
+    candidate_names.extend(
+        alias.alias_name
+        for alias in aliases
+        if alias.canonical_name == canonical_name
+    )
+    return max(_team_name_similarity(name, external_name) for name in candidate_names)
 
 
 def _matches_with_soft_prefix(left: str, right: str) -> bool:

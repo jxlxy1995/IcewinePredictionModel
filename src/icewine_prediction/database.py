@@ -71,6 +71,11 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
             "penalty_home_score": "INTEGER",
             "penalty_away_score": "INTEGER",
         },
+        "odds_source_matches": {
+            "historical_odds_status": "VARCHAR(40)",
+            "historical_odds_checked_at": "DATETIME",
+            "historical_odds_error": "TEXT",
+        },
     }
     with engine.begin() as connection:
         for table_name, columns in missing_columns_by_table.items():
@@ -81,3 +86,10 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
                 if column_name in existing_columns:
                     continue
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
+        if "external_aliases" in table_names:
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_external_alias "
+                    "ON external_aliases (entity_type, source_name, normalized_alias)"
+                )
+            )

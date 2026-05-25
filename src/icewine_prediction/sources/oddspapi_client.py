@@ -13,7 +13,9 @@ class OddsPapiRequestBudgetExceededError(RuntimeError):
 
 
 class OddsPapiApiError(RuntimeError):
-    pass
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class OddsPapiClient:
@@ -40,21 +42,31 @@ class OddsPapiClient:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         request_params = dict(params or {})
         request_params["apiKey"] = self.api_key
-        response = self.session.get(
-            url,
-            params=request_params,
-            timeout=self.timeout_seconds,
-        )
         self.request_count += 1
+        try:
+            response = self.session.get(
+                url,
+                params=request_params,
+                timeout=self.timeout_seconds,
+            )
+        except requests.RequestException as exc:
+            raise OddsPapiApiError(
+                f"OddsPapi request failed: {exc.__class__.__name__}"
+            ) from None
         try:
             response.raise_for_status()
         except HTTPError as exc:
             status_code = getattr(exc.response, "status_code", "unknown")
-            raise OddsPapiApiError(f"OddsPapi HTTP error: status={status_code}") from exc
-        except Exception as exc:
             raise OddsPapiApiError(
-                f"OddsPapi HTTP error: {exc.__class__.__name__}"
-            ) from exc
+                f"OddsPapi HTTP error: status={status_code}",
+                status_code=status_code if isinstance(status_code, int) else None,
+            ) from None
+        except Exception as exc:
+            status_code = getattr(response, "status_code", None)
+            raise OddsPapiApiError(
+                f"OddsPapi HTTP error: {exc.__class__.__name__}",
+                status_code=status_code if isinstance(status_code, int) else None,
+            ) from None
         payload = response.json()
         if isinstance(payload, dict) and payload.get("error"):
             raise OddsPapiApiError(f"OddsPapi returned error: {payload['error']}")

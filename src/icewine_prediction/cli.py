@@ -3,6 +3,7 @@ from datetime import date
 import typer
 from sqlalchemy import text
 
+from icewine_prediction.alias_service import add_external_alias, list_external_aliases
 from icewine_prediction.database import (
     create_database_engine,
     create_session_factory,
@@ -32,11 +33,19 @@ from icewine_prediction.model_training_service import (
     train_league_team_strength_goal_model,
     train_team_strength_goal_model,
 )
+from icewine_prediction.oddspapi_batch_backfill_service import (
+    run_oddspapi_batch_backfill,
+    run_oddspapi_batch_worker,
+)
 from icewine_prediction.oddspapi_sync_runner import (
     build_oddspapi_match_report,
     build_oddspapi_probe_report,
     build_oddspapi_sync_plan,
     run_oddspapi_sync,
+)
+from icewine_prediction.oddspapi_worker_process_service import (
+    build_oddspapi_batch_worker_status,
+    start_oddspapi_batch_worker_process,
 )
 from icewine_prediction.recommendation_service import (
     Recommendation,
@@ -88,6 +97,8 @@ records_app = typer.Typer(help="推荐记录命令")
 app.add_typer(records_app, name="records")
 odds_source_app = typer.Typer(help="外部赔率源命令")
 app.add_typer(odds_source_app, name="odds-source")
+aliases_app = typer.Typer(help="外部数据源别名命令")
+app.add_typer(aliases_app, name="aliases")
 
 
 @app.command("version")
@@ -599,8 +610,17 @@ def records_performance(
 def odds_source_oddspapi_plan(
     season: int = typer.Option(..., "--season"),
     max_matches: int = typer.Option(20, "--max-matches"),
+    league_ids: str = typer.Option("", "--league-ids"),
+    from_date: str | None = typer.Option(None, "--from-date"),
 ):
-    typer.echo(build_oddspapi_sync_plan(season=season, max_matches=max_matches))
+    typer.echo(
+        build_oddspapi_sync_plan(
+            season=season,
+            max_matches=max_matches,
+            league_ids=_parse_str_set(league_ids),
+            from_date=date.fromisoformat(from_date) if from_date else None,
+        )
+    )
 
 
 @odds_source_app.command("oddspapi-fetch")
@@ -611,6 +631,12 @@ def odds_source_oddspapi_fetch(
     timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
     max_snapshots_per_match: int = typer.Option(200, "--max-snapshots-per-match"),
     skip_match_ids: str = typer.Option("", "--skip-match-ids"),
+    league_ids: str = typer.Option("", "--league-ids"),
+    from_date: str | None = typer.Option(None, "--from-date"),
+    historical_odds_cooldown_seconds: float = typer.Option(
+        5,
+        "--historical-odds-cooldown-seconds",
+    ),
 ):
     typer.echo(
         run_oddspapi_sync(
@@ -620,7 +646,114 @@ def odds_source_oddspapi_fetch(
             timeout_seconds=timeout_seconds,
             max_snapshots_per_match=max_snapshots_per_match,
             skip_match_ids=_parse_id_set(skip_match_ids),
+            league_ids=_parse_str_set(league_ids),
+            from_date=date.fromisoformat(from_date) if from_date else None,
+            historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
             progress_callback=typer.echo,
+        )
+    )
+
+
+@odds_source_app.command("oddspapi-batch-backfill")
+def odds_source_oddspapi_batch_backfill(
+    season: int = typer.Option(..., "--season"),
+    mode: str = typer.Option("balanced", "--mode"),
+    chunk_size: int = typer.Option(20, "--chunk-size"),
+    request_budget_per_league: int = typer.Option(800, "--request-budget-per-league"),
+    timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
+    max_snapshots_per_match: int = typer.Option(120, "--max-snapshots-per-match"),
+    max_rounds_per_league: int = typer.Option(20, "--max-rounds-per-league"),
+    stop_after_empty_matches: int = typer.Option(8, "--stop-after-empty-matches"),
+    league_ids: str = typer.Option("", "--league-ids"),
+    from_date: str | None = typer.Option(None, "--from-date"),
+):
+    typer.echo(
+        run_oddspapi_batch_backfill(
+            season=season,
+            mode=mode,
+            chunk_size=chunk_size,
+            request_budget_per_league=request_budget_per_league,
+            timeout_seconds=timeout_seconds,
+            max_snapshots_per_match=max_snapshots_per_match,
+            max_rounds_per_league=max_rounds_per_league,
+            stop_after_empty_matches=stop_after_empty_matches,
+            league_ids=_parse_str_set(league_ids),
+            from_date=date.fromisoformat(from_date) if from_date else None,
+        )
+    )
+
+
+@odds_source_app.command("oddspapi-batch-worker")
+def odds_source_oddspapi_batch_worker(
+    season: int = typer.Option(..., "--season"),
+    mode: str = typer.Option("balanced", "--mode"),
+    chunk_size: int = typer.Option(10, "--chunk-size"),
+    request_budget_per_league: int = typer.Option(500, "--request-budget-per-league"),
+    timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
+    max_snapshots_per_match: int = typer.Option(120, "--max-snapshots-per-match"),
+    max_rounds_per_league: int = typer.Option(2, "--max-rounds-per-league"),
+    stop_after_empty_matches: int = typer.Option(8, "--stop-after-empty-matches"),
+    log_dir: str = typer.Option("logs/odds", "--log-dir"),
+    league_ids: str = typer.Option("", "--league-ids"),
+    from_date: str | None = typer.Option(None, "--from-date"),
+):
+    typer.echo(
+        run_oddspapi_batch_worker(
+            season=season,
+            mode=mode,
+            chunk_size=chunk_size,
+            request_budget_per_league=request_budget_per_league,
+            timeout_seconds=timeout_seconds,
+            max_snapshots_per_match=max_snapshots_per_match,
+            max_rounds_per_league=max_rounds_per_league,
+            stop_after_empty_matches=stop_after_empty_matches,
+            log_dir=log_dir,
+            league_ids=_parse_str_set(league_ids),
+            from_date=date.fromisoformat(from_date) if from_date else None,
+            output_callback=typer.echo,
+        )
+    )
+
+
+@odds_source_app.command("oddspapi-worker-start")
+def odds_source_oddspapi_worker_start(
+    season: int = typer.Option(..., "--season"),
+    mode: str = typer.Option("balanced", "--mode"),
+    chunk_size: int = typer.Option(10, "--chunk-size"),
+    request_budget_per_league: int = typer.Option(500, "--request-budget-per-league"),
+    timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
+    max_snapshots_per_match: int = typer.Option(120, "--max-snapshots-per-match"),
+    max_rounds_per_league: int = typer.Option(2, "--max-rounds-per-league"),
+    stop_after_empty_matches: int = typer.Option(8, "--stop-after-empty-matches"),
+    log_dir: str = typer.Option("logs/odds", "--log-dir"),
+    league_ids: str = typer.Option("", "--league-ids"),
+    from_date: str | None = typer.Option(None, "--from-date"),
+):
+    result = start_oddspapi_batch_worker_process(
+        season=season,
+        mode=mode,
+        chunk_size=chunk_size,
+        request_budget_per_league=request_budget_per_league,
+        timeout_seconds=timeout_seconds,
+        max_snapshots_per_match=max_snapshots_per_match,
+        max_rounds_per_league=max_rounds_per_league,
+        stop_after_empty_matches=stop_after_empty_matches,
+        log_dir=log_dir,
+        league_ids=_parse_str_set(league_ids),
+        from_date=from_date,
+    )
+    typer.echo(result.to_text())
+
+
+@odds_source_app.command("oddspapi-worker-status")
+def odds_source_oddspapi_worker_status(
+    log_dir: str = typer.Option("logs/odds", "--log-dir"),
+    tail_lines: int = typer.Option(30, "--tail-lines"),
+):
+    typer.echo(
+        build_oddspapi_batch_worker_status(
+            log_dir=log_dir,
+            tail_lines=tail_lines,
         )
     )
 
@@ -684,6 +817,60 @@ def _parse_id_set(value: str) -> set[int]:
     if not value.strip():
         return set()
     return {int(item.strip()) for item in value.split(",") if item.strip()}
+
+
+def _parse_str_set(value: str) -> set[str] | None:
+    if not value.strip():
+        return None
+    return {item.strip() for item in value.split(",") if item.strip()}
+
+
+@aliases_app.command("add")
+def aliases_add(
+    entity_type: str = typer.Option("team", "--entity-type"),
+    source_name: str = typer.Option(..., "--source-name"),
+    canonical_name: str = typer.Option(..., "--canonical-name"),
+    alias_name: str = typer.Option(..., "--alias-name"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        alias = add_external_alias(
+            session,
+            entity_type=entity_type,
+            source_name=source_name,
+            canonical_name=canonical_name,
+            alias_name=alias_name,
+        )
+    typer.echo(
+        f"已保存别名 #{alias.id} {alias.entity_type} {alias.source_name}: "
+        f"{alias.canonical_name} = {alias.alias_name}"
+    )
+
+
+@aliases_app.command("list")
+def aliases_list(
+    entity_type: str | None = typer.Option(None, "--entity-type"),
+    source_name: str | None = typer.Option(None, "--source-name"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        aliases = list_external_aliases(
+            session,
+            source_name=source_name,
+            entity_type=entity_type,
+        )
+    if not aliases:
+        typer.echo("暂无别名")
+        return
+    for alias in aliases:
+        typer.echo(
+            f"#{alias.id} {alias.entity_type} {alias.source_name}: "
+            f"{alias.canonical_name} = {alias.alias_name}"
+        )
 
 
 @history_app.command("coverage")

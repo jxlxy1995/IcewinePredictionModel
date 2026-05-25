@@ -1,16 +1,18 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time as datetime_time, timedelta
 import time
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+from icewine_prediction.alias_service import list_external_aliases
 from icewine_prediction.database import create_database_engine, create_session_factory, initialize_database
 from icewine_prediction.dynamic_main_market_service import build_dynamic_main_market_snapshots
 from icewine_prediction.historical_odds_service import store_historical_odds_snapshots
 from icewine_prediction.models import HistoricalOddsSnapshot, Match, OddsSourceMatch
 from icewine_prediction.odds_source_match_service import (
+    ExternalAliasInput,
     OddsPapiFixture,
     find_best_odds_source_match,
 )
@@ -28,16 +30,33 @@ ODDSPAPI_BASE_URL = "https://api.oddspapi.io/v4"
 ODDSPAPI_SOURCE_NAME = "oddspapi"
 SOCCER_SPORT_ID = 10
 SELECTED_BOOKMAKERS = "pinnacle"
+TERMINAL_HISTORICAL_ODDS_STATUSES = {"empty", "unavailable"}
 
 API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "39": 17,
     "40": 18,
+    "41": 24,
     "61": 172,
     "62": 182,
     "78": 35,
     "79": 44,
+    "88": 37,
+    "89": 131,
+    "94": 238,
+    "106": 202,
+    "113": 40,
+    "114": 46,
+    "119": 39,
+    "128": 155,
     "135": 23,
+    "136": 53,
     "140": 8,
+    "203": 36,
+    "235": 203,
+    "244": 41,
+    "265": 244,
+    "283": 152,
+    "103": 20,
 }
 
 
@@ -123,18 +142,20 @@ class OddsPapiSyncClient:
         self._respect_fixture_cooldown()
         start_time = _as_utc(kickoff_time) - timedelta(hours=2)
         end_time = _as_utc(kickoff_time) + timedelta(hours=2)
-        payload = self.client.get(
-            "fixtures",
-            {
-                "sportId": SOCCER_SPORT_ID,
-                "tournamentId": tournament_id,
-                "from": _format_utc_time(start_time),
-                "to": _format_utc_time(end_time),
-                "statusId": 2,
-                "hasOdds": True,
-            },
-        )
-        self._last_fixture_request_at = time.monotonic()
+        try:
+            payload = self.client.get(
+                "fixtures",
+                {
+                    "sportId": SOCCER_SPORT_ID,
+                    "tournamentId": tournament_id,
+                    "from": _format_utc_time(start_time),
+                    "to": _format_utc_time(end_time),
+                    "statusId": 2,
+                    "hasOdds": True,
+                },
+            )
+        finally:
+            self._last_fixture_request_at = time.monotonic()
         return [_map_fixture(item) for item in payload]
 
     def fetch_historical_odds(
@@ -180,12 +201,19 @@ class OddsPapiSyncClient:
             time.sleep(cooldown - elapsed)
 
 
-def build_oddspapi_sync_plan(season: int, max_matches: int) -> str:
+def build_oddspapi_sync_plan(
+    season: int,
+    max_matches: int,
+    league_ids: set[str] | None = None,
+    from_date: date | datetime | None = None,
+) -> str:
     with _open_session() as session:
         plan = build_oddspapi_sync_plan_for_session(
             session=session,
             season=season,
             max_matches=max_matches,
+            league_ids=league_ids,
+            from_date=from_date,
         )
     return format_oddspapi_sync_plan(plan)
 
@@ -197,6 +225,9 @@ def run_oddspapi_sync(
     timeout_seconds: int = 20,
     max_snapshots_per_match: int = 200,
     skip_match_ids: set[int] | None = None,
+    league_ids: set[str] | None = None,
+    from_date: datetime | None = None,
+    historical_odds_cooldown_seconds: float = 5,
     progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     settings = load_project_settings()
@@ -206,7 +237,10 @@ def run_oddspapi_sync(
         timeout_seconds=timeout_seconds,
         request_budget=request_budget,
     )
-    client = OddsPapiSyncClient(raw_client, historical_odds_cooldown_seconds=5)
+    client = OddsPapiSyncClient(
+        raw_client,
+        historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
+    )
     with _open_session() as session:
         result = run_oddspapi_sync_for_session(
             session=session,
@@ -215,9 +249,48 @@ def run_oddspapi_sync(
             max_matches=max_matches,
             max_snapshots_per_match=max_snapshots_per_match,
             skip_match_ids=skip_match_ids,
+            league_ids=league_ids,
+            from_date=from_date,
             progress_callback=progress_callback,
         )
     return _format_result(result)
+
+
+def run_oddspapi_sync_result(
+    season: int,
+    max_matches: int,
+    request_budget: int,
+    timeout_seconds: int = 20,
+    max_snapshots_per_match: int = 200,
+    skip_match_ids: set[int] | None = None,
+    league_ids: set[str] | None = None,
+    from_date: datetime | None = None,
+    historical_odds_cooldown_seconds: float = 5,
+    progress_callback: Callable[[str], None] | None = None,
+) -> OddsPapiSyncResult:
+    settings = load_project_settings()
+    raw_client = OddsPapiClient(
+        base_url=ODDSPAPI_BASE_URL,
+        api_key=settings.odds_papi_key,
+        timeout_seconds=timeout_seconds,
+        request_budget=request_budget,
+    )
+    client = OddsPapiSyncClient(
+        raw_client,
+        historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
+    )
+    with _open_session() as session:
+        return run_oddspapi_sync_for_session(
+            session=session,
+            client=client,
+            season=season,
+            max_matches=max_matches,
+            max_snapshots_per_match=max_snapshots_per_match,
+            skip_match_ids=skip_match_ids,
+            league_ids=league_ids,
+            from_date=from_date,
+            progress_callback=progress_callback,
+        )
 
 
 def build_oddspapi_probe_report(
@@ -281,11 +354,15 @@ def build_oddspapi_sync_plan_for_session(
     session: Session,
     season: int,
     max_matches: int,
+    league_ids: set[str] | None = None,
+    from_date: datetime | None = None,
 ) -> OddsPapiSyncPlan:
     matches, skipped_existing_odds = select_oddspapi_candidate_matches(
         session=session,
         season=season,
         max_matches=max_matches,
+        league_ids=league_ids,
+        from_date=from_date,
     )
     candidate_matches = tuple(_build_plan_match(session, match) for match in matches)
     estimated_request_count = sum(
@@ -367,16 +444,21 @@ def run_oddspapi_sync_for_session(
     max_matches: int,
     max_snapshots_per_match: int = 200,
     skip_match_ids: set[int] | None = None,
+    league_ids: set[str] | None = None,
+    from_date: datetime | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> OddsPapiSyncResult:
     matches, skipped_existing_odds = select_oddspapi_candidate_matches(
         session=session,
         season=season,
         max_matches=max_matches,
+        league_ids=league_ids,
+        from_date=from_date,
     )
     if skip_match_ids:
         matches = [match for match in matches if match.id not in skip_match_ids]
     fixtures_by_tournament_id = {}
+    team_aliases = _load_team_aliases(session)
     matched = 0
     inserted = 0
     skipped_duplicates = 0
@@ -401,13 +483,28 @@ def run_oddspapi_sync_for_session(
             if cached_source_match is not None:
                 source_fixture_id = cached_source_match.source_fixture_id
                 matched += 1
-                store_summary = _fetch_and_store_historical_odds(
-                    session=session,
-                    client=client,
-                    match=match,
-                    source_fixture_id=source_fixture_id,
-                    max_snapshots_per_match=max_snapshots_per_match,
-                    progress_callback=progress_callback,
+                try:
+                    store_summary = _fetch_and_store_historical_odds(
+                        session=session,
+                        client=client,
+                        match=match,
+                        source_fixture_id=source_fixture_id,
+                        max_snapshots_per_match=max_snapshots_per_match,
+                        progress_callback=progress_callback,
+                    )
+                except OddsPapiApiError as exc:
+                    _mark_historical_odds_status(
+                        session,
+                        match.id,
+                        _classify_historical_odds_error(exc),
+                        str(exc),
+                    )
+                    raise
+                _mark_historical_odds_status(
+                    session,
+                    match.id,
+                    "success" if store_summary.inserted_count > 0 else "empty",
+                    None,
                 )
                 inserted += store_summary.inserted_count
                 skipped_duplicates += store_summary.skipped_duplicate_count
@@ -419,7 +516,7 @@ def run_oddspapi_sync_for_session(
                     _format_progress_success(index, total, match, store_summary.inserted_count),
                 )
                 continue
-            fixture_cache_key = (tournament_id, match.id)
+            fixture_cache_key = _build_fixture_cache_key(tournament_id, match.kickoff_time)
             if fixture_cache_key not in fixtures_by_tournament_id:
                 fixtures_by_tournament_id[fixture_cache_key] = client.fetch_fixtures(
                     tournament_id=tournament_id,
@@ -429,6 +526,7 @@ def run_oddspapi_sync_for_session(
                 match=match,
                 fixtures=fixtures_by_tournament_id[fixture_cache_key],
                 api_football_to_oddspapi_tournament_ids=API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS,
+                team_aliases=team_aliases,
             )
             if candidate is None:
                 _emit_progress(
@@ -438,13 +536,28 @@ def run_oddspapi_sync_for_session(
                 continue
             _store_odds_source_match(session, match, candidate)
             matched += 1
-            store_summary = _fetch_and_store_historical_odds(
-                session=session,
-                client=client,
-                match=match,
-                source_fixture_id=candidate.fixture.fixture_id,
-                max_snapshots_per_match=max_snapshots_per_match,
-                progress_callback=progress_callback,
+            try:
+                store_summary = _fetch_and_store_historical_odds(
+                    session=session,
+                    client=client,
+                    match=match,
+                    source_fixture_id=candidate.fixture.fixture_id,
+                    max_snapshots_per_match=max_snapshots_per_match,
+                    progress_callback=progress_callback,
+                )
+            except OddsPapiApiError as exc:
+                _mark_historical_odds_status(
+                    session,
+                    match.id,
+                    _classify_historical_odds_error(exc),
+                    str(exc),
+                )
+                raise
+            _mark_historical_odds_status(
+                session,
+                match.id,
+                "success" if store_summary.inserted_count > 0 else "empty",
+                None,
             )
             inserted += store_summary.inserted_count
             skipped_duplicates += store_summary.skipped_duplicate_count
@@ -502,7 +615,7 @@ def _resolve_source_fixture_id(
     )
     if tournament_id is None:
         return None
-    fixture_cache_key = (tournament_id, match.id)
+    fixture_cache_key = _build_fixture_cache_key(tournament_id, match.kickoff_time)
     if fixture_cache_key not in fixtures_by_tournament_id:
         fixtures_by_tournament_id[fixture_cache_key] = client.fetch_fixtures(
             tournament_id=tournament_id,
@@ -512,11 +625,32 @@ def _resolve_source_fixture_id(
         match=match,
         fixtures=fixtures_by_tournament_id[fixture_cache_key],
         api_football_to_oddspapi_tournament_ids=API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS,
+        team_aliases=_load_team_aliases(session),
     )
     if candidate is None:
         return None
     _store_odds_source_match(session, match, candidate)
     return candidate.fixture.fixture_id
+
+
+def _load_team_aliases(session: Session) -> list[ExternalAliasInput]:
+    return [
+        ExternalAliasInput(
+            canonical_name=alias.canonical_name,
+            alias_name=alias.alias_name,
+        )
+        for alias in list_external_aliases(
+            session,
+            source_name=ODDSPAPI_SOURCE_NAME,
+            entity_type="team",
+        )
+    ]
+
+
+def _build_fixture_cache_key(tournament_id: int, kickoff_time: datetime) -> tuple[int, str, str]:
+    start_time = _as_utc(kickoff_time) - timedelta(hours=2)
+    end_time = _as_utc(kickoff_time) + timedelta(hours=2)
+    return (tournament_id, _format_utc_time(start_time), _format_utc_time(end_time))
 
 
 def _build_probe_match(
@@ -602,6 +736,8 @@ def select_oddspapi_candidate_matches(
     session: Session,
     season: int,
     max_matches: int,
+    league_ids: set[str] | None = None,
+    from_date: datetime | None = None,
 ) -> tuple[list[Match], int]:
     league_priorities = _load_league_priority_by_source_id()
     query = (
@@ -612,12 +748,21 @@ def select_oddspapi_candidate_matches(
         .filter(Match.away_score.isnot(None))
         .order_by(Match.kickoff_time.desc())
     )
+    if from_date is not None:
+        if isinstance(from_date, date) and not isinstance(from_date, datetime):
+            from_date = datetime.combine(from_date, datetime_time.min, tzinfo=ZoneInfo("Asia/Shanghai"))
+        query = query.filter(Match.kickoff_time >= from_date)
     selected = []
     skipped_existing_odds = 0
     for match in query:
         if str(match.league.source_league_id) not in API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS:
             continue
+        if league_ids is not None and str(match.league.source_league_id) not in league_ids:
+            continue
         if _has_historical_odds(session, match.id):
+            skipped_existing_odds += 1
+            continue
+        if _has_terminal_historical_odds_status(session, match.id):
             skipped_existing_odds += 1
             continue
         selected.append(match)
@@ -655,6 +800,35 @@ def _get_odds_source_match(session: Session, match_id: int) -> OddsSourceMatch |
         .filter_by(match_id=match_id, source_name=ODDSPAPI_SOURCE_NAME)
         .one_or_none()
     )
+
+
+def _has_terminal_historical_odds_status(session: Session, match_id: int) -> bool:
+    source_match = _get_odds_source_match(session, match_id)
+    return (
+        source_match is not None
+        and source_match.historical_odds_status in TERMINAL_HISTORICAL_ODDS_STATUSES
+    )
+
+
+def _classify_historical_odds_error(error: OddsPapiApiError) -> str:
+    if getattr(error, "status_code", None) == 404 or "status=404" in str(error):
+        return "unavailable"
+    return "failed"
+
+
+def _mark_historical_odds_status(
+    session: Session,
+    match_id: int,
+    status: str,
+    error: str | None,
+) -> None:
+    source_match = _get_odds_source_match(session, match_id)
+    if source_match is None:
+        return
+    source_match.historical_odds_status = status
+    source_match.historical_odds_checked_at = now_beijing()
+    source_match.historical_odds_error = error
+    session.commit()
 
 
 def _store_odds_source_match(session: Session, match: Match, candidate) -> None:

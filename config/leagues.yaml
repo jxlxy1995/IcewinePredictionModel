@@ -164,48 +164,53 @@ leagues:
     api_football_id: 41
     enabled: true
     priority: 64
+  - name: Eliteserien
+    country: Norway
+    api_football_id: 103
+    enabled: true
+    priority: 63
   - name: 3. Liga
     country: Germany
     api_football_id: 80
-    enabled: true
-    priority: 63
+    enabled: false
+    priority: 62
   - name: J1 League
     country: Japan
     api_football_id: 98
     enabled: true
-    priority: 62
+    priority: 61
   - name: J2 League
     country: Japan
     api_football_id: 99
     enabled: false
-    priority: 61
+    priority: 60
   - name: K League 1
     country: South-Korea
     api_football_id: 292
     enabled: true
-    priority: 60
+    priority: 59
   - name: K League 2
     country: South-Korea
     api_football_id: 293
     enabled: true
-    priority: 59
+    priority: 58
   - name: A-League
     country: Australia
     api_football_id: 188
     enabled: true
-    priority: 58
+    priority: 57
   - name: Pro League
     country: Saudi-Arabia
     api_football_id: 307
     enabled: true
-    priority: 57
+    priority: 56
   - name: Super League
     country: China
     api_football_id: 169
     enabled: true
-    priority: 56
+    priority: 55
   - name: Major League Soccer
     country: USA
     api_football_id: 253
     enabled: true
-    priority: 55
+    priority: 54

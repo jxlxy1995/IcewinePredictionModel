@@ -63,7 +63,7 @@ def test_initialize_database_adds_match_detail_columns_to_existing_sqlite_databa
     league_columns = {column["name"] for column in inspector.get_columns("leagues")}
     team_columns = {column["name"] for column in inspector.get_columns("teams")}
     match_columns = {column["name"] for column in inspector.get_columns("matches")}
-    assert {"odds_source_matches", "historical_odds_snapshots"}.issubset(table_names)
+    assert {"odds_source_matches", "historical_odds_snapshots", "external_aliases"}.issubset(table_names)
     assert {"logo_url", "flag_url", "standings_supported"}.issubset(league_columns)
     assert "logo_url" in team_columns
     assert {

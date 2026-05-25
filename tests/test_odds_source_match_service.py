@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from icewine_prediction.models import League, Match, Team
 from icewine_prediction.odds_source_match_service import (
+    ExternalAliasInput,
     OddsPapiFixture,
     find_best_odds_source_match,
     normalize_team_name,
@@ -135,3 +136,34 @@ def test_find_best_odds_source_match_handles_naive_local_kickoff_time(session):
 
     assert result is not None
     assert result.fixture.fixture_id == "expected"
+
+
+def test_find_best_odds_source_match_uses_external_team_aliases(session):
+    match = _match(session, league_name="Premier League", home="Wolves", away="Fulham")
+    match.league.source_league_id = "39"
+    match.kickoff_time = datetime(2026, 5, 17, 22, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    fixtures = [
+        OddsPapiFixture(
+            fixture_id="wolves-fulham",
+            tournament_id=1,
+            start_time=datetime(2026, 5, 17, 14, 0, tzinfo=ZoneInfo("UTC")),
+            home_team_name="Wolverhampton Wanderers",
+            away_team_name="Fulham FC",
+        )
+    ]
+
+    result = find_best_odds_source_match(
+        match,
+        fixtures,
+        api_football_to_oddspapi_tournament_ids={"39": 1},
+        team_aliases=[
+            ExternalAliasInput(
+                canonical_name="Wolves",
+                alias_name="Wolverhampton Wanderers",
+            )
+        ],
+    )
+
+    assert result is not None
+    assert result.fixture.fixture_id == "wolves-fulham"
+    assert result.confidence == 1

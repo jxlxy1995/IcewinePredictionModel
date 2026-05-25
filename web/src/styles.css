@@ -154,6 +154,27 @@ table {
   width: 100%;
 }
 
+.table-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.table-toolbar input,
+.table-toolbar select {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #1d2733;
+  font: inherit;
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.table-toolbar input {
+  flex: 1;
+}
+
 th,
 td {
   border-bottom: 1px solid #e2e8f0;

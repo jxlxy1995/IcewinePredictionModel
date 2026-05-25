@@ -61,6 +61,10 @@ export function DashboardPage() {
   const [activeView, setActiveView] = useState<ViewKey>("overview");
   const [data, setData] = useState<DashboardData>(mockDashboardData);
   const [isLoading, setIsLoading] = useState(true);
+  const [coverageFilter, setCoverageFilter] = useState("");
+  const [coverageSort, setCoverageSort] = useState<
+    "coverage_desc" | "coverage_asc" | "unmatched_desc"
+  >("coverage_desc");
 
   useEffect(() => {
     let isMounted = true;
@@ -115,7 +119,15 @@ export function DashboardPage() {
         </section>
 
         {activeView === "overview" && <OverviewView data={data} />}
-        {activeView === "coverage" && <CoverageView data={data} />}
+        {activeView === "coverage" && (
+          <CoverageView
+            data={data}
+            filterText={coverageFilter}
+            onFilterTextChange={setCoverageFilter}
+            onSortChange={setCoverageSort}
+            sortBy={coverageSort}
+          />
+        )}
         {activeView === "workers" && <WorkersView data={data} />}
         {activeView === "unmatched" && <UnmatchedView data={data} />}
         {activeView === "odds" && <OddsView data={data} />}
@@ -149,12 +161,42 @@ function OverviewView({ data }: { data: DashboardData }) {
   );
 }
 
-function CoverageView({ data }: { data: DashboardData }) {
+function CoverageView({
+  data,
+  filterText,
+  sortBy,
+  onFilterTextChange,
+  onSortChange
+}: {
+  data: DashboardData;
+  filterText: string;
+  sortBy: "coverage_desc" | "coverage_asc" | "unmatched_desc";
+  onFilterTextChange: (value: string) => void;
+  onSortChange: (value: "coverage_desc" | "coverage_asc" | "unmatched_desc") => void;
+}) {
   return (
     <>
       <SummaryMetrics data={data} />
       <Panel title="全部联赛覆盖率">
-        <LeagueCoverageTable leagues={data.leagues} />
+        <div className="table-toolbar">
+          <input
+            onChange={(event) => onFilterTextChange(event.target.value)}
+            placeholder="筛选联赛、国家或赛季"
+            type="search"
+            value={filterText}
+          />
+          <select
+            onChange={(event) =>
+              onSortChange(event.target.value as "coverage_desc" | "coverage_asc" | "unmatched_desc")
+            }
+            value={sortBy}
+          >
+            <option value="coverage_desc">覆盖率从高到低</option>
+            <option value="coverage_asc">覆盖率从低到高</option>
+            <option value="unmatched_desc">未匹配从多到少</option>
+          </select>
+        </div>
+        <LeagueCoverageTable leagues={data.leagues} filterText={filterText} sortBy={sortBy} />
       </Panel>
     </>
   );

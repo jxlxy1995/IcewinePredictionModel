@@ -43,21 +43,14 @@ batches:
       - 41   # 英甲 League One England
       - 89   # 荷乙 Eerste Divisie Netherlands
 
-  - name: 第二优先级A-多联赛新回填
-    season: 2025
-    from_date: 2026-01-01
-    mode: balanced
-    chunk_size: 10
-    request_budget_per_league: 800
-    max_snapshots_per_match: 120
-    max_rounds_per_league: 18
-    stop_after_empty_matches: 8
-    league_ids:
-      - 203  # 土超 Süper Lig Turkey
-      - 106  # 波兰超 Ekstraklasa Poland
-      - 119  # 丹麦超 Superliga Denmark
-      - 283  # 罗甲 Liga I Romania
-      - 235  # 俄超 Premier League Russia
-      - 114  # 瑞典超甲 Superettan Sweden
-      - 128  # 阿甲 Liga Profesional Argentina
-      - 265  # 智利甲 Primera División Chile
+# 待复测候选联赛，暂不进入自动回填批次：
+# 2026-05-25 小样本验证结论：
+# - 土超 Süper Lig Turkey id=203：样本 404。
+# - 波兰超 Ekstraklasa Poland id=106：卡在盘口定义请求。
+# - 丹麦超 Superliga Denmark id=119：样本未匹配。
+# - 罗甲 Liga I Romania id=283：本地已有少量成功样本，但本轮复测卡在盘口定义请求。
+# - 俄超 Premier League Russia id=235：本地已有少量成功样本，但本轮复测卡在盘口定义请求。
+# - 瑞典超甲 Superettan Sweden id=114：当前无可处理候选。
+# - 阿甲 Liga Profesional Argentina id=128：当前无可处理候选。
+# - 智利甲 Primera División Chile id=265：当前无可处理候选。
+# 这些联赛需要先通过 1-5 场小样本验证可以写入快照，再重新加入待回填批次。

@@ -4,6 +4,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from icewine_prediction.dixon_coles_model_service import (
+    train_dixon_coles_attack_defense_model,
+)
 from icewine_prediction.model_training_service import (
     BaselineResultModel,
     train_league_team_strength_goal_model,
@@ -111,3 +114,21 @@ def test_predict_goal_distribution_from_league_team_strength_model_uses_league_c
     )
 
     assert league_a.home_expected_goals > league_b.home_expected_goals
+
+
+def test_predict_goal_distribution_from_attack_defense_dixon_coles_model():
+    model = train_dixon_coles_attack_defense_model(
+        [
+            _sample(1, "League", "Strong", "Weak", 4, 0),
+            _sample(2, "League", "Strong", "Average", 3, 1),
+            _sample(3, "League", "Weak", "Strong", 0, 3),
+            _sample(4, "League", "Average", "Weak", 2, 0),
+        ]
+    )
+
+    prediction = predict_goal_distribution_from_model(
+        model,
+        ScoreModelContext(home_team_name="Strong", away_team_name="Weak"),
+    )
+
+    assert prediction.home_expected_goals > prediction.away_expected_goals

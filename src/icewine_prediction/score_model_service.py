@@ -32,6 +32,12 @@ def predict_goal_distribution_from_model(
             context.home_team_name,
             context.away_team_name,
         )
+    elif hasattr(model, "predict_match_goal_distribution"):
+        context = _require_context(context, require_league=False)
+        return model.predict_match_goal_distribution(
+            context.home_team_name,
+            context.away_team_name,
+        )
 
     if isinstance(model, BaselineResultModel) or hasattr(model, "predict_goal_distribution"):
         return model.predict_goal_distribution()

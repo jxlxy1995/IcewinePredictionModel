@@ -9,7 +9,9 @@ from icewine_prediction.database import (
     initialize_database,
 )
 from icewine_prediction.dixon_coles_model_service import (
+    DixonColesAttackDefenseModel,
     DixonColesGoalModel,
+    train_dixon_coles_attack_defense_model,
     train_dixon_coles_goal_model,
 )
 from icewine_prediction.display_service import DisplayNameService
@@ -463,6 +465,22 @@ def format_dixon_coles_model(model: DixonColesGoalModel, sample_count: int) -> s
     )
 
 
+def format_dixon_coles_attack_defense_model(
+    model: DixonColesAttackDefenseModel,
+    sample_count: int,
+) -> str:
+    return "\n".join(
+        [
+            f"训练样本 {sample_count}",
+            f"球队数 {model.team_count}",
+            f"主队基础期望进球 {model.home_base_expected_goals}",
+            f"客队基础期望进球 {model.away_base_expected_goals}",
+            f"主场优势 {model.home_advantage}",
+            f"rho {model.rho}",
+        ]
+    )
+
+
 @matches_app.command("upcoming")
 def matches_upcoming(hours: int = 24):
     engine = create_database_engine()
@@ -755,6 +773,17 @@ def models_train_dixon_coles(limit: int = typer.Option(1000, "--limit")):
         samples = list_training_samples(session, limit=limit)
         model = train_dixon_coles_goal_model(samples)
         typer.echo(format_dixon_coles_model(model, sample_count=len(samples)))
+
+
+@models_app.command("train-dixon-coles-attack-defense")
+def models_train_dixon_coles_attack_defense(limit: int = typer.Option(1000, "--limit")):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        samples = list_training_samples(session, limit=limit)
+        model = train_dixon_coles_attack_defense_model(samples)
+        typer.echo(format_dixon_coles_attack_defense_model(model, sample_count=len(samples)))
 
 
 if __name__ == "__main__":

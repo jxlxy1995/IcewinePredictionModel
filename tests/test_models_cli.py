@@ -3,7 +3,10 @@ from decimal import Decimal
 from typer.testing import CliRunner
 
 from icewine_prediction.cli import app, format_baseline_result_evaluation
-from icewine_prediction.dixon_coles_model_service import DixonColesGoalModel
+from icewine_prediction.dixon_coles_model_service import (
+    DixonColesAttackDefenseModel,
+    DixonColesGoalModel,
+)
 from icewine_prediction.model_training_service import BaselineResultEvaluation
 
 
@@ -73,3 +76,33 @@ def test_models_train_dixon_coles_outputs_parameters(monkeypatch):
     assert "客队期望进球 0.95" in result.stdout
     assert "rho -0.1200" in result.stdout
     assert "主胜" in result.stdout
+
+
+def test_models_train_dixon_coles_attack_defense_outputs_parameters(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.list_training_samples",
+        lambda session, limit: ["sample"] * limit,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.train_dixon_coles_attack_defense_model",
+        lambda samples: DixonColesAttackDefenseModel(
+            home_intercept=Decimal("0.2000"),
+            away_intercept=Decimal("0.0000"),
+            home_advantage=Decimal("0.1800"),
+            rho=Decimal("-0.0800"),
+            team_parameters={},
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        ["models", "train-dixon-coles-attack-defense", "--limit", "10"],
+    )
+
+    assert result.exit_code == 0
+    assert "训练样本 10" in result.stdout
+    assert "球队数 0" in result.stdout
+    assert "主场优势 0.1800" in result.stdout
+    assert "rho -0.0800" in result.stdout
+    assert "主队基础期望进球" in result.stdout

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   BarChart3,
+  BrainCircuit,
   CircleAlert,
   Database,
   Languages,
@@ -24,8 +25,24 @@ import { Panel } from "../components/Panel";
 import { RecommendationRecordTable } from "../components/RecommendationRecordTable";
 import { TeamDisplayNameEditor } from "../components/TeamDisplayNameEditor";
 import { UnmatchedTable } from "../components/UnmatchedTable";
+import {
+  buildTeamDisplayWorkspaceOptions,
+  filterTeamDisplayRows,
+  getDisplayNameActionState,
+  hasMeaningfulDrafts
+} from "../displayNameWorkspace";
+import {
+  buildModelTrainingSummaryCards,
+  formatModelTrainingStatus,
+  listRecentModelRuns
+} from "../modelTrainingWorkspace";
+import {
+  buildRecommendationRecordGroups,
+  buildRecommendationRecordSummary
+} from "../recordReportWorkspace";
 import { WorkerStatusTable } from "../components/WorkerStatusTable";
 import { mockDashboardData } from "../mockData";
+import type { DisplayNameStatusFilter } from "../displayNameWorkspace";
 import type { DashboardData, TeamDisplayNameWorkspace, MatchOddsTrends } from "../types";
 
 type ViewKey =
@@ -34,6 +51,7 @@ type ViewKey =
   | "workers"
   | "unmatched"
   | "displayNames"
+  | "models"
   | "odds"
   | "records";
 
@@ -49,6 +67,7 @@ const navItems: NavItem[] = [
   { key: "workers", label: "Worker", icon: Radio },
   { key: "unmatched", label: "未匹配", icon: CircleAlert },
   { key: "displayNames", label: "中文名", icon: Languages },
+  { key: "models", label: "模型训练", icon: BrainCircuit },
   { key: "odds", label: "赔率走势", icon: BarChart3 },
   { key: "records", label: "推荐记录", icon: ListChecks }
 ];
@@ -74,6 +93,10 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
     title: "中文名维护",
     subtitle: "按联赛和赛季检查缺失中文显示名的球队"
   },
+  models: {
+    title: "模型训练",
+    subtitle: "查看训练样本覆盖、模型版本和最近训练结果"
+  },
   odds: {
     title: "赔率走势",
     subtitle: "查看单场亚盘和大小球主盘口变化"
@@ -95,12 +118,15 @@ export function DashboardPage() {
   const [oddsTrendError, setOddsTrendError] = useState<string | null>(null);
   const [coverageFilter, setCoverageFilter] = useState("");
   const [displayNameFilter, setDisplayNameFilter] = useState("");
+  const [displayNameStatusFilter, setDisplayNameStatusFilter] =
+    useState<DisplayNameStatusFilter>("all");
   const [teamDisplayWorkspace, setTeamDisplayWorkspace] = useState<TeamDisplayNameWorkspace | null>(
     null
   );
   const [displayWorkspaceError, setDisplayWorkspaceError] = useState<string | null>(null);
   const [displayWorkspaceMessage, setDisplayWorkspaceMessage] = useState<string | null>(null);
   const [teamDisplayDraftNames, setTeamDisplayDraftNames] = useState<Record<string, string>>({});
+  const [isSavingDisplayNames, setIsSavingDisplayNames] = useState(false);
   const [doneDisplayTranslationKeys, setDoneDisplayTranslationKeys] = useState<Set<string>>(
     new Set(mockDashboardData.doneDisplayTranslationKeys)
   );
@@ -194,12 +220,15 @@ export function DashboardPage() {
             data={data}
             doneKeys={doneDisplayTranslationKeys}
             filterText={displayNameFilter}
+            isSaving={isSavingDisplayNames}
             onFilterTextChange={setDisplayNameFilter}
+            onStatusFilterChange={setDisplayNameStatusFilter}
             draftNames={teamDisplayDraftNames}
             onDraftNamesChange={setTeamDisplayDraftNames}
             onMarkDone={(leagueId, season) => {
               setDisplayWorkspaceError(null);
               setDisplayWorkspaceMessage(null);
+              setIsSavingDisplayNames(true);
               saveCurrentTeamDisplayDrafts(teamDisplayDraftNames)
                 .then(() => markTeamDisplayNameWorkspaceDone(leagueId, season))
                 .then(() => {
@@ -213,11 +242,13 @@ export function DashboardPage() {
                   setTeamDisplayDraftNames({});
                   setDisplayWorkspaceMessage("已保存当前填写并标记完成");
                 })
-                .catch(() => setDisplayWorkspaceError("保存或标记中文名校验完成失败"));
+                .catch(() => setDisplayWorkspaceError("保存或标记中文名校验完成失败"))
+                .finally(() => setIsSavingDisplayNames(false));
             }}
             onSaveDrafts={() => {
               setDisplayWorkspaceError(null);
               setDisplayWorkspaceMessage(null);
+              setIsSavingDisplayNames(true);
               saveCurrentTeamDisplayDrafts(teamDisplayDraftNames)
                 .then((savedCount) => {
                   setTeamDisplayDraftNames({});
@@ -230,9 +261,16 @@ export function DashboardPage() {
                   }
                   return undefined;
                 })
-                .catch(() => setDisplayWorkspaceError("保存中文名失败"));
+                .catch(() => setDisplayWorkspaceError("保存中文名失败"))
+                .finally(() => setIsSavingDisplayNames(false));
             }}
             onWorkspaceChange={(leagueId, season) => {
+              if (
+                hasMeaningfulDrafts(teamDisplayDraftNames) &&
+                !window.confirm("当前有未保存的中文名草稿，切换联赛会清空这些填写。确认切换吗？")
+              ) {
+                return;
+              }
               setDisplayWorkspaceError(null);
               setDisplayWorkspaceMessage(null);
               setTeamDisplayDraftNames({});
@@ -240,11 +278,13 @@ export function DashboardPage() {
                 .then(setTeamDisplayWorkspace)
                 .catch(() => setDisplayWorkspaceError("读取球队中文名维护列表失败"));
             }}
+            statusFilter={displayNameStatusFilter}
             workspace={teamDisplayWorkspace}
             workspaceError={displayWorkspaceError}
             workspaceMessage={displayWorkspaceMessage}
           />
         )}
+        {activeView === "models" && <ModelTrainingView data={data} />}
         {activeView === "odds" && (
           <OddsView
             data={data}
@@ -364,11 +404,14 @@ function DisplayNamesView({
   doneKeys,
   draftNames,
   filterText,
+  isSaving,
   onDraftNamesChange,
   onFilterTextChange,
   onMarkDone,
   onSaveDrafts,
+  onStatusFilterChange,
   onWorkspaceChange,
+  statusFilter,
   workspace,
   workspaceError,
   workspaceMessage
@@ -377,46 +420,28 @@ function DisplayNamesView({
   doneKeys: Set<string>;
   draftNames: Record<string, string>;
   filterText: string;
+  isSaving: boolean;
   onDraftNamesChange: (draftNames: Record<string, string>) => void;
   onFilterTextChange: (value: string) => void;
   onMarkDone: (leagueId: number, season: number) => void;
   onSaveDrafts: () => void;
+  onStatusFilterChange: (value: DisplayNameStatusFilter) => void;
   onWorkspaceChange: (leagueId: number, season: number) => void;
+  statusFilter: DisplayNameStatusFilter;
   workspace: TeamDisplayNameWorkspace | null;
   workspaceError: string | null;
   workspaceMessage: string | null;
 }) {
-  const workspaceOptions = Array.from(
-    new Map(
-      data.leagues
-        .filter((item) => item.season != null)
-        .map((item) => [
-          `${item.league_id}-${item.season}`,
-          {
-            is_done: doneKeys.has(`${item.league_id}-${item.season}`),
-            league_id: item.league_id,
-            league_name: item.league_name,
-            league_display_name: item.league_display_name,
-            season: item.season
-          }
-        ])
-    ).values()
-  ).sort((left, right) => {
-    if (left.is_done !== right.is_done) {
-      return left.is_done ? 1 : -1;
-    }
-    return `${left.league_display_name ?? left.league_name} ${left.season}`.localeCompare(
-      `${right.league_display_name ?? right.league_name} ${right.season}`
-    );
+  const workspaceOptions = buildTeamDisplayWorkspaceOptions(data.leagues, doneKeys);
+  const visibleTeams = filterTeamDisplayRows(workspace?.teams ?? [], {
+    draftNames,
+    filterText,
+    statusFilter
   });
-  const normalizedFilterText = filterText.trim().toLowerCase();
-  const visibleTeams = (workspace?.teams ?? []).filter((item) => {
-    if (!normalizedFilterText) {
-      return true;
-    }
-    return `${item.team_display_name ?? ""} ${item.team_name}`
-      .toLowerCase()
-      .includes(normalizedFilterText);
+  const actionState = getDisplayNameActionState({
+    draftNames,
+    isSaving,
+    isTranslationDone: workspace?.is_translation_done ?? false
   });
 
   return (
@@ -431,9 +456,8 @@ function DisplayNamesView({
             value={workspace ? `${workspace.league_id}-${workspace.season}` : ""}
           >
             {workspaceOptions.map((option) => (
-              <option key={`${option.league_id}-${option.season}`} value={`${option.league_id}-${option.season}`}>
-                {option.league_display_name ?? option.league_name} · {option.season}
-                {option.is_done ? " · 已完成" : ""}
+              <option key={option.key} value={option.key}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -443,6 +467,14 @@ function DisplayNamesView({
             type="search"
             value={filterText}
           />
+          <select
+            onChange={(event) => onStatusFilterChange(event.target.value as DisplayNameStatusFilter)}
+            value={statusFilter}
+          >
+            <option value="all">全部球队</option>
+            <option value="missing">只看未翻译</option>
+            <option value="changed">只看已修改</option>
+          </select>
         </div>
         {workspaceError && <div className="inline-warning">{workspaceError}</div>}
         {workspaceMessage && <div className="inline-success">{workspaceMessage}</div>}
@@ -456,16 +488,17 @@ function DisplayNamesView({
         )}
         {workspace && (
           <div className="inline-actions">
-            <button onClick={onSaveDrafts} type="button">
-              保存当前填写
+            <button disabled={!actionState.canSave} onClick={onSaveDrafts} type="button">
+              {actionState.saveLabel}
             </button>
             <button
-              disabled={workspace.is_translation_done}
+              disabled={!actionState.canMarkDone}
               onClick={() => onMarkDone(workspace.league_id, workspace.season)}
               type="button"
             >
-              {workspace.is_translation_done ? "已完成校验" : "整联赛已翻译完成"}
+              {actionState.markDoneLabel}
             </button>
+            {hasMeaningfulDrafts(draftNames) && <span>有未保存草稿</span>}
           </div>
         )}
         <TeamDisplayNameEditor
@@ -529,13 +562,162 @@ function formatShortDateTime(value: string) {
   return value.replace("T", " ").slice(0, 16);
 }
 
-function RecordsView({ data }: { data: DashboardData }) {
+function ModelTrainingView({ data }: { data: DashboardData }) {
+  const summaryCards = buildModelTrainingSummaryCards(data.modelTraining);
+  const recentRuns = listRecentModelRuns(data.modelTraining);
+
   return (
     <section className="single-column">
+      <section className="metrics compact-metrics">
+        {summaryCards.map((card) => (
+          <MetricCard key={card.label} label={card.label} value={card.value} />
+        ))}
+      </section>
+      <section className="grid">
+        <Panel title="最近训练结果">
+          <table>
+            <thead>
+              <tr>
+                <th>模型</th>
+                <th>版本</th>
+                <th>状态</th>
+                <th>样本</th>
+                <th>联赛</th>
+                <th>Log Loss</th>
+                <th>Brier</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentRuns.map((run) => (
+                <tr key={run.model_version}>
+                  <td>{run.model_name}</td>
+                  <td>{run.model_version}</td>
+                  <td>
+                    <span className={`status-pill ${run.status}`}>
+                      {formatModelTrainingStatus(run.status)}
+                    </span>
+                  </td>
+                  <td>{run.sample_count.toLocaleString()}</td>
+                  <td>{run.league_count}</td>
+                  <td>{run.validation_log_loss ?? "-"}</td>
+                  <td>{run.validation_brier_score ?? "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+        <Panel title="模型盘口覆盖">
+          <div className="model-market-list">
+            {recentRuns.map((run) => (
+              <div className="model-market-item" key={run.model_version}>
+                <strong>{run.model_name}</strong>
+                <span>{run.market_types.map(formatMarketType).join(" / ")}</span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </section>
+      <Panel title="联赛训练覆盖">
+        <table>
+          <thead>
+            <tr>
+              <th>联赛</th>
+              <th>赛季</th>
+              <th>完赛</th>
+              <th>训练样本</th>
+              <th>覆盖率</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.modelTraining.league_training_coverage.map((coverage) => (
+              <tr key={`${coverage.league_name}-${coverage.season}`}>
+                <td>{coverage.league_display_name ?? coverage.league_name}</td>
+                <td>{coverage.season}</td>
+                <td>{coverage.finished_matches.toLocaleString()}</td>
+                <td>{coverage.training_matches.toLocaleString()}</td>
+                <td>{coverage.coverage_ratio}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+    </section>
+  );
+}
+
+function formatMarketType(value: string) {
+  const names: Record<string, string> = {
+    asian_handicap: "亚盘",
+    score_distribution: "比分分布",
+    total_goals: "大小球"
+  };
+  return names[value] ?? value;
+}
+
+function RecordsView({ data }: { data: DashboardData }) {
+  const summary = buildRecommendationRecordSummary(data.recommendationRecords);
+  const groups = buildRecommendationRecordGroups(data.recommendationRecords);
+
+  return (
+    <section className="single-column">
+      <section className="metrics">
+        <MetricCard label="推荐数" value={summary.totalRecords.toLocaleString()} />
+        <MetricCard label="已复盘" value={summary.settledRecords.toLocaleString()} />
+        <MetricCard label="总手数" value={summary.totalStakeUnits} />
+        <MetricCard label="盈亏" value={summary.totalProfitUnits} tone="warning" />
+        <MetricCard label="ROI" value={summary.roi} />
+      </section>
+      <section className="grid">
+        <Panel title="按盘口类型">
+          <RecordGroupTable groups={groups.byMarketType} />
+        </Panel>
+        <Panel title="按信心等级">
+          <RecordGroupTable groups={groups.byConfidenceGrade} />
+        </Panel>
+      </section>
+      <Panel title="按联赛">
+        <RecordGroupTable groups={groups.byLeague} />
+      </Panel>
       <Panel title="推荐记录">
         <RecommendationRecordTable records={data.recommendationRecords} />
       </Panel>
     </section>
+  );
+}
+
+function RecordGroupTable({
+  groups
+}: {
+  groups: ReturnType<typeof buildRecommendationRecordGroups>["byMarketType"];
+}) {
+  if (groups.length === 0) {
+    return <div className="empty-state">暂无已复盘记录</div>;
+  }
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>分组</th>
+          <th>记录</th>
+          <th>命中率</th>
+          <th>手数</th>
+          <th>盈亏</th>
+          <th>ROI</th>
+        </tr>
+      </thead>
+      <tbody>
+        {groups.map((group) => (
+          <tr key={group.groupName}>
+            <td>{group.groupName}</td>
+            <td>{group.recordCount}</td>
+            <td>{group.hitRate}</td>
+            <td>{group.stakeUnits}</td>
+            <td>{group.profitUnits}</td>
+            <td>{group.roi}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

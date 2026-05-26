@@ -20,6 +20,7 @@ def test_odds_source_group_exposes_oddspapi_commands():
     assert "oddspapi-batch-worker" in result.stdout
     assert "oddspapi-worker-start" in result.stdout
     assert "oddspapi-worker-status" in result.stdout
+    assert "oddspapi-diagnose-fixtures" in result.stdout
 
 
 def test_oddspapi_plan_accepts_season_and_match_limit(monkeypatch):
@@ -138,6 +139,54 @@ def test_oddspapi_probe_accepts_season_match_limit_and_request_budget(monkeypatc
 
     assert result.exit_code == 0
     assert "probe:2025:20:50:8:{1149, 1150}" in result.stdout
+
+
+def test_oddspapi_diagnose_fixtures_accepts_background_report_options(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.run_oddspapi_fixture_diagnostics",
+        lambda season,
+        max_matches,
+        request_budget,
+        timeout_seconds,
+        log_dir,
+        league_ids=None,
+        from_date=None,
+        confidence_threshold="0.75": (
+            f"diagnose:{season}:{max_matches}:{request_budget}:{timeout_seconds}:"
+            f"{log_dir}:{league_ids}:{from_date}:{confidence_threshold}"
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "odds-source",
+            "oddspapi-diagnose-fixtures",
+            "--season",
+            "2025",
+            "--max-matches",
+            "30",
+            "--request-budget",
+            "60",
+            "--timeout-seconds",
+            "12",
+            "--log-dir",
+            "logs/diagnostics",
+            "--league-ids",
+            "135,140",
+            "--from-date",
+            "2026-01-15",
+            "--confidence-threshold",
+            "0.8",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "diagnose:2025:30:60:12:logs/diagnostics:" in result.stdout
+    assert "'135'" in result.stdout
+    assert "'140'" in result.stdout
+    assert ":2026-01-15:0.8" in result.stdout
 
 
 def test_oddspapi_match_report_accepts_match_id(monkeypatch):

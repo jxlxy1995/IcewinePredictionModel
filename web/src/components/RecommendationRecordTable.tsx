@@ -1,4 +1,5 @@
 import type { RecommendationRecord } from "../types";
+import { formatSettlementResult } from "../recordReportWorkspace";
 
 type RecommendationRecordTableProps = {
   records: RecommendationRecord[];
@@ -18,6 +19,7 @@ export function RecommendationRecordTable({ records }: RecommendationRecordTable
           <th>信心</th>
           <th>手数</th>
           <th>状态</th>
+          <th>赛果</th>
           <th>收益</th>
         </tr>
       </thead>
@@ -36,6 +38,7 @@ export function RecommendationRecordTable({ records }: RecommendationRecordTable
             <td>{record.confidence_grade}</td>
             <td>{record.stake_units}</td>
             <td>{formatStatus(record.status)}</td>
+            <td>{formatSettlementResult(record.settlement_result)}</td>
             <td>{record.profit_units ?? "-"}</td>
           </tr>
         ))}

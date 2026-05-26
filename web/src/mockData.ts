@@ -489,6 +489,26 @@ export const mockDashboardData: DashboardData = {
       status: "pending",
       settlement_result: null,
       profit_units: null
+    },
+    {
+      id: 6,
+      match_id: 1007,
+      league_name: "Championship",
+      league_display_name: "英冠",
+      home_team_name: "Cardiff",
+      home_team_display_name: "卡迪夫城",
+      away_team_name: "Swansea",
+      away_team_display_name: "斯旺西",
+      kickoff_time: "2026-05-10T22:00:00+08:00",
+      market_type: "asian_handicap",
+      side: "home",
+      market_line: "0.00",
+      odds: "1.900",
+      confidence_grade: "C",
+      stake_units: "0.50",
+      status: "settled",
+      settlement_result: "push",
+      profit_units: "0.000"
     }
   ]
 };

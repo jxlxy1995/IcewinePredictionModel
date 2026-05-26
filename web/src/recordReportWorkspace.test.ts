@@ -79,19 +79,37 @@ const records: RecommendationRecord[] = [
     status: "pending",
     settlement_result: null,
     profit_units: null
+  },
+  {
+    id: 5,
+    match_id: 105,
+    league_name: "Championship",
+    league_display_name: "英冠",
+    home_team_name: "Cardiff",
+    away_team_name: "Swansea",
+    kickoff_time: "2026-05-05T22:00:00+08:00",
+    market_type: "asian_handicap",
+    side: "home",
+    market_line: "0.00",
+    odds: "1.900",
+    confidence_grade: "C",
+    stake_units: "0.50",
+    status: "settled",
+    settlement_result: "push",
+    profit_units: "0.000"
   }
 ];
 
 describe("record report workspace helpers", () => {
   it("summarizes settled recommendation performance", () => {
     expect(buildRecommendationRecordSummary(records)).toEqual({
-      hitRate: "66.67%",
+      hitRate: "50.00%",
       pendingRecords: 1,
-      roi: "33.78%",
-      settledRecords: 3,
+      roi: "30.40%",
+      settledRecords: 4,
       totalProfitUnits: "1.520",
-      totalRecords: 4,
-      totalStakeUnits: "4.50"
+      totalRecords: 5,
+      totalStakeUnits: "5.00"
     });
   });
 
@@ -99,11 +117,11 @@ describe("record report workspace helpers", () => {
     expect(buildRecommendationRecordGroups(records).byMarketType).toEqual([
       {
         groupName: "亚盘",
-        hitRate: "100.00%",
+        hitRate: "66.67%",
         profitUnits: "2.520",
-        recordCount: 2,
-        roi: "72.00%",
-        stakeUnits: "3.50"
+        recordCount: 3,
+        roi: "63.00%",
+        stakeUnits: "4.00"
       },
       {
         groupName: "大小球",

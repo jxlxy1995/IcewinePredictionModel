@@ -1,4 +1,9 @@
-import { mockDashboardData, mockOddsTrends, mockTeamDisplayNameWorkspaces } from "./mockData";
+import {
+  mockDashboardData,
+  mockModelTrainingOverview,
+  mockOddsTrends,
+  mockTeamDisplayNameWorkspaces
+} from "./mockData";
 import type {
   DashboardData,
   DashboardSummary,
@@ -49,6 +54,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
       matchesWithOdds,
       missingTeamDisplayNames,
       doneDisplayTranslationKeys: displayTranslationStatus.done_league_seasons,
+      modelTraining: mockModelTrainingOverview,
       recommendationRecords
     };
   } catch {

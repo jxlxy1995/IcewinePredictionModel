@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   BarChart3,
+  BrainCircuit,
   CircleAlert,
   Database,
   Languages,
@@ -30,6 +31,11 @@ import {
   getDisplayNameActionState,
   hasMeaningfulDrafts
 } from "../displayNameWorkspace";
+import {
+  buildModelTrainingSummaryCards,
+  formatModelTrainingStatus,
+  listRecentModelRuns
+} from "../modelTrainingWorkspace";
 import { WorkerStatusTable } from "../components/WorkerStatusTable";
 import { mockDashboardData } from "../mockData";
 import type { DisplayNameStatusFilter } from "../displayNameWorkspace";
@@ -41,6 +47,7 @@ type ViewKey =
   | "workers"
   | "unmatched"
   | "displayNames"
+  | "models"
   | "odds"
   | "records";
 
@@ -56,6 +63,7 @@ const navItems: NavItem[] = [
   { key: "workers", label: "Worker", icon: Radio },
   { key: "unmatched", label: "未匹配", icon: CircleAlert },
   { key: "displayNames", label: "中文名", icon: Languages },
+  { key: "models", label: "模型训练", icon: BrainCircuit },
   { key: "odds", label: "赔率走势", icon: BarChart3 },
   { key: "records", label: "推荐记录", icon: ListChecks }
 ];
@@ -80,6 +88,10 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
   displayNames: {
     title: "中文名维护",
     subtitle: "按联赛和赛季检查缺失中文显示名的球队"
+  },
+  models: {
+    title: "模型训练",
+    subtitle: "查看训练样本覆盖、模型版本和最近训练结果"
   },
   odds: {
     title: "赔率走势",
@@ -268,6 +280,7 @@ export function DashboardPage() {
             workspaceMessage={displayWorkspaceMessage}
           />
         )}
+        {activeView === "models" && <ModelTrainingView data={data} />}
         {activeView === "odds" && (
           <OddsView
             data={data}
@@ -543,6 +556,98 @@ function OddsView({
 
 function formatShortDateTime(value: string) {
   return value.replace("T", " ").slice(0, 16);
+}
+
+function ModelTrainingView({ data }: { data: DashboardData }) {
+  const summaryCards = buildModelTrainingSummaryCards(data.modelTraining);
+  const recentRuns = listRecentModelRuns(data.modelTraining);
+
+  return (
+    <section className="single-column">
+      <section className="metrics compact-metrics">
+        {summaryCards.map((card) => (
+          <MetricCard key={card.label} label={card.label} value={card.value} />
+        ))}
+      </section>
+      <section className="grid">
+        <Panel title="最近训练结果">
+          <table>
+            <thead>
+              <tr>
+                <th>模型</th>
+                <th>版本</th>
+                <th>状态</th>
+                <th>样本</th>
+                <th>联赛</th>
+                <th>Log Loss</th>
+                <th>Brier</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentRuns.map((run) => (
+                <tr key={run.model_version}>
+                  <td>{run.model_name}</td>
+                  <td>{run.model_version}</td>
+                  <td>
+                    <span className={`status-pill ${run.status}`}>
+                      {formatModelTrainingStatus(run.status)}
+                    </span>
+                  </td>
+                  <td>{run.sample_count.toLocaleString()}</td>
+                  <td>{run.league_count}</td>
+                  <td>{run.validation_log_loss ?? "-"}</td>
+                  <td>{run.validation_brier_score ?? "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+        <Panel title="模型盘口覆盖">
+          <div className="model-market-list">
+            {recentRuns.map((run) => (
+              <div className="model-market-item" key={run.model_version}>
+                <strong>{run.model_name}</strong>
+                <span>{run.market_types.map(formatMarketType).join(" / ")}</span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </section>
+      <Panel title="联赛训练覆盖">
+        <table>
+          <thead>
+            <tr>
+              <th>联赛</th>
+              <th>赛季</th>
+              <th>完赛</th>
+              <th>训练样本</th>
+              <th>覆盖率</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.modelTraining.league_training_coverage.map((coverage) => (
+              <tr key={`${coverage.league_name}-${coverage.season}`}>
+                <td>{coverage.league_display_name ?? coverage.league_name}</td>
+                <td>{coverage.season}</td>
+                <td>{coverage.finished_matches.toLocaleString()}</td>
+                <td>{coverage.training_matches.toLocaleString()}</td>
+                <td>{coverage.coverage_ratio}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+    </section>
+  );
+}
+
+function formatMarketType(value: string) {
+  const names: Record<string, string> = {
+    asian_handicap: "亚盘",
+    score_distribution: "比分分布",
+    total_goals: "大小球"
+  };
+  return names[value] ?? value;
 }
 
 function RecordsView({ data }: { data: DashboardData }) {

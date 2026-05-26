@@ -46,6 +46,9 @@ from icewine_prediction.oddspapi_batch_backfill_service import (
     run_oddspapi_batch_backfill,
     run_oddspapi_batch_worker,
 )
+from icewine_prediction.oddspapi_diagnostic_service import (
+    run_oddspapi_fixture_diagnostics,
+)
 from icewine_prediction.oddspapi_sync_runner import (
     build_oddspapi_match_report,
     build_oddspapi_probe_report,
@@ -885,6 +888,31 @@ def odds_source_oddspapi_probe(
             request_budget=request_budget,
             timeout_seconds=timeout_seconds,
             skip_match_ids=_parse_id_set(skip_match_ids),
+        )
+    )
+
+
+@odds_source_app.command("oddspapi-diagnose-fixtures")
+def odds_source_oddspapi_diagnose_fixtures(
+    season: int = typer.Option(..., "--season"),
+    max_matches: int = typer.Option(50, "--max-matches"),
+    request_budget: int = typer.Option(100, "--request-budget"),
+    timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
+    log_dir: str = typer.Option("logs/odds-diagnostics", "--log-dir"),
+    league_ids: str = typer.Option("", "--league-ids"),
+    from_date: str | None = typer.Option(None, "--from-date"),
+    confidence_threshold: str = typer.Option("0.75", "--confidence-threshold"),
+):
+    typer.echo(
+        run_oddspapi_fixture_diagnostics(
+            season=season,
+            max_matches=max_matches,
+            request_budget=request_budget,
+            timeout_seconds=timeout_seconds,
+            log_dir=log_dir,
+            league_ids=_parse_str_set(league_ids),
+            from_date=date.fromisoformat(from_date) if from_date else None,
+            confidence_threshold=confidence_threshold,
         )
     )
 

@@ -49,6 +49,38 @@ aliases:
     alias_name: Sarpsborg 08
   - entity_type: team
     source_name: oddspapi
+    canonical_name: Aalesund
+    alias_name: Aalesunds FK
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Brann
+    alias_name: SK Brann
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Fredrikstad
+    alias_name: Fredrikstad FK
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Molde
+    alias_name: Molde FK
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Sandefjord
+    alias_name: Sandefjord Fotball
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Start
+    alias_name: IK Start
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Tromso
+    alias_name: Tromsoe IL
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Viking
+    alias_name: Viking FK
+  - entity_type: team
+    source_name: oddspapi
     canonical_name: Ilves
     alias_name: Tampereen Ilves
   - entity_type: team

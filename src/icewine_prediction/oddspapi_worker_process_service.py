@@ -133,11 +133,61 @@ def build_oddspapi_batch_worker_status(
         f"league_ids={','.join(status.get('league_ids') or []) or '-'}",
         f"log={process_log_path}",
     ]
+    progress_text = _format_progress_snapshot(log_dir / "oddspapi-worker-progress.json")
+    if progress_text:
+        lines.append("进度快照：")
+        lines.extend(progress_text)
     tail = _read_log_tail(process_log_path, tail_lines=tail_lines)
     if tail:
         lines.append("最近日志：")
         lines.extend(tail)
     return "\n".join(lines)
+
+
+def _format_progress_snapshot(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    try:
+        progress = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return [f"{path} 不是有效 JSON"]
+    lines = [
+        f"状态 {progress.get('status')} updated_at={progress.get('updated_at')}",
+        (
+            f"模式 {progress.get('mode')} season={progress.get('season')} "
+            f"workers={progress.get('worker_count')} leagues={progress.get('league_count')}"
+        ),
+    ]
+    current_league = progress.get("current_league")
+    if current_league:
+        lines.append(
+            f"当前 {current_league.get('league_name')} id={current_league.get('league_id')} "
+            f"round={current_league.get('round')} "
+            f"processed={current_league.get('processed_matches')} "
+            f"snapshots={current_league.get('inserted_snapshots')} "
+            f"failed={current_league.get('failed_matches')} "
+            f"requests={current_league.get('requests_used')}"
+        )
+        last_round = current_league.get("last_round")
+        if last_round:
+            lines.append(
+                f"上一轮 processed={last_round.get('processed_matches')} "
+                f"snapshots={last_round.get('inserted_snapshots')} "
+                f"failed={last_round.get('failed_matches')} "
+                f"requests={last_round.get('requests_used')}"
+            )
+            if last_round.get("error_message"):
+                lines.append(f"上一轮错误 {last_round.get('error_message')}")
+        if current_league.get("stop_reason"):
+            lines.append(f"停止原因 {current_league.get('stop_reason')}")
+    totals = progress.get("totals") or {}
+    lines.append(
+        f"总计 processed={totals.get('processed_matches')} "
+        f"snapshots={totals.get('inserted_snapshots')} "
+        f"failed={totals.get('failed_matches')} "
+        f"requests={totals.get('requests_used')}"
+    )
+    return lines
 
 
 def _build_worker_command(

@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from icewine_prediction.oddspapi_worker_process_service import (
     build_oddspapi_batch_worker_status,
@@ -92,3 +93,74 @@ def test_batch_worker_status_reads_current_status_and_log_tail(monkeypatch, tmp_
     assert "第二行" in output
     assert "第三行" in output
     assert "第一行" not in output
+
+
+def test_batch_worker_status_includes_progress_snapshot(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "icewine_prediction.oddspapi_worker_process_service._is_process_running",
+        lambda pid: True,
+    )
+    start_result = start_oddspapi_batch_worker_process(
+        season=2025,
+        mode="safe",
+        chunk_size=1,
+        request_budget_per_league=5,
+        timeout_seconds=20,
+        max_snapshots_per_match=120,
+        max_rounds_per_league=1,
+        stop_after_empty_matches=8,
+        stop_after_failed_rounds=2,
+        round_timeout_seconds=60,
+        historical_odds_cooldown_seconds=7.5,
+        hard_timeout_seconds=3600,
+        log_dir=tmp_path,
+        league_ids={"62"},
+        from_date=None,
+        skip_match_ids=None,
+        notify_on_complete=False,
+        popen_factory=lambda command, **kwargs: type("FakeProcess", (), {"pid": 9876})(),
+    )
+    start_result.log_path.write_text("启动日志\n", encoding="utf-8")
+    (tmp_path / "oddspapi-worker-progress.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "mode": "safe",
+                "season": 2025,
+                "worker_count": 1,
+                "league_count": 1,
+                "updated_at": "2026-05-26T21:50:00+08:00",
+                "current_league": {
+                    "league_id": "62",
+                    "league_name": "Ligue 2",
+                    "round": 3,
+                    "processed_matches": 8,
+                    "failed_matches": 1,
+                    "inserted_snapshots": 720,
+                    "requests_used": 24,
+                    "last_round": {
+                        "processed_matches": 1,
+                        "inserted_snapshots": 100,
+                        "failed_matches": 0,
+                        "requests_used": 5,
+                    },
+                },
+                "totals": {
+                    "processed_matches": 8,
+                    "failed_matches": 1,
+                    "inserted_snapshots": 720,
+                    "requests_used": 24,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    output = build_oddspapi_batch_worker_status(log_dir=tmp_path, tail_lines=1)
+
+    assert "进度快照：" in output
+    assert "状态 running updated_at=2026-05-26T21:50:00+08:00" in output
+    assert "当前 Ligue 2 id=62 round=3 processed=8 snapshots=720 failed=1 requests=24" in output
+    assert "上一轮 processed=1 snapshots=100 failed=0 requests=5" in output
+    assert "总计 processed=8 snapshots=720 failed=1 requests=24" in output

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import date
+import json
 import os
 import time
 
@@ -342,6 +343,57 @@ def test_batch_worker_writes_progress_to_output_and_log_file(tmp_path):
     assert len(log_files) == 1
     log_text = log_files[0].read_text(encoding="utf-8")
     assert "Ligue 2 第1轮 processed=1 snapshots=100 failed=0 requests=3" in log_text
+
+
+def test_batch_worker_writes_structured_progress_snapshot(tmp_path):
+    calls = []
+
+    def fake_runner(**kwargs):
+        calls.append(kwargs)
+        return OddsPapiSyncResult(
+            processed_match_count=1 if len(calls) == 1 else 0,
+            matched_count=1 if len(calls) == 1 else 0,
+            failed_match_count=0,
+            inserted_snapshot_count=100 if len(calls) == 1 else 0,
+            skipped_duplicate_snapshot_count=0,
+            skipped_existing_odds_count=0,
+            asian_handicap_count=50 if len(calls) == 1 else 0,
+            total_goals_count=50 if len(calls) == 1 else 0,
+            requests_used=3 if len(calls) == 1 else 0,
+        )
+
+    run_oddspapi_batch_worker_with_runner(
+        jobs=(LeagueBackfillJob("62", "Ligue 2", 84),),
+        runner=fake_runner,
+        season=2025,
+        from_date=date(2026, 1, 15),
+        mode=BatchBackfillMode.SAFE,
+        chunk_size=1,
+        request_budget_per_league=100,
+        timeout_seconds=20,
+        max_snapshots_per_match=120,
+        max_rounds_per_league=3,
+        stop_after_empty_matches=8,
+        log_dir=tmp_path,
+        output_callback=None,
+    )
+
+    progress_path = tmp_path / "oddspapi-worker-progress.json"
+    assert progress_path.exists()
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    assert progress["status"] == "done"
+    assert progress["mode"] == "safe"
+    assert progress["season"] == 2025
+    assert progress["current_league"]["league_id"] == "62"
+    assert progress["current_league"]["league_name"] == "Ligue 2"
+    assert progress["current_league"]["round"] == 2
+    assert progress["current_league"]["processed_matches"] == 1
+    assert progress["current_league"]["inserted_snapshots"] == 100
+    assert progress["current_league"]["requests_used"] == 3
+    assert progress["current_league"]["last_round"]["processed_matches"] == 0
+    assert progress["totals"]["processed_matches"] == 1
+    assert progress["totals"]["inserted_snapshots"] == 100
+    assert progress["totals"]["requests_used"] == 3
 
 
 def test_batch_worker_log_filename_includes_process_id(tmp_path):

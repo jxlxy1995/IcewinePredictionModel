@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time
 from enum import Enum
+import json
 import os
 from pathlib import Path
 from threading import Timer
@@ -54,6 +55,15 @@ class BatchBackfillReport:
     mode: str
     worker_count: int
     league_reports: tuple[LeagueBackfillReport, ...]
+
+
+@dataclass(frozen=True)
+class WorkerProgressContext:
+    progress_path: Path
+    mode: str
+    season: int
+    worker_count: int
+    league_count: int
 
 
 class OddsPapiSyncRunner(Protocol):
@@ -246,11 +256,25 @@ def run_oddspapi_batch_worker_with_runner(
 ) -> BatchBackfillReport:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / _build_worker_log_filename()
+    progress_path = log_dir / "oddspapi-worker-progress.json"
     logger = _WorkerLogger(log_path=log_path, output_callback=output_callback)
     worker_count = min(_worker_count_for_mode(mode), max(len(jobs), 1))
+    progress_context = WorkerProgressContext(
+        progress_path=progress_path,
+        mode=mode.value,
+        season=season,
+        worker_count=worker_count,
+        league_count=len(jobs),
+    )
     logger.write(
         f"开始 OddsPapi 后台回填 mode={mode.value} workers={worker_count} "
         f"leagues={len(jobs)} log={log_path}"
+    )
+    _write_worker_progress_snapshot(
+        context=progress_context,
+        status="running",
+        current_league=None,
+        totals=_MutableLeagueTotals(),
     )
     hard_timeout_timer = _start_hard_timeout_timer(hard_timeout_seconds, logger.write)
     try:
@@ -272,12 +296,24 @@ def run_oddspapi_batch_worker_with_runner(
             skip_match_ids=skip_match_ids,
             worker_count=worker_count,
             progress_callback=logger.write,
+            progress_context=progress_context,
         )
     finally:
         if hard_timeout_timer is not None:
             hard_timeout_timer.cancel()
     logger.write("完成 OddsPapi 后台回填")
     logger.write(format_batch_backfill_report(report))
+    _write_worker_progress_snapshot(
+        context=progress_context,
+        status="done",
+        current_league=_build_final_progress_league(
+            report.league_reports[-1],
+            progress_path=progress_path,
+        )
+        if report.league_reports
+        else None,
+        totals=_build_progress_totals_from_report(report),
+    )
     if notify_on_complete:
         notifier = notification_callback or notify_local_completion
         notification_sent = notifier(
@@ -355,6 +391,7 @@ def _run_batch_backfill(
     skip_match_ids: set[int] | None,
     worker_count: int,
     progress_callback: Callable[[str], None] | None,
+    progress_context: WorkerProgressContext | None = None,
 ) -> BatchBackfillReport:
     if not jobs:
         return BatchBackfillReport(mode=mode.value, worker_count=worker_count, league_reports=())
@@ -377,6 +414,7 @@ def _run_batch_backfill(
                 historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
                 skip_match_ids=skip_match_ids,
                 progress_callback=progress_callback,
+                progress_context=progress_context,
             )
             for job in jobs
         ]
@@ -407,6 +445,7 @@ def _run_league_backfill(
     historical_odds_cooldown_seconds: float,
     skip_match_ids: set[int] | None,
     progress_callback: Callable[[str], None] | None = None,
+    progress_context: WorkerProgressContext | None = None,
 ) -> LeagueBackfillReport:
     totals = _MutableLeagueTotals()
     consecutive_empty_matches = 0
@@ -434,6 +473,12 @@ def _run_league_backfill(
             break
         totals.add(result)
         _emit_worker_progress(progress_callback, job, round_index, result)
+        _write_worker_progress_snapshot(
+            context=progress_context,
+            status="running",
+            current_league=_build_progress_league(job, round_index, totals, result),
+            totals=totals,
+        )
         if result.error_message and "budget" in result.error_message.lower():
             stop_reason = result.error_message
             status = "stopped"
@@ -473,6 +518,131 @@ def _run_league_backfill(
         total_goals_count=totals.total_goals_count,
         requests_used=totals.requests_used,
         stop_reason=stop_reason,
+    )
+
+
+def _build_progress_league(
+    job: LeagueBackfillJob,
+    round_index: int,
+    totals: "_MutableLeagueTotals",
+    last_round: OddsPapiSyncResult,
+) -> dict:
+    return {
+        "league_id": job.league_id,
+        "league_name": job.league_name,
+        "round": round_index,
+        "processed_matches": totals.processed_match_count,
+        "matched_matches": totals.matched_count,
+        "failed_matches": totals.failed_match_count,
+        "inserted_snapshots": totals.inserted_snapshot_count,
+        "skipped_duplicate_snapshots": totals.skipped_duplicate_snapshot_count,
+        "skipped_existing_odds": totals.skipped_existing_odds_count,
+        "asian_handicap_snapshots": totals.asian_handicap_count,
+        "total_goals_snapshots": totals.total_goals_count,
+        "requests_used": totals.requests_used,
+        "last_round": _build_progress_round(last_round),
+    }
+
+
+def _build_final_progress_league(report: LeagueBackfillReport, *, progress_path: Path) -> dict:
+    previous_last_round = _read_previous_last_round(progress_path)
+    return {
+        "league_id": report.league_id,
+        "league_name": report.league_name,
+        "status": report.status,
+        "round": report.round_count,
+        "processed_matches": report.processed_match_count,
+        "matched_matches": report.matched_count,
+        "failed_matches": report.failed_match_count,
+        "inserted_snapshots": report.inserted_snapshot_count,
+        "skipped_duplicate_snapshots": report.skipped_duplicate_snapshot_count,
+        "skipped_existing_odds": report.skipped_existing_odds_count,
+        "asian_handicap_snapshots": report.asian_handicap_count,
+        "total_goals_snapshots": report.total_goals_count,
+        "requests_used": report.requests_used,
+        "stop_reason": report.stop_reason,
+        "last_round": previous_last_round,
+    }
+
+
+def _read_previous_last_round(progress_path: Path) -> dict | None:
+    if not progress_path.exists():
+        return None
+    try:
+        progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    current_league = progress.get("current_league")
+    if not isinstance(current_league, dict):
+        return None
+    last_round = current_league.get("last_round")
+    return last_round if isinstance(last_round, dict) else None
+
+
+def _build_progress_round(result: OddsPapiSyncResult) -> dict:
+    return {
+        "processed_matches": result.processed_match_count,
+        "matched_matches": result.matched_count,
+        "failed_matches": result.failed_match_count,
+        "inserted_snapshots": result.inserted_snapshot_count,
+        "skipped_duplicate_snapshots": result.skipped_duplicate_snapshot_count,
+        "skipped_existing_odds": result.skipped_existing_odds_count,
+        "asian_handicap_snapshots": result.asian_handicap_count,
+        "total_goals_snapshots": result.total_goals_count,
+        "requests_used": result.requests_used,
+        "error_message": result.error_message,
+    }
+
+
+def _build_progress_totals_from_report(report: BatchBackfillReport) -> "_MutableLeagueTotals":
+    totals = _MutableLeagueTotals()
+    for league in report.league_reports:
+        totals.round_count += league.round_count
+        totals.processed_match_count += league.processed_match_count
+        totals.matched_count += league.matched_count
+        totals.failed_match_count += league.failed_match_count
+        totals.inserted_snapshot_count += league.inserted_snapshot_count
+        totals.skipped_duplicate_snapshot_count += league.skipped_duplicate_snapshot_count
+        totals.skipped_existing_odds_count += league.skipped_existing_odds_count
+        totals.asian_handicap_count += league.asian_handicap_count
+        totals.total_goals_count += league.total_goals_count
+        totals.requests_used += league.requests_used
+    return totals
+
+
+def _write_worker_progress_snapshot(
+    *,
+    context: WorkerProgressContext | None,
+    status: str,
+    current_league: dict | None,
+    totals: "_MutableLeagueTotals",
+) -> None:
+    if context is None:
+        return
+    payload = {
+        "status": status,
+        "mode": context.mode,
+        "season": context.season,
+        "worker_count": context.worker_count,
+        "league_count": context.league_count,
+        "updated_at": now_beijing().isoformat(),
+        "current_league": current_league,
+        "totals": {
+            "rounds": totals.round_count,
+            "processed_matches": totals.processed_match_count,
+            "matched_matches": totals.matched_count,
+            "failed_matches": totals.failed_match_count,
+            "inserted_snapshots": totals.inserted_snapshot_count,
+            "skipped_duplicate_snapshots": totals.skipped_duplicate_snapshot_count,
+            "skipped_existing_odds": totals.skipped_existing_odds_count,
+            "asian_handicap_snapshots": totals.asian_handicap_count,
+            "total_goals_snapshots": totals.total_goals_count,
+            "requests_used": totals.requests_used,
+        },
+    }
+    context.progress_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
 
 

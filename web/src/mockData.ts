@@ -1,4 +1,4 @@
-import type { DashboardData, MatchOddsTrends } from "./types";
+import type { DashboardData, MatchOddsTrends, TeamDisplayNameWorkspace } from "./types";
 
 export const mockOddsTrends: MatchOddsTrends = {
   match_id: 1001,
@@ -54,6 +54,156 @@ export const mockOddsTrends: MatchOddsTrends = {
   ]
 };
 
+export const mockTeamDisplayNameWorkspaces: TeamDisplayNameWorkspace[] = [
+  {
+    league_id: 39,
+    league_name: "Premier League",
+    league_display_name: "英超",
+    season: 2025,
+    is_translation_done: false,
+    teams: [
+      {
+        league_id: 39,
+        league_name: "Premier League",
+        league_display_name: "英超",
+        season: 2025,
+        team_id: 33,
+        team_name: "Manchester United",
+        team_display_name: "曼联",
+        team_logo_url: "https://media.api-sports.io/football/teams/33.png",
+        is_missing_display_name: false,
+        match_count: 38,
+        latest_kickoff_time: "2026-05-17T22:00:00+08:00",
+        rank: 5,
+        points: 67
+      },
+      {
+        league_id: 39,
+        league_name: "Premier League",
+        league_display_name: "英超",
+        season: 2025,
+        team_id: 66,
+        team_name: "Wolves",
+        team_display_name: null,
+        team_logo_url: "https://media.api-sports.io/football/teams/39.png",
+        is_missing_display_name: true,
+        match_count: 38,
+        latest_kickoff_time: "2026-05-17T22:00:00+08:00",
+        rank: 14,
+        points: 41
+      },
+      {
+        league_id: 39,
+        league_name: "Premier League",
+        league_display_name: "英超",
+        season: 2025,
+        team_id: 63,
+        team_name: "Leeds",
+        team_display_name: "利兹联",
+        team_logo_url: "https://media.api-sports.io/football/teams/63.png",
+        is_missing_display_name: false,
+        match_count: 38,
+        latest_kickoff_time: "2026-05-17T22:00:00+08:00",
+        rank: 17,
+        points: 35
+      },
+      {
+        league_id: 39,
+        league_name: "Premier League",
+        league_display_name: "英超",
+        season: 2025,
+        team_id: 55,
+        team_name: "Brentford",
+        team_display_name: null,
+        team_logo_url: "https://media.api-sports.io/football/teams/55.png",
+        is_missing_display_name: true,
+        match_count: 38,
+        latest_kickoff_time: "2026-05-17T22:00:00+08:00",
+        rank: 11,
+        points: 48
+      }
+    ]
+  },
+  {
+    league_id: 78,
+    league_name: "Bundesliga",
+    league_display_name: "德甲",
+    season: 2025,
+    is_translation_done: true,
+    teams: [
+      {
+        league_id: 78,
+        league_name: "Bundesliga",
+        league_display_name: "德甲",
+        season: 2025,
+        team_id: 157,
+        team_name: "Bayern Munich",
+        team_display_name: "拜仁慕尼黑",
+        team_logo_url: "https://media.api-sports.io/football/teams/157.png",
+        is_missing_display_name: false,
+        match_count: 34,
+        latest_kickoff_time: "2026-05-16T21:30:00+08:00",
+        rank: 1,
+        points: 78
+      },
+      {
+        league_id: 78,
+        league_name: "Bundesliga",
+        league_display_name: "德甲",
+        season: 2025,
+        team_id: 165,
+        team_name: "Borussia Dortmund",
+        team_display_name: "多特蒙德",
+        team_logo_url: "https://media.api-sports.io/football/teams/165.png",
+        is_missing_display_name: false,
+        match_count: 34,
+        latest_kickoff_time: "2026-05-16T21:30:00+08:00",
+        rank: 3,
+        points: 64
+      }
+    ]
+  },
+  {
+    league_id: 40,
+    league_name: "Championship",
+    league_display_name: "英冠",
+    season: 2025,
+    is_translation_done: false,
+    teams: [
+      {
+        league_id: 40,
+        league_name: "Championship",
+        league_display_name: "英冠",
+        season: 2025,
+        team_id: 72,
+        team_name: "Cardiff",
+        team_display_name: "卡迪夫城",
+        team_logo_url: "https://media.api-sports.io/football/teams/72.png",
+        is_missing_display_name: false,
+        match_count: 46,
+        latest_kickoff_time: "2026-05-03T22:00:00+08:00",
+        rank: 9,
+        points: 65
+      },
+      {
+        league_id: 40,
+        league_name: "Championship",
+        league_display_name: "英冠",
+        season: 2025,
+        team_id: 76,
+        team_name: "Swansea",
+        team_display_name: null,
+        team_logo_url: "https://media.api-sports.io/football/teams/76.png",
+        is_missing_display_name: true,
+        match_count: 46,
+        latest_kickoff_time: "2026-05-03T22:00:00+08:00",
+        rank: 12,
+        points: 58
+      }
+    ]
+  }
+];
+
 export const mockDashboardData: DashboardData = {
   source: "mock",
   summary: {
@@ -65,18 +215,20 @@ export const mockDashboardData: DashboardData = {
   },
   leagues: [
     {
-      league_id: 40,
-      league_name: "英冠",
+      league_id: 39,
+      league_name: "Premier League",
+      league_display_name: "英超",
       country_or_region: "England",
       season: 2025,
-      finished_matches: 552,
-      matches_with_historical_odds: 494,
-      coverage_ratio: "0.8949",
-      unmatched_matches: 12
+      finished_matches: 380,
+      matches_with_historical_odds: 350,
+      coverage_ratio: "0.9211",
+      unmatched_matches: 8
     },
     {
       league_id: 78,
-      league_name: "德甲",
+      league_name: "Bundesliga",
+      league_display_name: "德甲",
       country_or_region: "Germany",
       season: 2025,
       finished_matches: 306,
@@ -85,8 +237,20 @@ export const mockDashboardData: DashboardData = {
       unmatched_matches: 4
     },
     {
+      league_id: 40,
+      league_name: "Championship",
+      league_display_name: "英冠",
+      country_or_region: "England",
+      season: 2025,
+      finished_matches: 552,
+      matches_with_historical_odds: 494,
+      coverage_ratio: "0.8949",
+      unmatched_matches: 12
+    },
+    {
       league_id: 283,
-      league_name: "罗甲",
+      league_name: "Liga I",
+      league_display_name: "罗甲",
       country_or_region: "Romania",
       season: 2025,
       finished_matches: 240,
@@ -139,19 +303,11 @@ export const mockDashboardData: DashboardData = {
     }
   ],
   missingTeamDisplayNames: [
-    {
-      league_id: 39,
-      league_name: "Premier League",
-      league_display_name: "英超",
-      season: 2025,
-      team_id: 66,
-      team_name: "Wolves",
-      team_logo_url: "https://media.api-sports.io/football/teams/39.png",
-      match_count: 34,
-      latest_kickoff_time: "2026-05-17T22:00:00+08:00"
-    }
+    ...mockTeamDisplayNameWorkspaces.flatMap((workspace) =>
+      workspace.teams.filter((team) => team.is_missing_display_name)
+    )
   ],
-  doneDisplayTranslationKeys: [],
+  doneDisplayTranslationKeys: ["78-2025"],
   recommendationRecords: [
     {
       id: 1,

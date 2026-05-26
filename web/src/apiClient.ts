@@ -1,4 +1,4 @@
-import { mockDashboardData, mockOddsTrends } from "./mockData";
+import { mockDashboardData, mockOddsTrends, mockTeamDisplayNameWorkspaces } from "./mockData";
 import type {
   DashboardData,
   DashboardSummary,
@@ -14,6 +14,8 @@ import type {
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+const fallbackSavedTeamNames: Record<string, string> = {};
+const fallbackDoneDisplayTranslationKeys = new Set(mockDashboardData.doneDisplayTranslationKeys);
 
 export async function loadDashboardData(): Promise<DashboardData> {
   try {
@@ -50,7 +52,10 @@ export async function loadDashboardData(): Promise<DashboardData> {
       recommendationRecords
     };
   } catch {
-    return mockDashboardData;
+    return {
+      ...mockDashboardData,
+      doneDisplayTranslationKeys: Array.from(fallbackDoneDisplayTranslationKeys)
+    };
   }
 }
 
@@ -70,25 +75,59 @@ export async function loadTeamDisplayNameWorkspace(
   leagueId: number,
   season: number
 ): Promise<TeamDisplayNameWorkspace> {
-  return getJson<TeamDisplayNameWorkspace>(
-    `/api/display/team-name-workspace?league_id=${leagueId}&season=${season}`
-  );
+  try {
+    return await getJson<TeamDisplayNameWorkspace>(
+      `/api/display/team-name-workspace?league_id=${leagueId}&season=${season}`
+    );
+  } catch {
+    const workspace =
+      mockTeamDisplayNameWorkspaces.find(
+        (item) => item.league_id === leagueId && item.season === season
+      ) ?? mockTeamDisplayNameWorkspaces[0];
+    return {
+      ...workspace,
+      is_translation_done: fallbackDoneDisplayTranslationKeys.has(
+        `${workspace.league_id}-${workspace.season}`
+      ),
+      teams: workspace.teams.map((team) => {
+        const savedDisplayName = fallbackSavedTeamNames[team.team_name];
+        if (!savedDisplayName) {
+          return team;
+        }
+        return {
+          ...team,
+          is_missing_display_name: false,
+          team_display_name: savedDisplayName
+        };
+      })
+    };
+  }
 }
 
 export async function markTeamDisplayNameWorkspaceDone(
   leagueId: number,
   season: number
 ): Promise<{ league_id: number; season: number; is_translation_done: boolean }> {
-  return postJson("/api/display/team-name-workspace/done", {
-    league_id: leagueId,
-    season
-  });
+  try {
+    return await postJson("/api/display/team-name-workspace/done", {
+      league_id: leagueId,
+      season
+    });
+  } catch {
+    fallbackDoneDisplayTranslationKeys.add(`${leagueId}-${season}`);
+    return { is_translation_done: true, league_id: leagueId, season };
+  }
 }
 
 export async function saveTeamDisplayNames(
   teams: Record<string, string>
 ): Promise<{ saved_count: number }> {
-  return postJson("/api/display/team-names", { teams });
+  try {
+    return await postJson("/api/display/team-names", { teams });
+  } catch {
+    Object.assign(fallbackSavedTeamNames, teams);
+    return { saved_count: Object.keys(teams).length };
+  }
 }
 
 async function getJson<T>(path: string): Promise<T> {

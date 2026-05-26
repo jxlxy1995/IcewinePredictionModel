@@ -24,8 +24,15 @@ import { Panel } from "../components/Panel";
 import { RecommendationRecordTable } from "../components/RecommendationRecordTable";
 import { TeamDisplayNameEditor } from "../components/TeamDisplayNameEditor";
 import { UnmatchedTable } from "../components/UnmatchedTable";
+import {
+  buildTeamDisplayWorkspaceOptions,
+  filterTeamDisplayRows,
+  getDisplayNameActionState,
+  hasMeaningfulDrafts
+} from "../displayNameWorkspace";
 import { WorkerStatusTable } from "../components/WorkerStatusTable";
 import { mockDashboardData } from "../mockData";
+import type { DisplayNameStatusFilter } from "../displayNameWorkspace";
 import type { DashboardData, TeamDisplayNameWorkspace, MatchOddsTrends } from "../types";
 
 type ViewKey =
@@ -95,12 +102,15 @@ export function DashboardPage() {
   const [oddsTrendError, setOddsTrendError] = useState<string | null>(null);
   const [coverageFilter, setCoverageFilter] = useState("");
   const [displayNameFilter, setDisplayNameFilter] = useState("");
+  const [displayNameStatusFilter, setDisplayNameStatusFilter] =
+    useState<DisplayNameStatusFilter>("all");
   const [teamDisplayWorkspace, setTeamDisplayWorkspace] = useState<TeamDisplayNameWorkspace | null>(
     null
   );
   const [displayWorkspaceError, setDisplayWorkspaceError] = useState<string | null>(null);
   const [displayWorkspaceMessage, setDisplayWorkspaceMessage] = useState<string | null>(null);
   const [teamDisplayDraftNames, setTeamDisplayDraftNames] = useState<Record<string, string>>({});
+  const [isSavingDisplayNames, setIsSavingDisplayNames] = useState(false);
   const [doneDisplayTranslationKeys, setDoneDisplayTranslationKeys] = useState<Set<string>>(
     new Set(mockDashboardData.doneDisplayTranslationKeys)
   );
@@ -194,12 +204,15 @@ export function DashboardPage() {
             data={data}
             doneKeys={doneDisplayTranslationKeys}
             filterText={displayNameFilter}
+            isSaving={isSavingDisplayNames}
             onFilterTextChange={setDisplayNameFilter}
+            onStatusFilterChange={setDisplayNameStatusFilter}
             draftNames={teamDisplayDraftNames}
             onDraftNamesChange={setTeamDisplayDraftNames}
             onMarkDone={(leagueId, season) => {
               setDisplayWorkspaceError(null);
               setDisplayWorkspaceMessage(null);
+              setIsSavingDisplayNames(true);
               saveCurrentTeamDisplayDrafts(teamDisplayDraftNames)
                 .then(() => markTeamDisplayNameWorkspaceDone(leagueId, season))
                 .then(() => {
@@ -213,11 +226,13 @@ export function DashboardPage() {
                   setTeamDisplayDraftNames({});
                   setDisplayWorkspaceMessage("已保存当前填写并标记完成");
                 })
-                .catch(() => setDisplayWorkspaceError("保存或标记中文名校验完成失败"));
+                .catch(() => setDisplayWorkspaceError("保存或标记中文名校验完成失败"))
+                .finally(() => setIsSavingDisplayNames(false));
             }}
             onSaveDrafts={() => {
               setDisplayWorkspaceError(null);
               setDisplayWorkspaceMessage(null);
+              setIsSavingDisplayNames(true);
               saveCurrentTeamDisplayDrafts(teamDisplayDraftNames)
                 .then((savedCount) => {
                   setTeamDisplayDraftNames({});
@@ -230,9 +245,16 @@ export function DashboardPage() {
                   }
                   return undefined;
                 })
-                .catch(() => setDisplayWorkspaceError("保存中文名失败"));
+                .catch(() => setDisplayWorkspaceError("保存中文名失败"))
+                .finally(() => setIsSavingDisplayNames(false));
             }}
             onWorkspaceChange={(leagueId, season) => {
+              if (
+                hasMeaningfulDrafts(teamDisplayDraftNames) &&
+                !window.confirm("当前有未保存的中文名草稿，切换联赛会清空这些填写。确认切换吗？")
+              ) {
+                return;
+              }
               setDisplayWorkspaceError(null);
               setDisplayWorkspaceMessage(null);
               setTeamDisplayDraftNames({});
@@ -240,6 +262,7 @@ export function DashboardPage() {
                 .then(setTeamDisplayWorkspace)
                 .catch(() => setDisplayWorkspaceError("读取球队中文名维护列表失败"));
             }}
+            statusFilter={displayNameStatusFilter}
             workspace={teamDisplayWorkspace}
             workspaceError={displayWorkspaceError}
             workspaceMessage={displayWorkspaceMessage}
@@ -364,11 +387,14 @@ function DisplayNamesView({
   doneKeys,
   draftNames,
   filterText,
+  isSaving,
   onDraftNamesChange,
   onFilterTextChange,
   onMarkDone,
   onSaveDrafts,
+  onStatusFilterChange,
   onWorkspaceChange,
+  statusFilter,
   workspace,
   workspaceError,
   workspaceMessage
@@ -377,46 +403,28 @@ function DisplayNamesView({
   doneKeys: Set<string>;
   draftNames: Record<string, string>;
   filterText: string;
+  isSaving: boolean;
   onDraftNamesChange: (draftNames: Record<string, string>) => void;
   onFilterTextChange: (value: string) => void;
   onMarkDone: (leagueId: number, season: number) => void;
   onSaveDrafts: () => void;
+  onStatusFilterChange: (value: DisplayNameStatusFilter) => void;
   onWorkspaceChange: (leagueId: number, season: number) => void;
+  statusFilter: DisplayNameStatusFilter;
   workspace: TeamDisplayNameWorkspace | null;
   workspaceError: string | null;
   workspaceMessage: string | null;
 }) {
-  const workspaceOptions = Array.from(
-    new Map(
-      data.leagues
-        .filter((item) => item.season != null)
-        .map((item) => [
-          `${item.league_id}-${item.season}`,
-          {
-            is_done: doneKeys.has(`${item.league_id}-${item.season}`),
-            league_id: item.league_id,
-            league_name: item.league_name,
-            league_display_name: item.league_display_name,
-            season: item.season
-          }
-        ])
-    ).values()
-  ).sort((left, right) => {
-    if (left.is_done !== right.is_done) {
-      return left.is_done ? 1 : -1;
-    }
-    return `${left.league_display_name ?? left.league_name} ${left.season}`.localeCompare(
-      `${right.league_display_name ?? right.league_name} ${right.season}`
-    );
+  const workspaceOptions = buildTeamDisplayWorkspaceOptions(data.leagues, doneKeys);
+  const visibleTeams = filterTeamDisplayRows(workspace?.teams ?? [], {
+    draftNames,
+    filterText,
+    statusFilter
   });
-  const normalizedFilterText = filterText.trim().toLowerCase();
-  const visibleTeams = (workspace?.teams ?? []).filter((item) => {
-    if (!normalizedFilterText) {
-      return true;
-    }
-    return `${item.team_display_name ?? ""} ${item.team_name}`
-      .toLowerCase()
-      .includes(normalizedFilterText);
+  const actionState = getDisplayNameActionState({
+    draftNames,
+    isSaving,
+    isTranslationDone: workspace?.is_translation_done ?? false
   });
 
   return (
@@ -431,9 +439,8 @@ function DisplayNamesView({
             value={workspace ? `${workspace.league_id}-${workspace.season}` : ""}
           >
             {workspaceOptions.map((option) => (
-              <option key={`${option.league_id}-${option.season}`} value={`${option.league_id}-${option.season}`}>
-                {option.league_display_name ?? option.league_name} · {option.season}
-                {option.is_done ? " · 已完成" : ""}
+              <option key={option.key} value={option.key}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -443,6 +450,14 @@ function DisplayNamesView({
             type="search"
             value={filterText}
           />
+          <select
+            onChange={(event) => onStatusFilterChange(event.target.value as DisplayNameStatusFilter)}
+            value={statusFilter}
+          >
+            <option value="all">全部球队</option>
+            <option value="missing">只看未翻译</option>
+            <option value="changed">只看已修改</option>
+          </select>
         </div>
         {workspaceError && <div className="inline-warning">{workspaceError}</div>}
         {workspaceMessage && <div className="inline-success">{workspaceMessage}</div>}
@@ -456,16 +471,17 @@ function DisplayNamesView({
         )}
         {workspace && (
           <div className="inline-actions">
-            <button onClick={onSaveDrafts} type="button">
-              保存当前填写
+            <button disabled={!actionState.canSave} onClick={onSaveDrafts} type="button">
+              {actionState.saveLabel}
             </button>
             <button
-              disabled={workspace.is_translation_done}
+              disabled={!actionState.canMarkDone}
               onClick={() => onMarkDone(workspace.league_id, workspace.season)}
               type="button"
             >
-              {workspace.is_translation_done ? "已完成校验" : "整联赛已翻译完成"}
+              {actionState.markDoneLabel}
             </button>
+            {hasMeaningfulDrafts(draftNames) && <span>有未保存草稿</span>}
           </div>
         )}
         <TeamDisplayNameEditor

@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time, timedelta
 from decimal import Decimal
+from pathlib import Path
 from threading import Lock
 import time
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+import yaml
 from sqlalchemy.orm import Session
 
 from icewine_prediction.alias_service import list_external_aliases
@@ -581,10 +583,15 @@ def run_oddspapi_sync_for_session(
                 continue
             fixture_cache_key = _build_fixture_cache_key(tournament_id, match.kickoff_time)
             if fixture_cache_key not in fixtures_by_tournament_id:
-                fixtures_by_tournament_id[fixture_cache_key] = client.fetch_fixtures(
-                    tournament_id=tournament_id,
-                    kickoff_time=match.kickoff_time,
-                )
+                try:
+                    fixtures_by_tournament_id[fixture_cache_key] = client.fetch_fixtures(
+                        tournament_id=tournament_id,
+                        kickoff_time=match.kickoff_time,
+                    )
+                except OddsPapiApiError as exc:
+                    if _classify_historical_odds_error(exc) == "unavailable":
+                        _store_unavailable_odds_source_match(session, match, str(exc))
+                    raise
             candidate = find_best_odds_source_match(
                 match=match,
                 fixtures=fixtures_by_tournament_id[fixture_cache_key],
@@ -698,7 +705,7 @@ def _resolve_source_fixture_id(
 
 
 def _load_team_aliases(session: Session) -> list[ExternalAliasInput]:
-    return [
+    db_aliases = [
         ExternalAliasInput(
             canonical_name=alias.canonical_name,
             alias_name=alias.alias_name,
@@ -709,6 +716,29 @@ def _load_team_aliases(session: Session) -> list[ExternalAliasInput]:
             entity_type="team",
         )
     ]
+    config_aliases = _load_configured_team_aliases()
+    return list(dict.fromkeys([*config_aliases, *db_aliases]))
+
+
+def _load_configured_team_aliases(config_path: Path = Path("config/external_aliases.yaml")) -> list[ExternalAliasInput]:
+    if not config_path.exists():
+        return []
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    aliases = []
+    for item in payload.get("aliases", []):
+        if item.get("entity_type") != "team" or item.get("source_name") != ODDSPAPI_SOURCE_NAME:
+            continue
+        canonical_name = item.get("canonical_name")
+        alias_name = item.get("alias_name")
+        if not canonical_name or not alias_name:
+            continue
+        aliases.append(
+            ExternalAliasInput(
+                canonical_name=str(canonical_name),
+                alias_name=str(alias_name),
+            )
+        )
+    return aliases
 
 
 def _build_fixture_cache_key(tournament_id: int, kickoff_time: datetime) -> tuple[int, str, str]:
@@ -1007,6 +1037,35 @@ def _store_unmatched_odds_source_match(session: Session, match: Match, reason: s
         existing.match_confidence = Decimal("0.0000")
         existing.match_reason = reason
         existing.historical_odds_status = "unmatched"
+        existing.historical_odds_checked_at = now_beijing()
+        existing.historical_odds_error = reason
+    session.commit()
+
+
+def _store_unavailable_odds_source_match(session: Session, match: Match, reason: str) -> None:
+    existing = (
+        session.query(OddsSourceMatch)
+        .filter_by(match_id=match.id, source_name=ODDSPAPI_SOURCE_NAME)
+        .one_or_none()
+    )
+    if existing is None:
+        session.add(
+            OddsSourceMatch(
+                match_id=match.id,
+                source_name=ODDSPAPI_SOURCE_NAME,
+                source_fixture_id="",
+                matched_at=now_beijing(),
+                match_confidence=Decimal("0.0000"),
+                match_reason=reason,
+                historical_odds_status="unavailable",
+                historical_odds_checked_at=now_beijing(),
+                historical_odds_error=reason,
+            )
+        )
+    else:
+        existing.match_confidence = Decimal("0.0000")
+        existing.match_reason = reason
+        existing.historical_odds_status = "unavailable"
         existing.historical_odds_checked_at = now_beijing()
         existing.historical_odds_error = reason
     session.commit()

@@ -36,6 +36,10 @@ import {
   formatModelTrainingStatus,
   listRecentModelRuns
 } from "../modelTrainingWorkspace";
+import {
+  buildRecommendationRecordGroups,
+  buildRecommendationRecordSummary
+} from "../recordReportWorkspace";
 import { WorkerStatusTable } from "../components/WorkerStatusTable";
 import { mockDashboardData } from "../mockData";
 import type { DisplayNameStatusFilter } from "../displayNameWorkspace";
@@ -651,12 +655,69 @@ function formatMarketType(value: string) {
 }
 
 function RecordsView({ data }: { data: DashboardData }) {
+  const summary = buildRecommendationRecordSummary(data.recommendationRecords);
+  const groups = buildRecommendationRecordGroups(data.recommendationRecords);
+
   return (
     <section className="single-column">
+      <section className="metrics">
+        <MetricCard label="推荐数" value={summary.totalRecords.toLocaleString()} />
+        <MetricCard label="已复盘" value={summary.settledRecords.toLocaleString()} />
+        <MetricCard label="总手数" value={summary.totalStakeUnits} />
+        <MetricCard label="盈亏" value={summary.totalProfitUnits} tone="warning" />
+        <MetricCard label="ROI" value={summary.roi} />
+      </section>
+      <section className="grid">
+        <Panel title="按盘口类型">
+          <RecordGroupTable groups={groups.byMarketType} />
+        </Panel>
+        <Panel title="按信心等级">
+          <RecordGroupTable groups={groups.byConfidenceGrade} />
+        </Panel>
+      </section>
+      <Panel title="按联赛">
+        <RecordGroupTable groups={groups.byLeague} />
+      </Panel>
       <Panel title="推荐记录">
         <RecommendationRecordTable records={data.recommendationRecords} />
       </Panel>
     </section>
+  );
+}
+
+function RecordGroupTable({
+  groups
+}: {
+  groups: ReturnType<typeof buildRecommendationRecordGroups>["byMarketType"];
+}) {
+  if (groups.length === 0) {
+    return <div className="empty-state">暂无已复盘记录</div>;
+  }
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>分组</th>
+          <th>记录</th>
+          <th>命中率</th>
+          <th>手数</th>
+          <th>盈亏</th>
+          <th>ROI</th>
+        </tr>
+      </thead>
+      <tbody>
+        {groups.map((group) => (
+          <tr key={group.groupName}>
+            <td>{group.groupName}</td>
+            <td>{group.recordCount}</td>
+            <td>{group.hitRate}</td>
+            <td>{group.stakeUnits}</td>
+            <td>{group.profitUnits}</td>
+            <td>{group.roi}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

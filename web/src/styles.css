@@ -518,7 +518,23 @@ th {
   }
 
   .sidebar {
-    display: none;
+    padding: 14px 16px;
+  }
+
+  .brand {
+    margin-bottom: 12px;
+  }
+
+  nav {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  nav button {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   .metrics,

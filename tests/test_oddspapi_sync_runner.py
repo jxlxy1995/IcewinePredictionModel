@@ -662,6 +662,17 @@ def test_api_football_turkish_super_lig_maps_to_oddspapi_turkiye_super_lig():
     assert oddspapi_sync_runner.API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS["203"] == 52
 
 
+def test_api_football_league_mappings_include_new_sleep_backfill_targets():
+    mappings = oddspapi_sync_runner.API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS
+
+    assert mappings["61"] == 34
+    assert mappings["144"] == 38
+    assert mappings["179"] == 36
+    assert mappings["188"] == 136
+    assert mappings["207"] == 215
+    assert mappings["218"] == 45
+
+
 def test_run_oddspapi_sync_for_session_samples_snapshots_before_storing(session):
     _match(session)
     raw_client = FakeOddsPapiClient()

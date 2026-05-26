@@ -6,5 +6,15 @@
 # - 已完成、仅补漏、待复测联赛不放入 batches，避免误启动后重复扫库和消耗请求。
 # - 待复测联赛必须先通过 1-5 场小样本验证可以写入快照，再重新加入 batches。
 
-batches: []
-
+batches:
+  - name: 20260526-下午长跑批次
+    season: 2025
+    league_ids:
+      - "113" # 瑞典超 Allsvenskan
+      - "103" # 挪超 Eliteserien
+      - "41"  # 英甲 League One
+      - "136" # 意乙 Serie B
+      - "135" # 意甲 Serie A
+      - "40"  # 英冠 Championship
+    from_date: "2026-01-15"
+    note: "优先回填已验证能写入且仍有较多剩余比赛的联赛，避开2026-01-15之前高概率404区间。"

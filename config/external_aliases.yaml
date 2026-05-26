@@ -127,3 +127,11 @@ aliases:
     source_name: oddspapi
     canonical_name: Sonderjyske
     alias_name: Soenderjyske
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Brondby
+    alias_name: Broendby IF
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Aarhus
+    alias_name: AGF Aarhus

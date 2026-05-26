@@ -658,6 +658,10 @@ def test_load_team_aliases_includes_configured_aliases(session, tmp_path, monkey
     ) in aliases
 
 
+def test_api_football_turkish_super_lig_maps_to_oddspapi_turkiye_super_lig():
+    assert oddspapi_sync_runner.API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS["203"] == 52
+
+
 def test_run_oddspapi_sync_for_session_samples_snapshots_before_storing(session):
     _match(session)
     raw_client = FakeOddsPapiClient()

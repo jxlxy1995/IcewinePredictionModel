@@ -115,3 +115,15 @@ aliases:
     source_name: oddspapi
     canonical_name: Gnistan
     alias_name: IF Gnistan
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Gençlerbirliği S.K.
+    alias_name: Genclerbirligi SK
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Kasımpaşa
+    alias_name: Kasimpasa Istanbul
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Sonderjyske
+    alias_name: Soenderjyske

@@ -1,0 +1,17 @@
+aliases:
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Wolves
+    alias_name: Wolverhampton Wanderers
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: QPR
+    alias_name: Queens Park Rangers
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Krylia Sovetov
+    alias_name: PFK Krylia Sovetov Samara
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Dynamo
+    alias_name: FK Dinamo Moscow

@@ -24,6 +24,7 @@ from icewine_prediction.oddspapi_sync_runner import (
     select_oddspapi_candidate_matches,
     _select_history_outcome_ids,
 )
+from icewine_prediction.odds_source_match_service import ExternalAliasInput
 import icewine_prediction.oddspapi_sync_runner as oddspapi_sync_runner
 from icewine_prediction.sources.oddspapi_client import OddsPapiApiError
 from icewine_prediction.sources.oddspapi_client import OddsPapiRequestBudgetExceededError
@@ -632,6 +633,31 @@ def test_run_oddspapi_sync_for_session_uses_stored_team_aliases(session):
     assert session.query(HistoricalOddsSnapshot).count() == 4
 
 
+def test_load_team_aliases_includes_configured_aliases(session, tmp_path, monkeypatch):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "external_aliases.yaml").write_text(
+        "\n".join(
+            [
+                "aliases:",
+                "  - entity_type: team",
+                "    source_name: oddspapi",
+                "    canonical_name: Dynamo",
+                "    alias_name: FK Dinamo Moscow",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    aliases = oddspapi_sync_runner._load_team_aliases(session)
+
+    assert ExternalAliasInput(
+        canonical_name="Dynamo",
+        alias_name="FK Dinamo Moscow",
+    ) in aliases
+
+
 def test_run_oddspapi_sync_for_session_samples_snapshots_before_storing(session):
     _match(session)
     raw_client = FakeOddsPapiClient()
@@ -770,6 +796,35 @@ def test_run_oddspapi_sync_for_session_stops_gracefully_on_api_error(session):
     assert result.requests_used == 1
     assert result.failed_match_count == 1
     assert result.error_message == "1 场比赛失败，已跳过继续"
+
+
+def test_run_oddspapi_sync_for_session_marks_404_fixture_error_as_unavailable(session):
+    match = _match(session)
+
+    class MissingFixtureClient(FakeOddsPapiClient):
+        def get(self, endpoint, params=None):
+            self.request_count += 1
+            self.calls.append((endpoint, params or {}))
+            if endpoint == "fixtures":
+                raise OddsPapiApiError("OddsPapi HTTP error: status=404")
+            return super().get(endpoint, params)
+
+    raw_client = MissingFixtureClient()
+    client = OddsPapiSyncClient(raw_client)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    source_match = session.query(OddsSourceMatch).filter_by(match_id=match.id).one()
+    assert result.processed_match_count == 0
+    assert result.failed_match_count == 1
+    assert source_match.source_fixture_id == ""
+    assert source_match.historical_odds_status == "unavailable"
+    assert source_match.historical_odds_error == "OddsPapi HTTP error: status=404"
 
 
 def test_run_oddspapi_sync_for_session_marks_unmatched_match_as_terminal(session):

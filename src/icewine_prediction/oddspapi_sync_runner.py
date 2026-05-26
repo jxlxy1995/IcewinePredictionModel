@@ -159,12 +159,14 @@ class OddsPapiSyncClient:
         client: OddsPapiClient,
         historical_odds_cooldown_seconds: float = 0,
         historical_odds_limiter: OddsPapiRequestLimiter | None = None,
+        historical_odds_rate_limit_backoff_seconds: float = 30,
     ):
         self.client = client
         self._last_fixture_request_at = 0.0
         self._last_historical_odds_request_at = 0.0
         self.historical_odds_cooldown_seconds = historical_odds_cooldown_seconds
         self.historical_odds_limiter = historical_odds_limiter
+        self.historical_odds_rate_limit_backoff_seconds = historical_odds_rate_limit_backoff_seconds
         self._market_definitions_cache: list[dict[str, Any]] | None = None
 
     @property
@@ -260,6 +262,11 @@ class OddsPapiSyncClient:
         cooldown = self.historical_odds_cooldown_seconds
         if self._last_historical_odds_request_at > 0 and elapsed < cooldown:
             time.sleep(cooldown - elapsed)
+
+    def backoff_after_historical_odds_rate_limit(self) -> None:
+        if self.historical_odds_rate_limit_backoff_seconds <= 0:
+            return
+        time.sleep(self.historical_odds_rate_limit_backoff_seconds)
 
 
 def build_oddspapi_sync_plan(
@@ -442,7 +449,7 @@ def build_oddspapi_sync_plan_for_session(
 
 
 def _build_plan_match(session: Session, match: Match) -> OddsPapiPlanMatch:
-    cached_source_match = _get_odds_source_match(session, match.id)
+    cached_source_match = _get_reusable_odds_source_match(session, match.id)
     return OddsPapiPlanMatch(
         match_id=match.id,
         league_name=match.league.name,
@@ -544,7 +551,7 @@ def run_oddspapi_sync_for_session(
                     _format_progress_skip(index, total, match, "未配置 OddsPapi 联赛映射"),
                 )
                 continue
-            cached_source_match = _get_odds_source_match(session, match.id)
+            cached_source_match = _get_reusable_odds_source_match(session, match.id)
             if cached_source_match is not None:
                 source_fixture_id = cached_source_match.source_fixture_id
                 matched += 1
@@ -678,7 +685,7 @@ def _resolve_source_fixture_id(
     match: Match,
     fixtures_by_tournament_id: dict,
 ) -> str | None:
-    cached_source_match = _get_odds_source_match(session, match.id)
+    cached_source_match = _get_reusable_odds_source_match(session, match.id)
     if cached_source_match is not None:
         return cached_source_match.source_fixture_id
     tournament_id = API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS.get(
@@ -800,6 +807,13 @@ def _fetch_and_store_historical_odds(
                 progress_callback,
                 f"  跳过历史赔率 outcome={outcome_id} error={exc}",
             )
+            if _is_rate_limit_error(exc):
+                _emit_progress(
+                    progress_callback,
+                    "  遇到 OddsPapi 429 限流，暂停后停止当前比赛后续 outcome",
+                )
+                client.backoff_after_historical_odds_rate_limit()
+                break
             continue
     if not raw_odds_payloads and outcome_errors:
         raise outcome_errors[-1]
@@ -807,7 +821,6 @@ def _fetch_and_store_historical_odds(
         raw_odds_payloads,
         source_fixture_id=source_fixture_id,
     )
-    _emit_progress(progress_callback, f"  写入历史赔率 match_id={match.id}")
     snapshots = map_historical_odds(
         raw_odds,
         match_id=match.id,
@@ -818,6 +831,9 @@ def _fetch_and_store_historical_odds(
         snapshots,
         kickoff_time=match.kickoff_time,
     )
+    if not snapshots and outcome_errors:
+        raise outcome_errors[-1]
+    _emit_progress(progress_callback, f"  写入历史赔率 match_id={match.id}")
     store_result = store_historical_odds_snapshots(
         session,
         snapshots,
@@ -959,6 +975,13 @@ def _get_odds_source_match(session: Session, match_id: int) -> OddsSourceMatch |
     )
 
 
+def _get_reusable_odds_source_match(session: Session, match_id: int) -> OddsSourceMatch | None:
+    source_match = _get_odds_source_match(session, match_id)
+    if source_match is not None and not source_match.source_fixture_id:
+        return None
+    return source_match
+
+
 def _has_terminal_historical_odds_status(session: Session, match_id: int) -> bool:
     source_match = _get_odds_source_match(session, match_id)
     return (
@@ -971,6 +994,10 @@ def _classify_historical_odds_error(error: OddsPapiApiError) -> str:
     if getattr(error, "status_code", None) == 404 or "status=404" in str(error):
         return "unavailable"
     return "failed"
+
+
+def _is_rate_limit_error(error: OddsPapiApiError) -> bool:
+    return getattr(error, "status_code", None) == 429 or "status=429" in str(error)
 
 
 def _mark_historical_odds_status(

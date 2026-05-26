@@ -15,3 +15,71 @@ aliases:
     source_name: oddspapi
     canonical_name: Dynamo
     alias_name: FK Dinamo Moscow
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: AIK Stockholm
+    alias_name: AIK
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Vasteras SK FK
+    alias_name: Vasteraas SK
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Hammarby FF
+    alias_name: Hammarby IF
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Rosenborg
+    alias_name: Rosenborg BK
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Lillestrom
+    alias_name: Lillestroem SK
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Valerenga
+    alias_name: Vaalerenga IF
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Ham-Kam
+    alias_name: HamKam
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Sarpsborg 08 FF
+    alias_name: Sarpsborg 08
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Ilves
+    alias_name: Tampereen Ilves
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: KuPS
+    alias_name: Kuopion Palloseura
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: SJK
+    alias_name: Seinajoen JK
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Inter Turku
+    alias_name: FC Inter Turku
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: VPS
+    alias_name: Vaasan Palloseura
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Turku PS
+    alias_name: Turun Palloseura
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Lahti
+    alias_name: FC Lahti
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Mariehamn
+    alias_name: IFK Mariehamn
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Gnistan
+    alias_name: IF Gnistan

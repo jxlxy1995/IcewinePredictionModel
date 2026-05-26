@@ -30,6 +30,7 @@ def test_start_batch_worker_process_writes_status_and_launches_python(monkeypatc
         stop_after_empty_matches=8,
         stop_after_failed_rounds=2,
         round_timeout_seconds=60,
+        historical_odds_cooldown_seconds=7.5,
         hard_timeout_seconds=3600,
         log_dir=tmp_path,
         league_ids={"41", "89"},
@@ -46,6 +47,7 @@ def test_start_batch_worker_process_writes_status_and_launches_python(monkeypatc
     assert command[command.index("--skip-match-ids") + 1] == "8328,8600"
     assert command[command.index("--stop-after-failed-rounds") + 1] == "2"
     assert command[command.index("--round-timeout-seconds") + 1] == "60"
+    assert command[command.index("--historical-odds-cooldown-seconds") + 1] == "7.5"
     assert command[command.index("--hard-timeout-seconds") + 1] == "3600"
     assert "--notify-on-complete" in command
     assert captured["kwargs"]["cwd"] == Path.cwd()
@@ -72,6 +74,7 @@ def test_batch_worker_status_reads_current_status_and_log_tail(monkeypatch, tmp_
         stop_after_empty_matches=8,
         stop_after_failed_rounds=2,
         round_timeout_seconds=60,
+        historical_odds_cooldown_seconds=7.5,
         hard_timeout_seconds=3600,
         log_dir=tmp_path,
         league_ids={"62"},

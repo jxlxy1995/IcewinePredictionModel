@@ -950,7 +950,10 @@ def test_run_oddspapi_sync_for_session_marks_404_odds_error_as_unavailable(sessi
     assert source_match.historical_odds_error == "OddsPapi HTTP error: status=404"
 
 
-def test_run_oddspapi_sync_for_session_marks_429_odds_error_as_retryable_failed(session):
+def test_run_oddspapi_sync_for_session_marks_429_odds_error_as_retryable_failed(
+    session,
+    monkeypatch,
+):
     match = _match(session)
     session.add(
         OddsSourceMatch(
@@ -973,7 +976,9 @@ def test_run_oddspapi_sync_for_session_marks_429_odds_error_as_retryable_failed(
             return super().get(endpoint, params)
 
     raw_client = RateLimitedHistoricalOddsClient()
-    client = OddsPapiSyncClient(raw_client)
+    client = OddsPapiSyncClient(raw_client, historical_odds_rate_limit_backoff_seconds=7)
+    sleeps = []
+    monkeypatch.setattr(oddspapi_sync_runner.time, "sleep", sleeps.append)
 
     result = run_oddspapi_sync_for_session(
         session=session,
@@ -986,6 +991,7 @@ def test_run_oddspapi_sync_for_session_marks_429_odds_error_as_retryable_failed(
     assert result.failed_match_count == 1
     assert source_match.historical_odds_status == "failed"
     assert source_match.historical_odds_error == "OddsPapi HTTP error: status=429"
+    assert sleeps == [7]
 
 
 def test_run_oddspapi_sync_for_session_continues_after_single_outcome_odds_error(session):
@@ -1020,6 +1026,103 @@ def test_run_oddspapi_sync_for_session_continues_after_single_outcome_odds_error
     assert result.asian_handicap_count == 0
     assert result.total_goals_count == 2
     assert any("跳过历史赔率 outcome=1070" in message for message in messages)
+
+
+def test_run_oddspapi_sync_for_session_marks_all_empty_outcomes_with_429_as_failed(
+    session,
+    monkeypatch,
+):
+    match = _match(session)
+    session.add(
+        OddsSourceMatch(
+            match_id=match.id,
+            source_name="oddspapi",
+            source_fixture_id="empty-rate-limited-fixture",
+            matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_confidence=Decimal("1.0000"),
+            match_reason="cached",
+        )
+    )
+    session.commit()
+
+    class EmptyThenRateLimitedOutcomeClient(FakeOddsPapiClient):
+        def get(self, endpoint, params=None):
+            self.request_count += 1
+            self.calls.append((endpoint, params or {}))
+            if endpoint == "markets":
+                return super().get(endpoint, params)
+            if endpoint == "historical-odds":
+                outcome_id = str((params or {}).get("outcomeId") or "")
+                if outcome_id in {"1070", "10170"}:
+                    return {
+                        "fixtureId": (params or {}).get("fixtureId"),
+                        "bookmakers": {"pinnacle": {"markets": {}}},
+                    }
+                raise OddsPapiApiError("OddsPapi HTTP error: status=429")
+            return super().get(endpoint, params)
+
+    raw_client = EmptyThenRateLimitedOutcomeClient()
+    client = OddsPapiSyncClient(raw_client, historical_odds_rate_limit_backoff_seconds=7)
+    sleeps = []
+    monkeypatch.setattr(oddspapi_sync_runner.time, "sleep", sleeps.append)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    source_match = session.query(OddsSourceMatch).filter_by(match_id=match.id).one()
+    assert result.failed_match_count == 1
+    assert result.processed_match_count == 0
+    assert source_match.historical_odds_status == "failed"
+    assert source_match.historical_odds_error == "OddsPapi HTTP error: status=429"
+    assert sleeps == [7]
+    historical_calls = [
+        params
+        for endpoint, params in raw_client.calls
+        if endpoint == "historical-odds"
+    ]
+    assert [str(call.get("outcomeId")) for call in historical_calls] == [
+        "1070",
+        "1071",
+    ]
+
+
+def test_run_oddspapi_sync_for_session_rematches_blank_cached_fixture_id(session):
+    match = _match(session)
+    session.add(
+        OddsSourceMatch(
+            match_id=match.id,
+            source_name="oddspapi",
+            source_fixture_id="",
+            matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_confidence=Decimal("0.0000"),
+            match_reason="reset after alias update",
+            historical_odds_status=None,
+        )
+    )
+    session.commit()
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    source_match = session.query(OddsSourceMatch).filter_by(match_id=match.id).one()
+    historical_calls = [
+        params
+        for endpoint, params in raw_client.calls
+        if endpoint == "historical-odds"
+    ]
+    assert result.inserted_snapshot_count == 4
+    assert source_match.source_fixture_id == "oddspapi-fixture-1"
+    assert {call.get("fixtureId") for call in historical_calls} == {"oddspapi-fixture-1"}
 
 
 def test_run_oddspapi_sync_for_session_fetches_history_by_outcome_id(session):

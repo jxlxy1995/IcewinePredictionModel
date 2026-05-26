@@ -48,6 +48,8 @@ C:\Python312\python.exe src\icewine_cli.py odds-source oddspapi-diagnose-fixture
 logs/odds-diagnostics/<run_id>/
 ```
 
+`run_id` 使用北京时间，并包含微秒，避免多个诊断任务同一秒启动时互相覆盖报告。
+
 目录内包含：
 
 - `run.json`：本次运行汇总信息。
@@ -65,6 +67,8 @@ logs/odds-diagnostics/<run_id>/
 
 ## 使用建议
 
-先按单联赛、小批量运行，例如 `--league-ids 140 --max-matches 20`。确认报告结构和错误类型后，再扩大到多个联赛。
+先按单联赛、小批量运行，例如 `--league-ids 140 --max-matches 20`。确认报告结构和错误类型后，再扩大到多个联赛。多个诊断任务不要并行压测 OddsPapi，尤其是 fixture 接口；如果需要连续诊断多个联赛，应顺序执行并保留短暂间隔，避免 `429` 限流影响判断。
 
 如果 `manual_review.csv` 中大量出现相似度为 0 的候选，优先补 `aliases add --source-name oddspapi --entity-type team ...`。如果大量出现 `no_candidate`，优先核对 tournament id、比赛是否属于附加赛、OddsPapi 是否覆盖该赛事。
+
+诊断联赛可用性时优先选择常规赛中段样本，例如 3 月到 4 月，或该联赛赛季相对中间的比赛。赛季末样本可能混入升级附加赛、降级附加赛、争冠组、保级组或其他特殊归属；API-Football 与 OddsPapi 对这些比赛的 tournament 归属可能不同。因此，末轮或附加赛附近的 `404`、`no_candidate` 不能直接视为整个联赛不可回填，必须再用常规赛中段样本复测。

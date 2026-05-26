@@ -179,7 +179,7 @@ def run_oddspapi_fixture_diagnostics_for_session(
     confidence_threshold: Decimal | str = Decimal("0.75"),
 ) -> OddsPapiFixtureDiagnosticReport:
     threshold = Decimal(str(confidence_threshold))
-    run_id = run_id or now_beijing().strftime("%Y%m%d-%H%M%S-oddspapi-fixture-diagnostic")
+    run_id = run_id or build_oddspapi_fixture_diagnostic_run_id()
     report_dir = Path(log_dir) / run_id
     matches, skipped_existing_odds = select_oddspapi_candidate_matches(
         session=session,
@@ -216,6 +216,11 @@ def run_oddspapi_fixture_diagnostics_for_session(
     )
     write_oddspapi_fixture_diagnostic_report(report)
     return report
+
+
+def build_oddspapi_fixture_diagnostic_run_id(current_time: datetime | None = None) -> str:
+    current_time = current_time or now_beijing()
+    return current_time.strftime("%Y%m%d-%H%M%S-%f-oddspapi-fixture-diagnostic")
 
 
 def write_oddspapi_fixture_diagnostic_report(

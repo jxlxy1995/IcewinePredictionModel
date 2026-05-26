@@ -121,6 +121,7 @@ def run_oddspapi_batch_worker(
     stop_after_empty_matches: int = 8,
     stop_after_failed_rounds: int = 2,
     round_timeout_seconds: float | None = 90,
+    historical_odds_cooldown_seconds: float = 6,
     hard_timeout_seconds: float | None = 0,
     log_dir: str | Path = "logs/odds",
     league_ids: set[str] | None = None,
@@ -145,6 +146,7 @@ def run_oddspapi_batch_worker(
         stop_after_empty_matches=stop_after_empty_matches,
         stop_after_failed_rounds=stop_after_failed_rounds,
         round_timeout_seconds=round_timeout_seconds,
+        historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
         hard_timeout_seconds=hard_timeout_seconds,
         skip_match_ids=skip_match_ids,
         log_dir=Path(log_dir),
@@ -194,6 +196,7 @@ def run_oddspapi_batch_backfill_with_runner(
     stop_after_failed_rounds: int = 2,
     round_timeout_seconds: float | None = 90,
     hard_timeout_seconds: float | None = 0,
+    historical_odds_cooldown_seconds: float = 6,
     skip_match_ids: set[int] | None = None,
 ) -> BatchBackfillReport:
     worker_count = min(_worker_count_for_mode(mode), max(len(jobs), 1))
@@ -211,6 +214,7 @@ def run_oddspapi_batch_backfill_with_runner(
         stop_after_empty_matches=stop_after_empty_matches,
         stop_after_failed_rounds=stop_after_failed_rounds,
         round_timeout_seconds=round_timeout_seconds,
+        historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
         skip_match_ids=skip_match_ids,
         worker_count=worker_count,
         progress_callback=None,
@@ -233,6 +237,7 @@ def run_oddspapi_batch_worker_with_runner(
     stop_after_failed_rounds: int = 2,
     round_timeout_seconds: float | None = 90,
     hard_timeout_seconds: float | None = 0,
+    historical_odds_cooldown_seconds: float = 6,
     skip_match_ids: set[int] | None = None,
     log_dir: Path,
     notify_on_complete: bool = False,
@@ -263,6 +268,7 @@ def run_oddspapi_batch_worker_with_runner(
             stop_after_empty_matches=stop_after_empty_matches,
             stop_after_failed_rounds=stop_after_failed_rounds,
             round_timeout_seconds=round_timeout_seconds,
+            historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
             skip_match_ids=skip_match_ids,
             worker_count=worker_count,
             progress_callback=logger.write,
@@ -345,6 +351,7 @@ def _run_batch_backfill(
     stop_after_empty_matches: int,
     stop_after_failed_rounds: int,
     round_timeout_seconds: float | None,
+    historical_odds_cooldown_seconds: float,
     skip_match_ids: set[int] | None,
     worker_count: int,
     progress_callback: Callable[[str], None] | None,
@@ -367,6 +374,7 @@ def _run_batch_backfill(
                 stop_after_empty_matches=stop_after_empty_matches,
                 stop_after_failed_rounds=stop_after_failed_rounds,
                 round_timeout_seconds=round_timeout_seconds,
+                historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
                 skip_match_ids=skip_match_ids,
                 progress_callback=progress_callback,
             )
@@ -396,6 +404,7 @@ def _run_league_backfill(
     stop_after_empty_matches: int,
     stop_after_failed_rounds: int,
     round_timeout_seconds: float | None,
+    historical_odds_cooldown_seconds: float,
     skip_match_ids: set[int] | None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> LeagueBackfillReport:
@@ -417,6 +426,7 @@ def _run_league_backfill(
                 league_id=job.league_id,
                 from_date=from_date,
                 skip_match_ids=skip_match_ids,
+                historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
             )
         except TimeoutError:
             stop_reason = f"单轮回填超时 {round_timeout_seconds} 秒"
@@ -478,6 +488,7 @@ def _run_round_with_timeout(
     league_id: str,
     from_date: datetime | None,
     skip_match_ids: set[int] | None,
+    historical_odds_cooldown_seconds: float,
 ) -> OddsPapiSyncResult:
     kwargs = {
         "season": season,
@@ -488,7 +499,7 @@ def _run_round_with_timeout(
         "league_ids": {league_id},
         "from_date": from_date,
         "skip_match_ids": skip_match_ids,
-        "historical_odds_cooldown_seconds": 6,
+        "historical_odds_cooldown_seconds": historical_odds_cooldown_seconds,
         "progress_callback": None,
     }
     if timeout_seconds is None or timeout_seconds <= 0:

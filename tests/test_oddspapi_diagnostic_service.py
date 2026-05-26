@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from icewine_prediction.oddspapi_diagnostic_service import build_oddspapi_fixture_diagnostic_run_id
 from icewine_prediction.models import League, Match, Team
 from icewine_prediction.oddspapi_diagnostic_service import (
     run_oddspapi_fixture_diagnostics_for_session,
@@ -141,3 +142,16 @@ def test_fixture_diagnostics_marks_manual_review_when_only_wrong_teams_return(
     assert report.matches[0].status == "manual_review"
     assert report.matches[0].candidate_count == 1
     assert "team similarity below threshold" in report.matches[0].reason
+
+
+def test_fixture_diagnostic_run_id_is_unique_within_same_second():
+    first = build_oddspapi_fixture_diagnostic_run_id(
+        datetime(2026, 5, 26, 18, 28, 57, 100000, tzinfo=ZoneInfo("Asia/Shanghai"))
+    )
+    second = build_oddspapi_fixture_diagnostic_run_id(
+        datetime(2026, 5, 26, 18, 28, 57, 900000, tzinfo=ZoneInfo("Asia/Shanghai"))
+    )
+
+    assert first != second
+    assert first.startswith("20260526-182857-100000-")
+    assert second.startswith("20260526-182857-900000-")

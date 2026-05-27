@@ -14,6 +14,9 @@ from icewine_prediction.historical_training_sample_service import (
     HistoricalMarketTrainingSample,
     HistoricalOddsAnchorFeature,
 )
+from icewine_prediction.historical_training_sample_report_service import (
+    HistoricalOddsSampleQualityReport,
+)
 from icewine_prediction.training_sample_service import TrainingSample
 
 
@@ -33,6 +36,15 @@ def test_samples_group_exposes_historical_odds_preview_help():
 
     assert result.exit_code == 0
     assert "historical-odds-preview" in result.stdout
+
+
+def test_samples_group_exposes_historical_odds_report_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "historical-odds-report" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -118,6 +130,53 @@ def test_samples_historical_odds_preview_command_outputs_samples(monkeypatch):
     assert result.exit_code == 0
     assert "total_goals" in result.stdout
     assert "锚点 2/7 24h/close" in result.stdout
+
+
+def test_samples_historical_odds_report_command_outputs_quality_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build_report(session, *, season, eligible_start, bookmaker):
+        captured["season"] = season
+        captured["eligible_start"] = eligible_start
+        captured["bookmaker"] = bookmaker
+        return HistoricalOddsSampleQualityReport(
+            season=season,
+            eligible_start=eligible_start,
+            bookmaker=bookmaker,
+            full_season_match_count=3,
+            eligible_match_count=2,
+            excluded_before_eligible_start_count=1,
+            match_with_sample_count=1,
+            eligible_coverage_ratio=Decimal("0.5000"),
+            full_season_coverage_ratio=Decimal("0.3333"),
+            market_reports={},
+            league_reports={},
+        )
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_historical_odds_sample_quality_report",
+        fake_build_report,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "historical-odds-report",
+            "--season",
+            "2026",
+            "--eligible-start",
+            "2026-01-15",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["season"] == 2026
+    assert captured["bookmaker"] == "pinnacle"
+    assert captured["eligible_start"].strftime("%Y-%m-%d %H:%M") == "2026-01-15 00:00"
+    assert "eligible coverage 0.5000" in result.stdout
+    assert "full-season coverage 0.3333" in result.stdout
 
 
 def _historical_market_sample(

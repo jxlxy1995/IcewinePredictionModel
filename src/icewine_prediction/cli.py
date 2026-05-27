@@ -1,5 +1,6 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import typer
 from sqlalchemy import text
@@ -36,6 +37,11 @@ from icewine_prediction.historical_training_sample_service import (
     DEFAULT_ANCHORS,
     HistoricalMarketTrainingSample,
     list_historical_market_training_samples,
+)
+from icewine_prediction.historical_training_sample_report_service import (
+    DEFAULT_HISTORICAL_ODDS_ELIGIBLE_START,
+    build_historical_odds_sample_quality_report,
+    format_historical_odds_sample_quality_report,
 )
 from icewine_prediction.match_query_service import list_upcoming_matches
 from icewine_prediction.model_training_service import (
@@ -88,6 +94,7 @@ from icewine_prediction.sample_report_service import (
     TrainingSampleReport,
     build_training_sample_report,
 )
+from icewine_prediction.config import BEIJING_TIMEZONE
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.skellam_model_service import SkellamMarginModel
 from icewine_prediction.sync_runner import (
@@ -1045,6 +1052,16 @@ def _parse_str_set(value: str) -> set[str] | None:
     return {item.strip() for item in value.split(",") if item.strip()}
 
 
+def _parse_beijing_datetime(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise typer.BadParameter("expected ISO date or datetime") from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=ZoneInfo(BEIJING_TIMEZONE))
+    return parsed.astimezone(ZoneInfo(BEIJING_TIMEZONE))
+
+
 @aliases_app.command("add")
 def aliases_add(
     entity_type: str = typer.Option("team", "--entity-type"),
@@ -1147,6 +1164,28 @@ def samples_historical_odds_preview(
             return
         for sample in samples:
             typer.echo(format_historical_market_training_sample_line(sample, display_service))
+
+
+@samples_app.command("historical-odds-report")
+def samples_historical_odds_report(
+    season: int | None = typer.Option(None, "--season"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+    eligible_start: str = typer.Option(
+        DEFAULT_HISTORICAL_ODDS_ELIGIBLE_START.strftime("%Y-%m-%d"),
+        "--eligible-start",
+    ),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_historical_odds_sample_quality_report(
+            session,
+            season=season,
+            eligible_start=_parse_beijing_datetime(eligible_start),
+            bookmaker=bookmaker,
+        )
+        typer.echo(format_historical_odds_sample_quality_report(report))
 
 
 @models_app.command("train-baseline")

@@ -1,12 +1,19 @@
 from datetime import datetime
 from decimal import Decimal
-from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from typer.testing import CliRunner
 
-from icewine_prediction.cli import app, format_training_sample_line
+from icewine_prediction.cli import (
+    app,
+    format_historical_market_training_sample_line,
+    format_training_sample_line,
+)
 from icewine_prediction.display_service import DisplayNameService, DisplayNames
+from icewine_prediction.historical_training_sample_service import (
+    HistoricalMarketTrainingSample,
+    HistoricalOddsAnchorFeature,
+)
 from icewine_prediction.training_sample_service import TrainingSample
 
 
@@ -19,7 +26,16 @@ def test_samples_group_exposes_preview_help():
     assert "preview" in result.stdout
 
 
-def test_format_training_sample_line_uses_chinese_match_names_and_labels():
+def test_samples_group_exposes_historical_odds_preview_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "historical-odds-preview" in result.stdout
+
+
+def test_format_training_sample_line_uses_match_result_and_weight():
     display_service = DisplayNameService(
         DisplayNames(
             leagues={"La Liga": "西甲"},
@@ -50,9 +66,103 @@ def test_format_training_sample_line_uses_chinese_match_names_and_labels():
 
     line = format_training_sample_line(sample, display_service)
 
-    assert "西甲 2025-05-25 03:00 皇家马德里 vs 巴塞罗那" in line
-    assert "比分 2-1" in line
-    assert "赛果 home_win" in line
-    assert "样本年龄 363天" in line
-    assert "权重 0.80" in line
-    assert "赔率 否" in line
+    assert "2025-05-25 03:00" in line
+    assert "2-1" in line
+    assert "home_win" in line
+    assert "363" in line
+    assert "0.80" in line
+
+
+def test_format_historical_market_training_sample_line_summarizes_anchor_coverage():
+    display_service = DisplayNameService(
+        DisplayNames(
+            leagues={"Premier League": "英超"},
+            teams={"Arsenal": "阿森纳", "Chelsea": "切尔西"},
+        )
+    )
+    sample = _historical_market_sample(
+        market_type="asian_handicap",
+        snapshot_count=30,
+        missing_anchor_labels=("12h",),
+        quality_tags=("thin_history",),
+    )
+
+    line = format_historical_market_training_sample_line(sample, display_service)
+
+    assert "英超 2026-05-20 20:00 阿森纳 vs 切尔西" in line
+    assert "asian_handicap" in line
+    assert "锚点 2/7 24h/close" in line
+    assert "缺失 12h" in line
+    assert "标签 thin_history" in line
+
+
+def test_samples_historical_odds_preview_command_outputs_samples(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.list_historical_market_training_samples",
+        lambda session, season, limit, bookmaker: [
+            _historical_market_sample(
+                market_type="total_goals",
+                snapshot_count=40,
+                missing_anchor_labels=(),
+                quality_tags=(),
+            )
+        ],
+    )
+
+    result = runner.invoke(
+        app,
+        ["samples", "historical-odds-preview", "--season", "2026", "--limit", "5"],
+    )
+
+    assert result.exit_code == 0
+    assert "total_goals" in result.stdout
+    assert "锚点 2/7 24h/close" in result.stdout
+
+
+def _historical_market_sample(
+    *,
+    market_type: str,
+    snapshot_count: int,
+    missing_anchor_labels: tuple[str, ...],
+    quality_tags: tuple[str, ...],
+) -> HistoricalMarketTrainingSample:
+    return HistoricalMarketTrainingSample(
+        match_id=1,
+        source_match_id="1001",
+        league_name="Premier League",
+        home_team_name="Arsenal",
+        away_team_name="Chelsea",
+        kickoff_time=datetime(2026, 5, 20, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_score=2,
+        away_score=1,
+        market_type=market_type,
+        bookmaker="pinnacle",
+        snapshot_count=snapshot_count,
+        anchors=(_anchor("24h", Decimal("-0.25")), _anchor("close", Decimal("-0.50"))),
+        missing_anchor_labels=missing_anchor_labels,
+        quality_tags=quality_tags,
+        line_movement=Decimal("-0.25"),
+        side_a_odds_movement=Decimal("-0.0200"),
+        side_b_odds_movement=Decimal("0.0300"),
+    )
+
+
+def _anchor(label: str, line: Decimal) -> HistoricalOddsAnchorFeature:
+    return HistoricalOddsAnchorFeature(
+        label=label,
+        target_minutes_before_kickoff=1440 if label == "24h" else 5,
+        actual_minutes_before_kickoff=1440 if label == "24h" else 7,
+        snapshot_time=datetime(2026, 5, 20, 19, 53, tzinfo=ZoneInfo("Asia/Shanghai")),
+        bookmaker="pinnacle",
+        market_line=line,
+        side_a="home",
+        side_b="away",
+        side_a_odds=Decimal("1.90"),
+        side_b_odds=Decimal("1.96"),
+        side_a_implied_probability=Decimal("0.5263"),
+        side_b_implied_probability=Decimal("0.5102"),
+        overround=Decimal("1.0365"),
+        side_a_result="win",
+        side_b_result="loss",
+    )

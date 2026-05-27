@@ -49,6 +49,9 @@ from icewine_prediction.oddspapi_batch_backfill_service import (
 from icewine_prediction.oddspapi_backfill_audit_service import (
     build_oddspapi_backfill_audit,
 )
+from icewine_prediction.oddspapi_alias_suggestion_service import (
+    build_oddspapi_alias_suggestions_text,
+)
 from icewine_prediction.oddspapi_diagnostic_service import (
     run_oddspapi_fixture_diagnostics,
 )
@@ -941,6 +944,26 @@ def odds_source_oddspapi_audit_backfill(
             season=season,
             log_dir=log_dir,
             top_errors=top_errors,
+        )
+    )
+
+
+@odds_source_app.command("oddspapi-suggest-aliases")
+def odds_source_oddspapi_suggest_aliases(
+    report_dir: str = typer.Option(..., "--report-dir"),
+    alias_config_path: str = typer.Option(
+        "config/external_aliases.yaml",
+        "--alias-config-path",
+    ),
+    alias_threshold: str = typer.Option("0.75", "--alias-threshold"),
+    anchor_threshold: str = typer.Option("0.75", "--anchor-threshold"),
+):
+    typer.echo(
+        build_oddspapi_alias_suggestions_text(
+            report_dir=report_dir,
+            alias_config_path=alias_config_path,
+            alias_threshold=alias_threshold,
+            anchor_threshold=anchor_threshold,
         )
     )
 

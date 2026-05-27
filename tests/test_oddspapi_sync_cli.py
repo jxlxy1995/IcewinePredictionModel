@@ -22,6 +22,7 @@ def test_odds_source_group_exposes_oddspapi_commands():
     assert "oddspapi-worker-status" in result.stdout
     assert "oddspapi-diagnose-fixtures" in result.stdout
     assert "oddspapi-audit-backfill" in result.stdout
+    assert "oddspapi-suggest-aliases" in result.stdout
 
 
 def test_oddspapi_plan_accepts_season_and_match_limit(monkeypatch):
@@ -213,6 +214,42 @@ def test_oddspapi_audit_backfill_accepts_season_log_dir_and_top_errors(monkeypat
 
     assert result.exit_code == 0
     assert "audit-backfill:2025:logs/odds:7" in result.stdout
+
+
+def test_oddspapi_suggest_aliases_accepts_report_and_config_options(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_oddspapi_alias_suggestions_text",
+        lambda report_dir,
+        alias_config_path,
+        alias_threshold,
+        anchor_threshold: (
+            f"suggest-aliases:{report_dir}:{alias_config_path}:"
+            f"{alias_threshold}:{anchor_threshold}"
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "odds-source",
+            "oddspapi-suggest-aliases",
+            "--report-dir",
+            "logs/odds-diagnostics/run-1",
+            "--alias-config-path",
+            "config/external_aliases.yaml",
+            "--alias-threshold",
+            "0.75",
+            "--anchor-threshold",
+            "0.85",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (
+        "suggest-aliases:logs/odds-diagnostics/run-1:"
+        "config/external_aliases.yaml:0.75:0.85"
+    ) in result.stdout
 
 
 def test_oddspapi_match_report_accepts_match_id(monkeypatch):

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import date, datetime, time as datetime_time, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -41,6 +42,7 @@ ODDSPAPI_SOURCE_NAME = "oddspapi"
 SOCCER_SPORT_ID = 10
 SELECTED_BOOKMAKERS = "pinnacle"
 TERMINAL_HISTORICAL_ODDS_STATUSES = {"empty", "unavailable", "unmatched"}
+HISTORICAL_ODDS_TIMEOUT_ATTEMPTS = 2
 
 API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "39": 17,
@@ -213,7 +215,6 @@ class OddsPapiSyncClient:
         source_fixture_id: str,
         outcome_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        self._respect_historical_odds_cooldown()
         params = {
             "sportId": SOCCER_SPORT_ID,
             "fixtureId": source_fixture_id,
@@ -221,13 +222,36 @@ class OddsPapiSyncClient:
         }
         if outcome_id is not None:
             params["outcomeId"] = outcome_id
-        try:
-            return self.client.get(
-                "historical-odds",
-                params,
-            )
-        finally:
-            self._last_historical_odds_request_at = time.monotonic()
+        timeout_seconds = getattr(self.client, "timeout_seconds", None) or 20
+        for attempt in range(1, HISTORICAL_ODDS_TIMEOUT_ATTEMPTS + 1):
+            self._respect_historical_odds_cooldown()
+            executor = ThreadPoolExecutor(max_workers=1)
+            shut_down = False
+            try:
+                future = executor.submit(_HistoricalOddsRequest(self.client, params))
+                return future.result(timeout=timeout_seconds)
+            except FutureTimeoutError:
+                future.cancel()
+                executor.shutdown(wait=False, cancel_futures=True)
+                shut_down = True
+                self.reset_session()
+                self._last_historical_odds_request_at = time.monotonic()
+                if attempt >= HISTORICAL_ODDS_TIMEOUT_ATTEMPTS:
+                    raise OddsPapiApiError(
+                        "OddsPapi historical-odds request timed out after "
+                        f"{HISTORICAL_ODDS_TIMEOUT_ATTEMPTS} attempts"
+                    ) from None
+            finally:
+                if not shut_down:
+                    executor.shutdown(wait=True)
+                self._last_historical_odds_request_at = time.monotonic()
+
+        raise OddsPapiApiError("OddsPapi historical-odds request timed out")
+
+    def reset_session(self) -> None:
+        reset = getattr(self.client, "reset_session", None)
+        if callable(reset):
+            reset()
 
     def fetch_markets(self, source_fixture_id: str) -> list[dict[str, Any]]:
         if self._market_definitions_cache is not None:
@@ -282,6 +306,19 @@ class OddsPapiSyncClient:
         if self.historical_odds_rate_limit_backoff_seconds <= 0:
             return
         time.sleep(self.historical_odds_rate_limit_backoff_seconds)
+
+
+class _HistoricalOddsRequest:
+    def __init__(self, client: OddsPapiClient, params: dict[str, Any]) -> None:
+        self.client = client
+        self.params = params
+        self.fixture_id = str(params.get("fixtureId") or "")
+
+    def __call__(self) -> list[dict[str, Any]]:
+        return self.client.get(
+            "historical-odds",
+            self.params,
+        )
 
 
 def build_oddspapi_sync_plan(

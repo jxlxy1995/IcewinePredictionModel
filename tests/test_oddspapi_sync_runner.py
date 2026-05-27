@@ -1,3 +1,4 @@
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -1064,6 +1065,106 @@ def test_run_oddspapi_sync_for_session_continues_after_single_match_odds_error(s
     assert result.matched_count == 2
     assert result.inserted_snapshot_count == 4
     assert result.error_message == "1 场比赛失败，已跳过继续"
+    assert session.query(HistoricalOddsSnapshot).count() == 4
+
+
+def test_run_oddspapi_sync_for_session_retries_historical_odds_timeout_once(
+    session,
+    monkeypatch,
+):
+    timeout_match = _match(
+        session,
+        source_match_id="timeout",
+        league_name="Premier League",
+        source_league_id="39",
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Mallorca",
+        away_team_name="Oviedo",
+    )
+    success_match = _match(
+        session,
+        source_match_id="success",
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Mallorca B",
+        away_team_name="Oviedo B",
+    )
+    session.add_all(
+        [
+            OddsSourceMatch(
+                match_id=timeout_match.id,
+                source_name="oddspapi",
+                source_fixture_id="timeout-fixture",
+                matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                match_confidence=Decimal("1.0000"),
+                match_reason="cached",
+            ),
+            OddsSourceMatch(
+                match_id=success_match.id,
+                source_name="oddspapi",
+                source_fixture_id="oddspapi-fixture-1",
+                matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                match_confidence=Decimal("1.0000"),
+                match_reason="cached",
+            ),
+        ]
+    )
+    session.commit()
+
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+    submitted_fixture_ids = []
+
+    class FakeFuture:
+        def __init__(self, fixture_id):
+            self.fixture_id = fixture_id
+
+        def cancel(self):
+            return True
+
+        def result(self, timeout):
+            if self.fixture_id == "timeout-fixture":
+                raise FutureTimeoutError()
+            return raw_client.get(
+                "historical-odds",
+                {
+                    "sportId": oddspapi_sync_runner.SOCCER_SPORT_ID,
+                    "fixtureId": self.fixture_id,
+                    "bookmakers": oddspapi_sync_runner.SELECTED_BOOKMAKERS,
+                },
+            )
+
+    class FakeExecutor:
+        def __init__(self, max_workers):
+            self.max_workers = max_workers
+            self.shutdown_calls = []
+
+        def submit(self, func):
+            fixture_id = func.fixture_id
+            submitted_fixture_ids.append(fixture_id)
+            return FakeFuture(fixture_id)
+
+        def shutdown(self, wait=True, cancel_futures=False):
+            self.shutdown_calls.append((wait, cancel_futures))
+
+    monkeypatch.setattr(oddspapi_sync_runner, "ThreadPoolExecutor", FakeExecutor, raising=False)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    source_match = session.query(OddsSourceMatch).filter_by(match_id=timeout_match.id).one()
+    assert submitted_fixture_ids == [
+        "timeout-fixture",
+        "timeout-fixture",
+        "oddspapi-fixture-1",
+    ]
+    assert result.processed_match_count == 1
+    assert result.failed_match_count == 1
+    assert source_match.historical_odds_status == "failed"
+    assert "timed out after 2 attempts" in source_match.historical_odds_error
     assert session.query(HistoricalOddsSnapshot).count() == 4
 
 

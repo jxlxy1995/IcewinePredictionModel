@@ -72,6 +72,12 @@ class OddsPapiClient:
             raise OddsPapiApiError(f"OddsPapi returned error: {payload['error']}")
         return payload
 
+    def reset_session(self) -> None:
+        close = getattr(self.session, "close", None)
+        if callable(close):
+            close()
+        self.session = _build_default_session()
+
 
 def _build_default_session() -> requests.Session:
     session = requests.Session()

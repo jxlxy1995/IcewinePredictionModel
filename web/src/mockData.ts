@@ -295,7 +295,7 @@ export const mockOddspapiBackfillAudit: OddspapiBackfillAudit = {
     updated_at: "2026-05-27T10:15:00+08:00",
     current_league_id: "40",
     current_league_name: "Championship",
-    current_league_display_name: "鑻卞啝",
+    current_league_display_name: "英冠",
     round: 12,
     processed_matches: 18,
     inserted_snapshots: 540,
@@ -309,7 +309,7 @@ export const mockOddspapiBackfillAudit: OddspapiBackfillAudit = {
   league_summaries: [
     {
       league_name: "Championship",
-      league_display_name: "鑻卞啝",
+      league_display_name: "英冠",
       source_league_id: "40",
       finished_matches: 552,
       matched_matches: 494,
@@ -322,7 +322,7 @@ export const mockOddspapiBackfillAudit: OddspapiBackfillAudit = {
     },
     {
       league_name: "Premier League",
-      league_display_name: "鑻辫秴",
+      league_display_name: "英超",
       source_league_id: "39",
       finished_matches: 380,
       matched_matches: 350,
@@ -335,7 +335,7 @@ export const mockOddspapiBackfillAudit: OddspapiBackfillAudit = {
     },
     {
       league_name: "Bundesliga",
-      league_display_name: "寰风敳",
+      league_display_name: "德甲",
       source_league_id: "78",
       finished_matches: 306,
       matched_matches: 286,

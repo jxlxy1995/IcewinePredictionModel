@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { OddspapiBackfillAudit } from "./types";
+import { mockOddspapiBackfillAudit } from "./mockData";
 import {
   buildOddspapiAuditSummaryCards,
   formatOddspapiStatusLabel,
@@ -82,5 +83,17 @@ describe("oddspapi backfill audit workspace helpers", () => {
     expect(formatOddspapiStatusLabel("unmatched")).toBe("匹配失败");
     expect(formatOddspapiStatusLabel("unavailable")).toBe("不可用");
     expect(formatOddspapiStatusLabel("custom")).toBe("custom");
+  });
+
+  it("keeps mock audit league display names readable in Chinese", () => {
+    expect(buildOddspapiAuditSummaryCards(mockOddspapiBackfillAudit)[0]).toEqual({
+      label: "当前联赛",
+      value: "英冠"
+    });
+    expect(
+      listOddspapiLeagueAuditRows(mockOddspapiBackfillAudit).map(
+        (row) => row.league_display_name
+      )
+    ).toEqual(["英冠", "英超", "德甲"]);
   });
 });

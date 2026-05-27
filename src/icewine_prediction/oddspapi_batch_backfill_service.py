@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
+﻿from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time
 from enum import Enum
@@ -9,11 +9,16 @@ from threading import Timer
 from typing import Callable, Protocol
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import func
+
+from icewine_prediction.database import create_database_engine, create_session_factory, initialize_database
 from icewine_prediction.oddspapi_sync_runner import (
     API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS,
     OddsPapiSyncResult,
     run_oddspapi_sync_result,
 )
+from icewine_prediction.display_service import DisplayNameService
+from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, OddsSourceMatch
 from icewine_prediction.notification_service import notify_local_completion
 from icewine_prediction.settings import LeagueSettings, load_project_settings
 from icewine_prediction.time_utils import now_beijing
@@ -65,6 +70,7 @@ class WorkerProgressContext:
     season: int
     worker_count: int
     league_count: int
+    totals_by_league_id: dict[str, int]
 
 
 class OddsPapiSyncRunner(Protocol):
@@ -172,6 +178,7 @@ def build_league_backfill_jobs(
     leagues: list[LeagueSettings],
     requested_league_ids: set[str] | None,
 ) -> tuple[LeagueBackfillJob, ...]:
+    display_service = DisplayNameService()
     jobs = []
     for league in leagues:
         league_id = str(league.api_football_id)
@@ -184,7 +191,9 @@ def build_league_backfill_jobs(
         jobs.append(
             LeagueBackfillJob(
                 league_id=league_id,
-                league_name=league.name,
+                league_name=display_service.display_league(
+                    f"{league.name} ({league.country})"
+                ),
                 priority=league.priority,
             )
         )
@@ -266,6 +275,12 @@ def run_oddspapi_batch_worker_with_runner(
         season=season,
         worker_count=worker_count,
         league_count=len(jobs),
+        totals_by_league_id=_count_candidate_matches_by_league(
+            jobs=jobs,
+            season=season,
+            from_date=_normalize_from_date(from_date),
+            skip_match_ids=skip_match_ids,
+        ),
     )
     logger.write(
         f"开始 OddsPapi 后台回填 mode={mode.value} workers={worker_count} "
@@ -355,6 +370,25 @@ def _start_hard_timeout_timer(
     return timer
 
 
+def _start_round_timeout_timer(
+    timeout_seconds: float | None,
+    message: str,
+    output_callback: Callable[[str], None] | None,
+) -> Timer | None:
+    if timeout_seconds is None or timeout_seconds <= 0:
+        return None
+
+    def exit_process() -> None:
+        if output_callback is not None:
+            output_callback(message)
+        os._exit(124)
+
+    timer = Timer(timeout_seconds, exit_process)
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
 def format_batch_backfill_report(report) -> str:
     lines = [
         f"批量回填模式 {report.mode} workers={report.worker_count}",
@@ -430,6 +464,70 @@ def _run_batch_backfill(
     )
 
 
+def _count_candidate_matches_by_league(
+    *,
+    jobs: tuple[LeagueBackfillJob, ...],
+    season: int,
+    from_date: datetime | None,
+    skip_match_ids: set[int] | None,
+) -> dict[str, int]:
+    if not jobs:
+        return {}
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        counts = {}
+        for job in jobs:
+            counts[job.league_id] = _count_candidate_matches_for_league(
+                session=session,
+                league_id=job.league_id,
+                season=season,
+                from_date=from_date,
+                skip_match_ids=skip_match_ids,
+            )
+        return counts
+
+
+def _count_candidate_matches_for_league(
+    *,
+    session,
+    league_id: str,
+    season: int,
+    from_date: datetime | None,
+    skip_match_ids: set[int] | None,
+) -> int:
+    query = (
+        session.query(func.count(Match.id))
+        .join(League, Match.league_id == League.id)
+        .outerjoin(
+            HistoricalOddsSnapshot,
+            (HistoricalOddsSnapshot.match_id == Match.id)
+            & (HistoricalOddsSnapshot.source_name == "oddspapi"),
+        )
+        .outerjoin(
+            OddsSourceMatch,
+            (OddsSourceMatch.match_id == Match.id)
+            & (OddsSourceMatch.source_name == "oddspapi"),
+        )
+        .filter(League.source_league_id == league_id)
+        .filter(Match.season == season)
+        .filter(Match.status == "finished")
+        .filter(Match.home_score.isnot(None))
+        .filter(Match.away_score.isnot(None))
+        .filter(HistoricalOddsSnapshot.id.is_(None))
+        .filter(
+            (OddsSourceMatch.id.is_(None))
+            | (~OddsSourceMatch.historical_odds_status.in_({"empty", "unavailable", "unmatched"}))
+        )
+    )
+    if from_date is not None:
+        query = query.filter(Match.kickoff_time >= from_date)
+    if skip_match_ids:
+        query = query.filter(~Match.id.in_(skip_match_ids))
+    return int(query.scalar() or 0)
+
+
 def _run_league_backfill(
     *,
     job: LeagueBackfillJob,
@@ -455,6 +553,21 @@ def _run_league_backfill(
     stop_reason = "达到联赛轮次上限"
     status = "stopped"
     for round_index in range(1, max_rounds_per_league + 1):
+        if progress_callback is not None:
+            progress_callback(
+                f"{job.league_name} 第{round_index}轮开始 "
+                f"chunk_size={chunk_size} request_budget={request_budget_per_league}"
+            )
+        round_timeout_timer = None
+        if progress_context is not None:
+            round_timeout_timer = _start_round_timeout_timer(
+                round_timeout_seconds,
+                (
+                    f"{job.league_name} 第{round_index}轮超过 "
+                    f"{round_timeout_seconds} 秒无返回，强制结束 OddsPapi worker"
+                ),
+                progress_callback,
+            )
         try:
             result = _run_round_with_timeout(
                 runner=runner,
@@ -469,16 +582,21 @@ def _run_league_backfill(
                 skip_match_ids=skip_match_ids,
                 historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
             )
-        except TimeoutError:
-            stop_reason = f"单轮回填超时 {round_timeout_seconds} 秒"
-            status = "stopped"
-            break
+        finally:
+            if round_timeout_timer is not None:
+                round_timeout_timer.cancel()
         totals.add(result)
         _emit_worker_progress(progress_callback, job, round_index, result)
         _write_worker_progress_snapshot(
             context=progress_context,
             status="running",
-            current_league=_build_progress_league(job, round_index, totals, result),
+            current_league=_build_progress_league(
+                job,
+                round_index,
+                totals,
+                result,
+                progress_context,
+            ),
             totals=totals,
         )
         if result.error_message and "budget" in result.error_message.lower():
@@ -529,10 +647,14 @@ def _build_progress_league(
     round_index: int,
     totals: "_MutableLeagueTotals",
     last_round: OddsPapiSyncResult,
+    progress_context: WorkerProgressContext | None = None,
 ) -> dict:
+    total_matches = _progress_total_for_league(progress_context, job.league_id)
     return {
         "league_id": job.league_id,
         "league_name": job.league_name,
+        "total_matches": total_matches,
+        "progress_percent": _progress_percent(totals.processed_match_count, total_matches),
         "round": round_index,
         "processed_matches": totals.processed_match_count,
         "matched_matches": totals.matched_count,
@@ -550,9 +672,17 @@ def _build_progress_league(
 
 def _build_final_progress_league(report: LeagueBackfillReport, *, progress_path: Path) -> dict:
     previous_last_round = _read_previous_last_round(progress_path)
+    previous_current_league = _read_previous_current_league(progress_path)
+    total_matches = (
+        previous_current_league.get("total_matches")
+        if isinstance(previous_current_league, dict)
+        else None
+    )
     return {
         "league_id": report.league_id,
         "league_name": report.league_name,
+        "total_matches": total_matches,
+        "progress_percent": _progress_percent(report.processed_match_count, total_matches),
         "status": report.status,
         "round": report.round_count,
         "processed_matches": report.processed_match_count,
@@ -571,6 +701,14 @@ def _build_final_progress_league(report: LeagueBackfillReport, *, progress_path:
 
 
 def _read_previous_last_round(progress_path: Path) -> dict | None:
+    current_league = _read_previous_current_league(progress_path)
+    if not isinstance(current_league, dict):
+        return None
+    last_round = current_league.get("last_round")
+    return last_round if isinstance(last_round, dict) else None
+
+
+def _read_previous_current_league(progress_path: Path) -> dict | None:
     if not progress_path.exists():
         return None
     try:
@@ -580,8 +718,7 @@ def _read_previous_last_round(progress_path: Path) -> dict | None:
     current_league = progress.get("current_league")
     if not isinstance(current_league, dict):
         return None
-    last_round = current_league.get("last_round")
-    return last_round if isinstance(last_round, dict) else None
+    return current_league
 
 
 def _build_progress_round(result: OddsPapiSyncResult) -> dict:
@@ -626,12 +763,15 @@ def _write_worker_progress_snapshot(
 ) -> None:
     if context is None:
         return
+    total_matches = sum(context.totals_by_league_id.values())
     payload = {
         "status": status,
         "mode": context.mode,
         "season": context.season,
         "worker_count": context.worker_count,
         "league_count": context.league_count,
+        "total_matches": total_matches,
+        "progress_percent": _progress_percent(totals.processed_match_count, total_matches),
         "updated_at": now_beijing().isoformat(),
         "current_league": current_league,
         "totals": {
@@ -654,6 +794,21 @@ def _write_worker_progress_snapshot(
     )
 
 
+def _progress_total_for_league(
+    context: WorkerProgressContext | None,
+    league_id: str,
+) -> int | None:
+    if context is None:
+        return None
+    return context.totals_by_league_id.get(league_id)
+
+
+def _progress_percent(processed_matches: int, total_matches: int | None) -> float | None:
+    if total_matches is None or total_matches <= 0:
+        return None
+    return round(min(processed_matches, total_matches) * 100 / total_matches, 1)
+
+
 def _run_round_with_timeout(
     *,
     runner: OddsPapiSyncRunner,
@@ -668,6 +823,8 @@ def _run_round_with_timeout(
     skip_match_ids: set[int] | None,
     historical_odds_cooldown_seconds: float,
 ) -> OddsPapiSyncResult:
+    # Do not enforce round timeouts with a thread: Python cannot stop the worker thread,
+    # which can leave database writes running after the controller reports stopped.
     kwargs = {
         "season": season,
         "max_matches": max_matches,
@@ -680,17 +837,7 @@ def _run_round_with_timeout(
         "historical_odds_cooldown_seconds": historical_odds_cooldown_seconds,
         "progress_callback": None,
     }
-    if timeout_seconds is None or timeout_seconds <= 0:
-        return runner(**kwargs)
-    executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(runner, **kwargs)
-    try:
-        result = future.result(timeout=timeout_seconds)
-    except TimeoutError:
-        executor.shutdown(wait=False, cancel_futures=True)
-        raise
-    executor.shutdown(wait=True)
-    return result
+    return runner(**kwargs)
 
 
 @dataclass

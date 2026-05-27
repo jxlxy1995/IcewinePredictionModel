@@ -221,6 +221,10 @@ aliases:
     alias_name: Deportes La Serena
   - entity_type: team
     source_name: oddspapi
+    canonical_name: A. Italiano
+    alias_name: Audax Italiano
+  - entity_type: team
+    source_name: oddspapi
     canonical_name: Everton de Vina
     alias_name: CD Everton Vina del Mar
   - entity_type: team

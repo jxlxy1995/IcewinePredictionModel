@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from icewine_prediction.models import HistoricalOddsSnapshot, Match
+from icewine_prediction.models import HistoricalOddsRawSnapshot, HistoricalOddsSnapshot, Match
 from icewine_prediction.sources.oddspapi_odds_mapper import MappedHistoricalOddsSnapshot
 
 REQUIRED_ODDSPAPI_MARKET_TYPES = ("asian_handicap", "total_goals", "match_winner")
@@ -65,10 +65,11 @@ def sample_historical_odds_snapshots(
     if kickoff_time is not None:
         snapshots = _filter_snapshots_before_kickoff(snapshots, kickoff_time)
     if max_snapshots_per_market_type is not None:
+        snapshots = _filter_complete_market_groups(snapshots)
         snapshots = _sample_snapshots_by_market_type(snapshots, max_snapshots_per_market_type)
         if len(snapshots) <= max_snapshots_per_match:
             return snapshots
-        return _sample_snapshot_group(snapshots, max_snapshots_per_match)
+        return _sample_complete_groups(snapshots, max_snapshots_per_match)
     if len(snapshots) <= max_snapshots_per_match:
         return sorted(snapshots, key=lambda snapshot: snapshot.snapshot_time)
     grouped = {}
@@ -93,6 +94,62 @@ def sample_historical_odds_snapshots(
     return _sample_snapshot_group(sampled, max_snapshots_per_match)
 
 
+def _sample_complete_groups(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    limit: int,
+) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    if limit <= 0:
+        return []
+    grouped = {}
+    for snapshot in snapshots:
+        key = (
+            snapshot.bookmaker,
+            snapshot.market_type,
+            snapshot.snapshot_time,
+            snapshot.market_line,
+        )
+        grouped.setdefault(key, []).append(snapshot)
+    complete_groups = [
+        sorted(group, key=_snapshot_group_sort_key)
+        for group in grouped.values()
+        if _complete_snapshots_in_time_group(group)
+    ]
+    complete_groups = sorted(
+        complete_groups,
+        key=lambda group: (
+            group[0].snapshot_time,
+            group[0].market_type,
+            group[0].market_line,
+        ),
+    )
+    if not complete_groups:
+        return []
+    selected = _take_groups_up_to_limit(
+        _sample_pair_group(complete_groups, len(complete_groups)),
+        limit,
+    )
+    if selected:
+        return selected
+    largest_group_size = max(len(group) for group in complete_groups)
+    sampled_group_count = max(1, limit // largest_group_size)
+    return _take_groups_up_to_limit(
+        _sample_pair_group(complete_groups, sampled_group_count),
+        limit,
+    )
+
+
+def _take_groups_up_to_limit(
+    groups: list[list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]],
+    limit: int,
+) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    selected = []
+    for group in groups:
+        if len(selected) + len(group) > limit:
+            continue
+        selected.extend(group)
+    return selected
+
+
 def sample_oddspapi_training_snapshots(
     snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
     kickoff_time: datetime,
@@ -101,16 +158,17 @@ def sample_oddspapi_training_snapshots(
     fallback_window_hours: int = 4,
     fallback_min_snapshots: int = 30,
 ) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
-    primary_window_candidates = _filter_snapshots_before_kickoff(snapshots, kickoff_time)
+    primary_window_candidates = _filter_complete_market_groups(
+        _filter_snapshots_before_kickoff(snapshots, kickoff_time)
+    )
     primary_target_snapshot_count = _target_snapshot_count_for_market_types(
         primary_window_candidates,
         target_snapshots_per_market_type,
     )
     if max_snapshots_per_match is not None and max_snapshots_per_match < fallback_min_snapshots:
         return sample_historical_odds_snapshots(
-            snapshots,
+            primary_window_candidates,
             max_snapshots_per_match=max_snapshots_per_match,
-            kickoff_time=kickoff_time,
         )
     primary = sample_historical_odds_snapshots(
         snapshots,
@@ -118,7 +176,10 @@ def sample_oddspapi_training_snapshots(
         kickoff_time=kickoff_time,
         max_snapshots_per_market_type=target_snapshots_per_market_type,
     )
-    if len(primary) >= primary_target_snapshot_count:
+    if len(primary) >= primary_target_snapshot_count or (
+        len(primary) >= primary_target_snapshot_count - _max_required_side_count(primary)
+        and _has_all_candidate_market_types(primary, primary_window_candidates)
+    ):
         return primary
     kickoff_utc = _as_utc(kickoff_time)
     fallback_start = kickoff_utc - timedelta(hours=fallback_window_hours)
@@ -127,7 +188,27 @@ def sample_oddspapi_training_snapshots(
         for snapshot in snapshots
         if fallback_start <= _as_utc(snapshot.snapshot_time) <= kickoff_utc
     ]
-    return _sample_snapshot_group(fallback_candidates, fallback_min_snapshots)
+    fallback_candidates = _filter_complete_market_groups(fallback_candidates)
+    return _sample_complete_groups(fallback_candidates, fallback_min_snapshots)
+
+
+def _has_all_candidate_market_types(
+    sampled: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    candidates: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+) -> bool:
+    candidate_market_types = {snapshot.market_type for snapshot in candidates}
+    if not candidate_market_types:
+        return False
+    sampled_market_types = {snapshot.market_type for snapshot in sampled}
+    return candidate_market_types.issubset(sampled_market_types)
+
+
+def _max_required_side_count(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+) -> int:
+    if not snapshots:
+        return 0
+    return max(_required_side_count(snapshot.market_type) for snapshot in snapshots)
 
 
 def _target_snapshot_count_for_market_types(
@@ -176,6 +257,33 @@ def _filter_snapshots_before_kickoff(
     ]
 
 
+def _filter_complete_market_groups(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    grouped = {}
+    for snapshot in snapshots:
+        key = (
+            snapshot.bookmaker,
+            snapshot.market_type,
+            snapshot.snapshot_time,
+        )
+        grouped.setdefault(key, []).append(snapshot)
+
+    complete_snapshots = []
+    for group in grouped.values():
+        complete_snapshots.extend(_complete_snapshots_in_time_group(group))
+    return sorted(
+        complete_snapshots,
+        key=lambda snapshot: (
+            snapshot.snapshot_time,
+            snapshot.bookmaker,
+            snapshot.market_type,
+            snapshot.market_line,
+            snapshot.outcome_side,
+        ),
+    )
+
+
 def _sample_snapshots_by_market_type(
     snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
     max_snapshots_per_market_type: int,
@@ -195,6 +303,14 @@ def _sample_market_type_pairs(
     snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
     limit: int,
 ) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    time_groups = _complete_time_groups(snapshots)
+    if time_groups:
+        sampled_time_groups = _sample_pair_group(time_groups, _time_group_limit(time_groups, limit))
+        sampled = []
+        for group in sampled_time_groups:
+            sampled.extend(group)
+        return sampled
+
     pair_groups = {}
     for snapshot in snapshots:
         key = (
@@ -215,7 +331,7 @@ def _sample_market_type_pairs(
         key=lambda group: group[0].snapshot_time,
     )
     if not complete_pairs:
-        return _sample_snapshot_group(snapshots, limit)
+        return []
     pair_limit = max(1, math.ceil(limit / required_side_count))
     sampled_pairs = _sample_pair_group(complete_pairs, pair_limit)
     sampled = []
@@ -224,10 +340,87 @@ def _sample_market_type_pairs(
     return sampled
 
 
+def _complete_time_groups(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+) -> list[list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]]:
+    grouped = {}
+    for snapshot in snapshots:
+        key = (
+            snapshot.bookmaker,
+            snapshot.market_type,
+            snapshot.snapshot_time,
+        )
+        grouped.setdefault(key, []).append(snapshot)
+    groups = []
+    for group in grouped.values():
+        complete_group = _complete_snapshots_in_time_group(group)
+        if complete_group:
+            groups.append(sorted(complete_group, key=_snapshot_group_sort_key))
+    return sorted(groups, key=lambda group: group[0].snapshot_time)
+
+
+def _complete_snapshots_in_time_group(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    if not snapshots:
+        return []
+    market_type = snapshots[0].market_type
+    required_sides = _required_sides(market_type)
+    sides_by_line = {}
+    for snapshot in snapshots:
+        sides_by_line.setdefault(snapshot.market_line, {})[snapshot.outcome_side] = snapshot
+
+    complete_snapshots = []
+    for line_snapshots in sides_by_line.values():
+        if not required_sides.issubset(line_snapshots):
+            continue
+        complete_snapshots.extend(
+            line_snapshots[side]
+            for side in _side_order(market_type)
+            if side in line_snapshots
+        )
+    return complete_snapshots
+
+
+def _snapshot_group_sort_key(
+    snapshot: HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot,
+) -> tuple:
+    return (
+        snapshot.market_line,
+        snapshot.outcome_side,
+    )
+
+
+def _time_group_limit(
+    groups: list[list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]],
+    limit: int,
+) -> int:
+    if not groups:
+        return 0
+    group_size = max(1, len(groups[0]))
+    return max(1, math.ceil(limit / group_size))
+
+
 def _required_side_count(market_type: str) -> int:
     if market_type == "match_winner":
         return 3
     return 2
+
+
+def _required_sides(market_type: str) -> set[str]:
+    if market_type == "match_winner":
+        return {"home", "draw", "away"}
+    if market_type == "total_goals":
+        return {"over", "under"}
+    return {"home", "away"}
+
+
+def _side_order(market_type: str) -> tuple[str, ...]:
+    if market_type == "match_winner":
+        return ("home", "draw", "away")
+    if market_type == "total_goals":
+        return ("over", "under")
+    return ("home", "away")
 
 
 def _sample_pair_group(
@@ -278,14 +471,38 @@ def store_historical_odds_snapshots(
     return _store_sampled_historical_odds_snapshots(session, snapshots)
 
 
+def store_historical_odds_raw_snapshots(
+    session: Session,
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    max_snapshots_per_match: int = 450,
+    kickoff_time: datetime | None = None,
+    max_snapshots_per_market_type: int | None = 150,
+) -> HistoricalOddsStoreResult:
+    snapshots = sample_historical_odds_snapshots(
+        snapshots,
+        max_snapshots_per_match=max_snapshots_per_match,
+        kickoff_time=kickoff_time,
+        max_snapshots_per_market_type=max_snapshots_per_market_type,
+    )
+    return _store_sampled_odds_snapshot_rows(session, snapshots, HistoricalOddsRawSnapshot)
+
+
 def _store_sampled_historical_odds_snapshots(
     session: Session,
     snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
 ) -> HistoricalOddsStoreResult:
+    return _store_sampled_odds_snapshot_rows(session, snapshots, HistoricalOddsSnapshot)
+
+
+def _store_sampled_odds_snapshot_rows(
+    session: Session,
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    model_class,
+) -> HistoricalOddsStoreResult:
     inserted = 0
     skipped = 0
     seen_keys = set()
-    existing_keys = _load_existing_snapshot_keys(session, snapshots)
+    existing_keys = _load_existing_snapshot_keys(session, snapshots, model_class)
     for snapshot in snapshots:
         snapshot_key = _snapshot_unique_key(snapshot)
         if snapshot_key in seen_keys:
@@ -296,7 +513,7 @@ def _store_sampled_historical_odds_snapshots(
             continue
         seen_keys.add(snapshot_key)
         session.add(
-            HistoricalOddsSnapshot(
+            model_class(
                 match_id=snapshot.match_id,
                 source_name=snapshot.source_name,
                 source_fixture_id=snapshot.source_fixture_id,
@@ -323,15 +540,16 @@ def _store_sampled_historical_odds_snapshots(
 def _load_existing_snapshot_keys(
     session: Session,
     snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    model_class=HistoricalOddsSnapshot,
 ) -> set[tuple]:
     if not snapshots:
         return set()
     match_ids = {snapshot.match_id for snapshot in snapshots}
     source_names = {snapshot.source_name for snapshot in snapshots}
     rows = (
-        session.query(HistoricalOddsSnapshot)
-        .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
-        .filter(HistoricalOddsSnapshot.source_name.in_(source_names))
+        session.query(model_class)
+        .filter(model_class.match_id.in_(match_ids))
+        .filter(model_class.source_name.in_(source_names))
         .all()
     )
     return {_snapshot_unique_key(row) for row in rows}
@@ -346,6 +564,7 @@ def _snapshot_unique_key(
         snapshot.bookmaker,
         snapshot.market_type,
         snapshot.market_id,
+        snapshot.market_line,
         snapshot.outcome_side,
         snapshot.snapshot_time,
     )

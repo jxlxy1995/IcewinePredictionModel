@@ -49,6 +49,34 @@ def build_dynamic_main_market_snapshots(
     )
 
 
+def build_dynamic_neighbor_market_snapshots(
+    snapshots: list[Snapshot],
+    kickoff_time: datetime,
+) -> list[Snapshot]:
+    filtered = _filter_pre_kickoff_window(snapshots, kickoff_time)
+    grouped = {}
+    for snapshot in filtered:
+        key = (snapshot.bookmaker, snapshot.market_type)
+        grouped.setdefault(key, []).append(snapshot)
+
+    selected = []
+    for group in grouped.values():
+        if group and group[0].market_type == "match_winner":
+            selected.extend(_build_match_winner_timeline(group))
+        else:
+            selected.extend(_build_neighbor_market_timeline(group))
+    return sorted(
+        selected,
+        key=lambda item: (
+            _as_utc(item.snapshot_time),
+            item.bookmaker,
+            item.market_type,
+            item.market_line,
+            item.outcome_side,
+        ),
+    )
+
+
 def _build_market_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
     if snapshots and snapshots[0].market_type == "match_winner":
         return _build_match_winner_timeline(snapshots)
@@ -59,6 +87,25 @@ def _build_market_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
             latest_by_line_and_side[(snapshot.market_line, snapshot.outcome_side)] = snapshot
         selected_pair = _select_balanced_pair(list(latest_by_line_and_side.values()))
         selected.extend(_copy_pair_to_time(selected_pair, snapshot_time))
+    return selected
+
+
+def _build_neighbor_market_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
+    latest_by_line_and_side = {}
+    selected = []
+    for snapshot_time, time_snapshots in _group_snapshots_by_time(snapshots):
+        for snapshot in time_snapshots:
+            latest_by_line_and_side[(snapshot.market_line, snapshot.outcome_side)] = snapshot
+        selected_lines = _select_balanced_line_with_neighbors(
+            list(latest_by_line_and_side.values())
+        )
+        for line in selected_lines:
+            selected.extend(
+                _copy_pair_to_time(
+                    _complete_pair_for_line(list(latest_by_line_and_side.values()), line),
+                    snapshot_time,
+                )
+            )
     return selected
 
 
@@ -80,6 +127,22 @@ def _build_match_winner_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
                 )
             )
     return selected
+
+
+def _select_balanced_line_with_neighbors(snapshots: list[Snapshot]) -> list[Decimal]:
+    by_line = _complete_pairs_by_line(snapshots)
+    if not by_line:
+        return []
+    main_line = min(by_line.values(), key=_pair_score)[0].market_line
+    sorted_lines = sorted(by_line)
+    main_index = sorted_lines.index(main_line)
+    start_index = max(0, main_index - 1)
+    end_index = min(len(sorted_lines), main_index + 2)
+    return sorted_lines[start_index:end_index]
+
+
+def _complete_pair_for_line(snapshots: list[Snapshot], line: Decimal) -> list[Snapshot]:
+    return list(_complete_pairs_by_line(snapshots).get(line, ()))
 
 
 def _group_snapshots_by_time(snapshots: list[Snapshot]) -> list[tuple[datetime, list[Snapshot]]]:
@@ -164,21 +227,26 @@ def _filter_pre_kickoff_window(
 
 
 def _select_balanced_pair(snapshots: list[Snapshot]) -> list[Snapshot]:
-    by_line = {}
-    for snapshot in snapshots:
-        by_line.setdefault(snapshot.market_line, {})[snapshot.outcome_side] = snapshot
-
-    candidates = []
-    market_type = snapshots[0].market_type if snapshots else ""
-    for sides in by_line.values():
-        first_side, second_side = _required_sides(market_type)
-        if first_side not in sides or second_side not in sides:
-            continue
-        candidates.append((sides[first_side], sides[second_side]))
+    candidates = list(_complete_pairs_by_line(snapshots).values())
     if not candidates:
         return []
     first, second = min(candidates, key=_pair_score)
     return [first, second]
+
+
+def _complete_pairs_by_line(snapshots: list[Snapshot]) -> dict[Decimal, tuple[Snapshot, Snapshot]]:
+    by_line = {}
+    for snapshot in snapshots:
+        by_line.setdefault(snapshot.market_line, {})[snapshot.outcome_side] = snapshot
+
+    pairs = {}
+    market_type = snapshots[0].market_type if snapshots else ""
+    for line, sides in by_line.items():
+        first_side, second_side = _required_sides(market_type)
+        if first_side not in sides or second_side not in sides:
+            continue
+        pairs[line] = (sides[first_side], sides[second_side])
+    return pairs
 
 
 def _required_sides(market_type: str) -> tuple[str, str]:

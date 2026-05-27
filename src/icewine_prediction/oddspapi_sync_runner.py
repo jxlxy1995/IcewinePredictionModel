@@ -12,8 +12,14 @@ from sqlalchemy.orm import Session
 
 from icewine_prediction.alias_service import list_external_aliases
 from icewine_prediction.database import create_database_engine, create_session_factory, initialize_database
-from icewine_prediction.dynamic_main_market_service import build_dynamic_main_market_snapshots
-from icewine_prediction.historical_odds_service import store_historical_odds_snapshots
+from icewine_prediction.dynamic_main_market_service import (
+    build_dynamic_main_market_snapshots,
+    build_dynamic_neighbor_market_snapshots,
+)
+from icewine_prediction.historical_odds_service import (
+    store_historical_odds_raw_snapshots,
+    store_historical_odds_snapshots,
+)
 from icewine_prediction.models import HistoricalOddsSnapshot, Match, OddsSourceMatch
 from icewine_prediction.odds_source_match_service import (
     ExternalAliasInput,
@@ -602,14 +608,34 @@ def run_oddspapi_sync_for_session(
             fixture_cache_key = _build_fixture_cache_key(tournament_id, match.kickoff_time)
             if fixture_cache_key not in fixtures_by_tournament_id:
                 try:
+                    _emit_progress(
+                        progress_callback,
+                        (
+                            f"  fixture_lookup_start match_id={match.id} "
+                            f"tournament_id={tournament_id}"
+                        ),
+                    )
+                    started_at = time.monotonic()
                     fixtures_by_tournament_id[fixture_cache_key] = client.fetch_fixtures(
                         tournament_id=tournament_id,
                         kickoff_time=match.kickoff_time,
+                    )
+                    _emit_progress(
+                        progress_callback,
+                        (
+                            f"  fixture_lookup_done match_id={match.id} "
+                            f"fixtures={len(fixtures_by_tournament_id[fixture_cache_key])} "
+                            f"elapsed={_format_elapsed_seconds(started_at)}"
+                        ),
                     )
                 except OddsPapiApiError as exc:
                     if _classify_historical_odds_error(exc) == "unavailable":
                         _store_unavailable_odds_source_match(session, match, str(exc))
                     raise
+            _emit_progress(
+                progress_callback,
+                f"  fixture_match_start match_id={match.id} candidates={len(fixtures_by_tournament_id[fixture_cache_key])}",
+            )
             candidate = find_best_odds_source_match(
                 match=match,
                 fixtures=fixtures_by_tournament_id[fixture_cache_key],
@@ -623,6 +649,13 @@ def run_oddspapi_sync_for_session(
                     _format_progress_skip(index, total, match, "未匹配到 OddsPapi 比赛"),
                 )
                 continue
+            _emit_progress(
+                progress_callback,
+                (
+                    f"  fixture_match_done match_id={match.id} "
+                    f"fixture={candidate.fixture.fixture_id} score={candidate.confidence}"
+                ),
+            )
             _store_odds_source_match(session, match, candidate)
             matched += 1
             try:
@@ -800,7 +833,112 @@ def _fetch_and_store_historical_odds(
         _emit_progress(progress_callback, f"  复用盘口定义缓存 fixture={source_fixture_id}")
     else:
         _emit_progress(progress_callback, f"  拉取盘口定义 fixture={source_fixture_id}")
+    _emit_progress(progress_callback, f"  markets_request_start fixture={source_fixture_id}")
+    market_started_at = time.monotonic()
     market_definitions = client.fetch_markets(source_fixture_id)
+    _emit_progress(
+        progress_callback,
+        (
+            f"  markets_request_done fixture={source_fixture_id} "
+            f"markets={len(market_definitions)} elapsed={_format_elapsed_seconds(market_started_at)}"
+        ),
+    )
+    _emit_progress(
+        progress_callback,
+        f"  拉取历史赔率 fixture={source_fixture_id} mode=full_raw_compact_neighbors",
+    )
+    try:
+        _emit_progress(
+            progress_callback,
+            (
+                f"  historical_odds_request_start fixture={source_fixture_id} "
+                "mode=full_raw_compact_neighbors"
+            ),
+        )
+        historical_started_at = time.monotonic()
+        raw_odds = client.fetch_historical_odds(source_fixture_id)
+        _emit_progress(
+            progress_callback,
+            (
+                f"  historical_odds_request_done fixture={source_fixture_id} "
+                f"elapsed={_format_elapsed_seconds(historical_started_at)}"
+            ),
+        )
+    except OddsPapiApiError as exc:
+        if _is_rate_limit_error(exc):
+            _emit_progress(
+                progress_callback,
+                "  遇到 OddsPapi 429 限流，暂停后停止当前比赛",
+            )
+            client.backoff_after_historical_odds_rate_limit()
+        raise
+    raw_snapshots = map_historical_odds(
+        raw_odds,
+        match_id=match.id,
+        source_fixture_id=source_fixture_id,
+        market_definitions=market_definitions,
+    )
+    raw_snapshot_count = len(raw_snapshots)
+    main_snapshots = build_dynamic_main_market_snapshots(
+        raw_snapshots,
+        kickoff_time=match.kickoff_time,
+    )
+    raw_summary_snapshots = build_dynamic_neighbor_market_snapshots(
+        raw_snapshots,
+        kickoff_time=match.kickoff_time,
+    )
+    snapshots = main_snapshots
+    _emit_progress(
+        progress_callback,
+        f"  写入历史赔率 match_id={match.id} raw={raw_snapshot_count} main={len(main_snapshots)} raw_summary={len(raw_summary_snapshots)}",
+    )
+    store_main_started_at = time.monotonic()
+    store_result = store_historical_odds_snapshots(
+        session,
+        snapshots,
+        max_snapshots_per_match=max_snapshots_per_match,
+        kickoff_time=match.kickoff_time,
+        max_snapshots_per_market_type=50,
+        use_oddspapi_training_sampler=True,
+    )
+    _emit_progress(
+        progress_callback,
+        (
+            f"  store_main_done match_id={match.id} "
+            f"inserted={store_result.inserted_count} "
+            f"skipped={store_result.skipped_duplicate_count} "
+            f"elapsed={_format_elapsed_seconds(store_main_started_at)}"
+        ),
+    )
+    store_raw_started_at = time.monotonic()
+    store_historical_odds_raw_snapshots(
+        session,
+        raw_summary_snapshots,
+        max_snapshots_per_match=max_snapshots_per_match,
+        kickoff_time=match.kickoff_time,
+        max_snapshots_per_market_type=150,
+    )
+    _emit_progress(
+        progress_callback,
+        (
+            f"  store_raw_done match_id={match.id} "
+            f"snapshots={len(raw_summary_snapshots)} "
+            f"elapsed={_format_elapsed_seconds(store_raw_started_at)}"
+        ),
+    )
+    return HistoricalOddsStoreSummary(
+        inserted_count=store_result.inserted_count,
+        skipped_duplicate_count=store_result.skipped_duplicate_count,
+        asian_handicap_count=len(
+            [snapshot for snapshot in snapshots if snapshot.market_type == "asian_handicap"]
+        ),
+        total_goals_count=len(
+            [snapshot for snapshot in snapshots if snapshot.market_type == "total_goals"]
+        ),
+        match_winner_count=len(
+            [snapshot for snapshot in snapshots if snapshot.market_type == "match_winner"]
+        ),
+    )
     _emit_progress(
         progress_callback,
         f"  拉取历史赔率 fixture={source_fixture_id}",
@@ -902,8 +1040,25 @@ def _select_history_outcome_ids(market_definitions: list[dict[str, Any]]) -> lis
         markets = markets_by_type.get(market_type) or []
         if not markets:
             continue
-        main_market = min(markets, key=_market_definition_score)
-        selected.extend(main_market.outcome_ids)
+        selected_markets = _select_history_markets(market_type, markets)
+        for market in selected_markets:
+            selected.extend(market.outcome_ids)
+    return selected
+
+
+def _select_history_markets(market_type: str, markets: list) -> list:
+    ranked = sorted(markets, key=_market_definition_score)
+    if market_type == "match_winner":
+        return ranked[:1]
+    selected = []
+    seen_lines = set()
+    for market in ranked:
+        if market.line in seen_lines:
+            continue
+        selected.append(market)
+        seen_lines.add(market.line)
+        if len(selected) >= 5:
+            break
     return selected
 
 
@@ -1162,6 +1317,10 @@ def _emit_progress(
 ) -> None:
     if progress_callback is not None:
         progress_callback(message)
+
+
+def _format_elapsed_seconds(started_at: float) -> str:
+    return f"{time.monotonic() - started_at:.2f}s"
 
 
 def _format_progress_start(index: int, total: int, match: Match) -> str:

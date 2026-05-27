@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+﻿from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
@@ -160,8 +160,11 @@ def _format_progress_snapshot(path: Path) -> list[str]:
     ]
     current_league = progress.get("current_league")
     if current_league:
+        current_percent = current_league.get("progress_percent")
         lines.append(
             f"当前 {current_league.get('league_name')} id={current_league.get('league_id')} "
+            f"progress={current_league.get('processed_matches')}/{current_league.get('total_matches') or '?'} "
+            f"({current_percent if current_percent is not None else '?'}%) "
             f"round={current_league.get('round')} "
             f"processed={current_league.get('processed_matches')} "
             f"snapshots={current_league.get('inserted_snapshots')} "
@@ -181,14 +184,16 @@ def _format_progress_snapshot(path: Path) -> list[str]:
         if current_league.get("stop_reason"):
             lines.append(f"停止原因 {current_league.get('stop_reason')}")
     totals = progress.get("totals") or {}
+    total_percent = progress.get("progress_percent")
     lines.append(
-        f"总计 processed={totals.get('processed_matches')} "
+        f"总计 progress={totals.get('processed_matches')}/{progress.get('total_matches') or '?'} "
+        f"({total_percent if total_percent is not None else '?'}%) "
+        f"processed={totals.get('processed_matches')} "
         f"snapshots={totals.get('inserted_snapshots')} "
         f"failed={totals.get('failed_matches')} "
         f"requests={totals.get('requests_used')}"
     )
     return lines
-
 
 def _build_worker_command(
     *,
@@ -296,3 +301,4 @@ def _read_log_tail(path: Path, *, tail_lines: int) -> list[str]:
         return []
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     return lines[-tail_lines:]
+

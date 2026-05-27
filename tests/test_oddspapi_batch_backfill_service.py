@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+﻿from dataclasses import dataclass
 from datetime import date
 import json
 import os
@@ -12,6 +12,7 @@ from icewine_prediction.oddspapi_batch_backfill_service import (
     run_oddspapi_batch_backfill_with_runner,
     run_oddspapi_batch_worker_with_runner,
 )
+import icewine_prediction.oddspapi_batch_backfill_service as batch_service
 from icewine_prediction.oddspapi_sync_runner import OddsPapiSyncResult
 from icewine_prediction.settings import LeagueSettings
 
@@ -27,8 +28,8 @@ def test_build_league_backfill_jobs_orders_enabled_supported_leagues_by_priority
     jobs = build_league_backfill_jobs(leagues, requested_league_ids=None)
 
     assert jobs == (
-        LeagueBackfillJob(league_id="39", league_name="Premier League", priority=100),
-        LeagueBackfillJob(league_id="62", league_name="Ligue 2", priority=84),
+        LeagueBackfillJob(league_id="39", league_name="英超", priority=100),
+        LeagueBackfillJob(league_id="62", league_name="法乙", priority=84),
     )
 
 
@@ -36,7 +37,7 @@ def test_build_league_backfill_jobs_honors_requested_league_ids():
     leagues = [
         LeagueSettings("Premier League", "England", 39, True, 100),
         LeagueSettings("La Liga", "Spain", 140, True, 98),
-        LeagueSettings("Segunda División", "Spain", 141, True, 86),
+        LeagueSettings("Segunda Divisi贸n", "Spain", 141, True, 86),
         LeagueSettings("Ligue 2", "France", 62, True, 84),
         LeagueSettings("Eerste Divisie", "Netherlands", 89, True, 81),
         LeagueSettings("League One", "England", 41, True, 64),
@@ -118,7 +119,7 @@ def test_batch_backfill_stops_league_when_round_makes_no_progress():
     assert report.league_reports[0].stop_reason == "无候选或无进展"
 
 
-def test_batch_backfill_stops_league_when_round_times_out():
+def test_batch_backfill_ignores_round_timeout_to_avoid_orphan_writer_thread():
     def slow_runner(**kwargs):
         time.sleep(0.2)
         return OddsPapiSyncResult(
@@ -133,7 +134,6 @@ def test_batch_backfill_stops_league_when_round_times_out():
             requests_used=3,
         )
 
-    started_at = time.monotonic()
     report = run_oddspapi_batch_backfill_with_runner(
         jobs=(LeagueBackfillJob("62", "Ligue 2", 84),),
         runner=slow_runner,
@@ -149,10 +149,62 @@ def test_batch_backfill_stops_league_when_round_times_out():
         round_timeout_seconds=0.05,
     )
 
-    assert time.monotonic() - started_at < 0.15
-    assert report.league_reports[0].round_count == 0
+    assert report.league_reports[0].round_count == 3
+    assert report.league_reports[0].processed_match_count == 3
     assert report.league_reports[0].status == "stopped"
-    assert "超时" in report.league_reports[0].stop_reason
+    assert "联赛轮次上限" in report.league_reports[0].stop_reason
+
+
+def test_batch_worker_arms_round_watchdog_for_each_round(monkeypatch, tmp_path):
+    calls = []
+    canceled = []
+
+    class FakeTimer:
+        def cancel(self):
+            canceled.append(True)
+
+    def fake_start_round_timeout_timer(timeout_seconds, message, output_callback):
+        calls.append((timeout_seconds, message))
+        return FakeTimer()
+
+    monkeypatch.setattr(
+        batch_service,
+        "_start_round_timeout_timer",
+        fake_start_round_timeout_timer,
+    )
+
+    def fake_runner(**kwargs):
+        return OddsPapiSyncResult(
+            processed_match_count=0,
+            matched_count=0,
+            failed_match_count=0,
+            inserted_snapshot_count=0,
+            skipped_duplicate_snapshot_count=0,
+            skipped_existing_odds_count=0,
+            asian_handicap_count=0,
+            total_goals_count=0,
+            requests_used=0,
+        )
+
+    run_oddspapi_batch_worker_with_runner(
+        jobs=(LeagueBackfillJob("169", "中超", 50),),
+        runner=fake_runner,
+        season=2026,
+        from_date=date(2026, 1, 15),
+        mode=BatchBackfillMode.SAFE,
+        chunk_size=4,
+        request_budget_per_league=120,
+        timeout_seconds=20,
+        max_snapshots_per_match=450,
+        max_rounds_per_league=1,
+        stop_after_empty_matches=8,
+        round_timeout_seconds=0.1,
+        log_dir=tmp_path,
+        output_callback=None,
+    )
+
+    assert calls == [(0.1, "中超 第1轮超过 0.1 秒无返回，强制结束 OddsPapi worker")]
+    assert canceled == [True]
 
 
 def test_batch_backfill_stops_league_after_consecutive_failed_rounds():

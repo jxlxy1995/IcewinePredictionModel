@@ -99,3 +99,92 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
                     "ON external_aliases (entity_type, source_name, normalized_alias)"
                 )
             )
+        if "historical_odds_snapshots" in table_names:
+            _ensure_historical_odds_snapshot_unique_constraint(connection)
+
+
+def _ensure_historical_odds_snapshot_unique_constraint(connection) -> None:
+    expected_columns = [
+        "match_id",
+        "source_name",
+        "bookmaker",
+        "market_type",
+        "market_id",
+        "market_line",
+        "outcome_side",
+        "snapshot_time",
+    ]
+    legacy_columns = [
+        "match_id",
+        "source_name",
+        "bookmaker",
+        "market_type",
+        "market_id",
+        "outcome_side",
+        "snapshot_time",
+    ]
+    unique_indexes = _sqlite_unique_indexes(connection, "historical_odds_snapshots")
+    if expected_columns in unique_indexes.values():
+        return
+    if legacy_columns in unique_indexes.values():
+        _rebuild_historical_odds_snapshot_table(connection)
+        return
+    connection.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_historical_odds_snapshot "
+            "ON historical_odds_snapshots ("
+            "match_id, source_name, bookmaker, market_type, market_id, "
+            "market_line, outcome_side, snapshot_time)"
+        )
+    )
+
+
+def _sqlite_unique_indexes(connection, table_name: str) -> dict[str, list[str]]:
+    rows = connection.execute(text(f"PRAGMA index_list('{table_name}')")).all()
+    indexes = {}
+    for row in rows:
+        index_name = row[1]
+        is_unique = row[2]
+        if not is_unique:
+            continue
+        column_rows = connection.execute(text(f"PRAGMA index_info('{index_name}')")).all()
+        indexes[index_name] = [column_row[2] for column_row in column_rows]
+    return indexes
+
+
+def _rebuild_historical_odds_snapshot_table(connection) -> None:
+    from icewine_prediction import models  # noqa: F401
+
+    legacy_table_name = "historical_odds_snapshots_legacy_unique"
+    connection.execute(text(f"DROP TABLE IF EXISTS {legacy_table_name}"))
+    connection.execute(
+        text(
+            "ALTER TABLE historical_odds_snapshots "
+            f"RENAME TO {legacy_table_name}"
+        )
+    )
+    Base.metadata.tables["historical_odds_snapshots"].create(connection)
+    columns = [
+        "id",
+        "match_id",
+        "source_name",
+        "source_fixture_id",
+        "bookmaker",
+        "market_type",
+        "market_id",
+        "market_name",
+        "market_line",
+        "outcome_side",
+        "odds",
+        "snapshot_time",
+        "period",
+        "raw_payload",
+    ]
+    column_list = ", ".join(columns)
+    connection.execute(
+        text(
+            f"INSERT INTO historical_odds_snapshots ({column_list}) "
+            f"SELECT {column_list} FROM {legacy_table_name}"
+        )
+    )
+    connection.execute(text(f"DROP TABLE {legacy_table_name}"))

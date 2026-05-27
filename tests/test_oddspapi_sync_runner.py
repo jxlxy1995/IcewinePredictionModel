@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from icewine_prediction.models import (
     ExternalAlias,
+    HistoricalOddsRawSnapshot,
     HistoricalOddsSnapshot,
     League,
     Match,
@@ -507,7 +508,7 @@ def test_format_oddspapi_probe_report_includes_skip_ids(session):
     assert "outcomes=4" in output
 
 
-def test_select_history_outcome_ids_returns_main_standard_handicap_total_and_match_winner_outcomes():
+def test_select_history_outcome_ids_returns_candidate_handicap_total_and_match_winner_outcomes():
     markets = [
         {
             "marketId": 106,
@@ -568,7 +569,140 @@ def test_select_history_outcome_ids_returns_main_standard_handicap_total_and_mat
 
     outcome_ids = _select_history_outcome_ids(markets)
 
-    assert outcome_ids == ["210", "211", "1010", "1011", "9001", "9002", "9003"]
+    assert outcome_ids == [
+        "210",
+        "211",
+        "200",
+        "201",
+        "1010",
+        "1011",
+        "106",
+        "107",
+        "9001",
+        "9002",
+        "9003",
+    ]
+
+
+def test_select_history_outcome_ids_keeps_distinct_candidate_lines_when_market_families_duplicate():
+    markets = [
+        {
+            "marketId": 1072,
+            "marketName": "Asian Handicap",
+            "marketType": "spreads",
+            "handicap": 0,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 1072, "outcomeName": "1"},
+                {"outcomeId": 1073, "outcomeName": "2"},
+            ],
+        },
+        {
+            "marketId": 1586,
+            "marketName": "Handicap",
+            "marketType": "spreads",
+            "handicap": 0,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 1586, "outcomeName": "1"},
+                {"outcomeId": 1587, "outcomeName": "2"},
+            ],
+        },
+        {
+            "marketId": 22306,
+            "marketName": "Handicap",
+            "marketType": "spreads",
+            "handicap": 0,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 22306, "outcomeName": "1"},
+                {"outcomeId": 22307, "outcomeName": "2"},
+            ],
+        },
+        {
+            "marketId": 210,
+            "marketName": "Asian Handicap",
+            "marketType": "spreads",
+            "handicap": -0.25,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 210, "outcomeName": "1"},
+                {"outcomeId": 211, "outcomeName": "2"},
+            ],
+        },
+        {
+            "marketId": 220,
+            "marketName": "Asian Handicap",
+            "marketType": "spreads",
+            "handicap": 0.25,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 220, "outcomeName": "1"},
+                {"outcomeId": 221, "outcomeName": "2"},
+            ],
+        },
+        {
+            "marketId": 1010,
+            "marketName": "Over Under Full Time",
+            "marketType": "totals",
+            "handicap": 2.5,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 1010, "outcomeName": "Over"},
+                {"outcomeId": 1011, "outcomeName": "Under"},
+            ],
+        },
+        {
+            "marketId": 1514,
+            "marketName": "Total",
+            "marketType": "totals",
+            "handicap": 2.5,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 1514, "outcomeName": "Over"},
+                {"outcomeId": 1515, "outcomeName": "Under"},
+            ],
+        },
+        {
+            "marketId": 10170,
+            "marketName": "Over Under Full Time",
+            "marketType": "totals",
+            "handicap": 2.25,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 10170, "outcomeName": "Over"},
+                {"outcomeId": 10171, "outcomeName": "Under"},
+            ],
+        },
+        {
+            "marketId": 10270,
+            "marketName": "Over Under Full Time",
+            "marketType": "totals",
+            "handicap": 2.75,
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 10270, "outcomeName": "Over"},
+                {"outcomeId": 10271, "outcomeName": "Under"},
+            ],
+        },
+    ]
+
+    outcome_ids = _select_history_outcome_ids(markets)
+
+    assert outcome_ids == [
+        "1072",
+        "1073",
+        "210",
+        "211",
+        "220",
+        "221",
+        "1010",
+        "1011",
+        "10170",
+        "10171",
+        "10270",
+        "10271",
+    ]
 
 
 def test_format_oddspapi_sync_plan_includes_candidate_matches(session):
@@ -605,7 +739,7 @@ def test_run_oddspapi_sync_for_session_matches_fixture_and_stores_odds(session):
     assert result.inserted_snapshot_count == 4
     assert result.asian_handicap_count == 2
     assert result.total_goals_count == 2
-    assert client.request_count == 6
+    assert client.request_count == 3
     assert session.query(HistoricalOddsSnapshot).count() == 4
 
 
@@ -767,16 +901,8 @@ def test_run_oddspapi_sync_for_session_reuses_existing_source_match(session):
     assert [call[0] for call in raw_client.calls] == [
         "markets",
         "historical-odds",
-        "historical-odds",
-        "historical-odds",
-        "historical-odds",
     ]
-    assert [str(call[1].get("outcomeId")) for call in raw_client.calls[1:]] == [
-        "1070",
-        "1071",
-        "10170",
-        "10171",
-    ]
+    assert "outcomeId" not in raw_client.calls[1][1]
 
 
 def test_run_oddspapi_sync_for_session_reuses_fixture_lookup_for_same_time_window(session):
@@ -1037,7 +1163,6 @@ def test_run_oddspapi_sync_for_session_continues_after_single_outcome_odds_error
     )
     session.commit()
     raw_client = FakeOddsPapiClient()
-    raw_client.failed_historical_outcome_ids.add("1070")
     client = OddsPapiSyncClient(raw_client)
     messages = []
 
@@ -1051,10 +1176,10 @@ def test_run_oddspapi_sync_for_session_continues_after_single_outcome_odds_error
 
     assert result.processed_match_count == 1
     assert result.failed_match_count == 0
-    assert result.inserted_snapshot_count == 2
-    assert result.asian_handicap_count == 0
+    assert result.inserted_snapshot_count == 4
+    assert result.asian_handicap_count == 2
     assert result.total_goals_count == 2
-    assert any("跳过历史赔率 outcome=1070" in message for message in messages)
+    assert any("mode=full_raw_compact_neighbors" in message for message in messages)
 
 
 def test_run_oddspapi_sync_for_session_marks_all_empty_outcomes_with_429_as_failed(
@@ -1074,23 +1199,17 @@ def test_run_oddspapi_sync_for_session_marks_all_empty_outcomes_with_429_as_fail
     )
     session.commit()
 
-    class EmptyThenRateLimitedOutcomeClient(FakeOddsPapiClient):
+    class RateLimitedFullHistoricalOddsClient(FakeOddsPapiClient):
         def get(self, endpoint, params=None):
             self.request_count += 1
             self.calls.append((endpoint, params or {}))
             if endpoint == "markets":
                 return super().get(endpoint, params)
             if endpoint == "historical-odds":
-                outcome_id = str((params or {}).get("outcomeId") or "")
-                if outcome_id in {"1070", "10170"}:
-                    return {
-                        "fixtureId": (params or {}).get("fixtureId"),
-                        "bookmakers": {"pinnacle": {"markets": {}}},
-                    }
                 raise OddsPapiApiError("OddsPapi HTTP error: status=429")
             return super().get(endpoint, params)
 
-    raw_client = EmptyThenRateLimitedOutcomeClient()
+    raw_client = RateLimitedFullHistoricalOddsClient()
     client = OddsPapiSyncClient(raw_client, historical_odds_rate_limit_backoff_seconds=7)
     sleeps = []
     monkeypatch.setattr(oddspapi_sync_runner.time, "sleep", sleeps.append)
@@ -1113,10 +1232,8 @@ def test_run_oddspapi_sync_for_session_marks_all_empty_outcomes_with_429_as_fail
         for endpoint, params in raw_client.calls
         if endpoint == "historical-odds"
     ]
-    assert [str(call.get("outcomeId")) for call in historical_calls] == [
-        "1070",
-        "1071",
-    ]
+    assert len(historical_calls) == 1
+    assert "outcomeId" not in historical_calls[0]
 
 
 def test_run_oddspapi_sync_for_session_rematches_blank_cached_fixture_id(session):
@@ -1154,7 +1271,7 @@ def test_run_oddspapi_sync_for_session_rematches_blank_cached_fixture_id(session
     assert {call.get("fixtureId") for call in historical_calls} == {"oddspapi-fixture-1"}
 
 
-def test_run_oddspapi_sync_for_session_fetches_history_by_outcome_id(session):
+def test_run_oddspapi_sync_for_session_fetches_full_history_without_outcome_id(session):
     match = _match(session)
     session.add(
         OddsSourceMatch(
@@ -1183,12 +1300,113 @@ def test_run_oddspapi_sync_for_session_fetches_history_by_outcome_id(session):
         if endpoint == "historical-odds"
     ]
     assert result.inserted_snapshot_count == 4
-    assert [str(call.get("outcomeId")) for call in historical_calls] == [
-        "1070",
-        "1071",
-        "10170",
-        "10171",
-    ]
+    assert len(historical_calls) == 1
+    assert "outcomeId" not in historical_calls[0]
+
+
+def test_run_oddspapi_sync_for_session_stores_main_snapshots_and_raw_neighbor_summary(session):
+    match = _match(session)
+    session.add(
+        OddsSourceMatch(
+            match_id=match.id,
+            source_name="oddspapi",
+            source_fixture_id="multi-line-fixture",
+            matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_confidence=Decimal("1.0000"),
+            match_reason="cached",
+        )
+    )
+    session.commit()
+
+    class MultiLineClient(FakeOddsPapiClient):
+        def get(self, endpoint, params=None):
+            if endpoint == "markets":
+                self.request_count += 1
+                self.calls.append((endpoint, params or {}))
+                return [
+                    {
+                        "marketId": 10170,
+                        "marketName": "Over Under 3.00",
+                        "marketType": "totals",
+                        "period": "fulltime",
+                        "handicap": 3.0,
+                        "outcomes": [
+                            {"outcomeId": 10170, "outcomeName": "Over"},
+                            {"outcomeId": 10171, "outcomeName": "Under"},
+                        ],
+                    },
+                    {
+                        "marketId": 10180,
+                        "marketName": "Over Under 3.25",
+                        "marketType": "totals",
+                        "period": "fulltime",
+                        "handicap": 3.25,
+                        "outcomes": [
+                            {"outcomeId": 10180, "outcomeName": "Over"},
+                            {"outcomeId": 10181, "outcomeName": "Under"},
+                        ],
+                    },
+                    {
+                        "marketId": 10190,
+                        "marketName": "Over Under 3.50",
+                        "marketType": "totals",
+                        "period": "fulltime",
+                        "handicap": 3.5,
+                        "outcomes": [
+                            {"outcomeId": 10190, "outcomeName": "Over"},
+                            {"outcomeId": 10191, "outcomeName": "Under"},
+                        ],
+                    },
+                ]
+            if endpoint == "historical-odds":
+                self.request_count += 1
+                self.calls.append((endpoint, params or {}))
+                return {
+                    "fixtureId": "multi-line-fixture",
+                    "bookmakers": {
+                        "pinnacle": {
+                            "markets": {
+                                market_id: {
+                                    "outcomes": {
+                                        over_id: {"players": {"0": [{"createdAt": "2026-05-23T18:00:00Z", "price": over_price}]}},
+                                        under_id: {"players": {"0": [{"createdAt": "2026-05-23T18:00:00Z", "price": under_price}]}},
+                                    }
+                                }
+                                for market_id, over_id, under_id, over_price, under_price in [
+                                    ("10170", "10170", "10171", 1.65, 2.30),
+                                    ("10180", "10180", "10181", 1.95, 1.95),
+                                    ("10190", "10190", "10191", 2.30, 1.65),
+                                ]
+                            }
+                        }
+                    },
+                }
+            return super().get(endpoint, params)
+
+    client = OddsPapiSyncClient(MultiLineClient())
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    main_lines = {
+        row.market_line
+        for row in session.query(HistoricalOddsSnapshot)
+        .filter(HistoricalOddsSnapshot.match_id == match.id)
+        .all()
+    }
+    raw_lines = {
+        row.market_line
+        for row in session.query(HistoricalOddsRawSnapshot)
+        .filter(HistoricalOddsRawSnapshot.match_id == match.id)
+        .all()
+    }
+    assert result.inserted_snapshot_count == 2
+    assert main_lines == {Decimal("3.25")}
+    assert raw_lines == {Decimal("3.00"), Decimal("3.25"), Decimal("3.50")}
 
 
 def test_run_oddspapi_sync_for_session_reuses_market_definitions_for_multiple_matches(session):
@@ -1303,6 +1521,32 @@ def test_run_oddspapi_sync_for_session_reports_progress(session):
     assert messages[-1].startswith("[1/1] 完成")
 
 
+def test_run_oddspapi_sync_for_session_reports_diagnostic_boundaries(session):
+    _match(session)
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+    messages = []
+
+    run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+        progress_callback=messages.append,
+    )
+
+    assert any("fixture_lookup_start" in message for message in messages)
+    assert any("fixture_lookup_done" in message for message in messages)
+    assert any("fixture_match_done" in message for message in messages)
+    assert any("markets_request_start" in message for message in messages)
+    assert any("markets_request_done" in message for message in messages)
+    assert any("historical_odds_request_start" in message for message in messages)
+    assert any("historical_odds_request_done" in message for message in messages)
+    assert any("store_main_done" in message for message in messages)
+    assert any("store_raw_done" in message for message in messages)
+    assert any("elapsed=" in message for message in messages)
+
+
 def test_run_oddspapi_sync_for_session_skips_requested_match_ids(session):
     skipped_match = _match(
         session,
@@ -1349,9 +1593,6 @@ def test_run_oddspapi_sync_for_session_skips_requested_match_ids(session):
     assert all("Skipped Home" not in message for message in messages)
     assert [call[0] for call in raw_client.calls] == [
         "markets",
-        "historical-odds",
-        "historical-odds",
-        "historical-odds",
         "historical-odds",
     ]
 

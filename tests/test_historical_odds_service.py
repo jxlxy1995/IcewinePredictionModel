@@ -79,6 +79,59 @@ def test_store_historical_odds_snapshots_inserts_once_for_same_unique_key(sessio
     assert saved.odds == Decimal("1.910")
 
 
+def test_store_historical_odds_snapshots_treats_market_line_as_unique_key(session):
+    match = _match(session)
+    snapshot_time = datetime(2026, 5, 23, 18, 0, tzinfo=ZoneInfo("UTC"))
+    snapshots = [
+        replace(
+            _snapshot(match.id),
+            market_id="total-goals",
+            market_type="total_goals",
+            market_name="Over Under Full Time",
+            market_line=Decimal("2.50"),
+            outcome_side="over",
+            snapshot_time=snapshot_time,
+        ),
+        replace(
+            _snapshot(match.id),
+            market_id="total-goals",
+            market_type="total_goals",
+            market_name="Over Under Full Time",
+            market_line=Decimal("2.50"),
+            outcome_side="under",
+            snapshot_time=snapshot_time,
+        ),
+        replace(
+            _snapshot(match.id),
+            market_id="total-goals",
+            market_type="total_goals",
+            market_name="Over Under Full Time",
+            market_line=Decimal("2.75"),
+            outcome_side="over",
+            snapshot_time=snapshot_time,
+        ),
+        replace(
+            _snapshot(match.id),
+            market_id="total-goals",
+            market_type="total_goals",
+            market_name="Over Under Full Time",
+            market_line=Decimal("2.75"),
+            outcome_side="under",
+            snapshot_time=snapshot_time,
+        ),
+    ]
+
+    result = store_historical_odds_snapshots(session, snapshots)
+
+    saved_lines = {
+        row.market_line
+        for row in session.query(HistoricalOddsSnapshot).order_by(HistoricalOddsSnapshot.market_line)
+    }
+    assert result.inserted_count == 4
+    assert result.skipped_duplicate_count == 0
+    assert saved_lines == {Decimal("2.500"), Decimal("2.750")}
+
+
 def test_build_historical_odds_coverage_report_counts_matches_and_market_rows(session):
     match = _match(session)
     store_historical_odds_snapshots(
@@ -450,4 +503,182 @@ def test_sample_oddspapi_training_snapshots_accepts_4_hour_30_snapshot_floor():
         <= snapshot.snapshot_time
         <= kickoff_time.astimezone(ZoneInfo("UTC"))
         for snapshot in sampled
+    )
+
+
+def test_sample_oddspapi_training_snapshots_keeps_compact_neighbor_groups_together():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    snapshots = []
+    for index in range(20):
+        snapshot_time = kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=index * 10)
+        for line in [Decimal("3.25"), Decimal("3.50"), Decimal("3.75")]:
+            for outcome_side in ["over", "under"]:
+                snapshots.append(
+                    replace(
+                        _snapshot(match_id),
+                        market_type="total_goals",
+                        market_id=f"total-{line}",
+                        market_line=line,
+                        outcome_side=outcome_side,
+                        snapshot_time=snapshot_time,
+                    )
+                )
+
+    sampled = sample_oddspapi_training_snapshots(
+        snapshots,
+        kickoff_time=kickoff_time,
+        target_snapshots_per_market_type=24,
+    )
+
+    lines_by_time = {}
+    for snapshot in sampled:
+        lines_by_time.setdefault(snapshot.snapshot_time, set()).add(snapshot.market_line)
+
+    assert len(sampled) == 24
+    assert {frozenset(lines) for lines in lines_by_time.values()} == {
+        frozenset({Decimal("3.25"), Decimal("3.50"), Decimal("3.75")})
+    }
+
+
+def test_sample_oddspapi_training_snapshots_drops_incomplete_lines_inside_time_group():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    snapshot_time = kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(hours=1)
+    snapshots = [
+        replace(
+            _snapshot(match_id),
+            market_type="total_goals",
+            market_id="total-35",
+            market_name="Over Under Full Time",
+            market_line=Decimal("3.50"),
+            outcome_side="over",
+            snapshot_time=snapshot_time,
+        ),
+        replace(
+            _snapshot(match_id),
+            market_type="total_goals",
+            market_id="total-35",
+            market_name="Over Under Full Time",
+            market_line=Decimal("3.50"),
+            outcome_side="under",
+            snapshot_time=snapshot_time,
+        ),
+        replace(
+            _snapshot(match_id),
+            market_type="total_goals",
+            market_id="total-375",
+            market_name="Over Under Full Time",
+            market_line=Decimal("3.75"),
+            outcome_side="under",
+            snapshot_time=snapshot_time,
+        ),
+    ]
+
+    sampled = sample_oddspapi_training_snapshots(
+        snapshots,
+        kickoff_time=kickoff_time,
+        target_snapshots_per_market_type=10,
+    )
+
+    assert {(snapshot.market_line, snapshot.outcome_side) for snapshot in sampled} == {
+        (Decimal("3.50"), "over"),
+        (Decimal("3.50"), "under"),
+    }
+
+
+def test_sample_oddspapi_training_snapshots_drops_incomplete_match_winner_triplet():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    complete_time = kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(hours=1)
+    incomplete_time = kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(hours=2)
+    snapshots = []
+    for outcome_side in ["home", "draw", "away"]:
+        snapshots.append(
+            replace(
+                _snapshot(match_id),
+                market_type="match_winner",
+                market_id="1x2",
+                market_name="1X2 Full Time",
+                market_line=Decimal("0"),
+                outcome_side=outcome_side,
+                snapshot_time=complete_time,
+            )
+        )
+    for outcome_side in ["draw", "away"]:
+        snapshots.append(
+            replace(
+                _snapshot(match_id),
+                market_type="match_winner",
+                market_id="1x2",
+                market_name="1X2 Full Time",
+                market_line=Decimal("0"),
+                outcome_side=outcome_side,
+                snapshot_time=incomplete_time,
+            )
+        )
+
+    sampled = sample_oddspapi_training_snapshots(
+        snapshots,
+        kickoff_time=kickoff_time,
+        target_snapshots_per_market_type=10,
+    )
+
+    assert {snapshot.snapshot_time for snapshot in sampled} == {complete_time}
+    assert {snapshot.outcome_side for snapshot in sampled} == {"home", "draw", "away"}
+
+
+def test_sample_oddspapi_training_snapshots_final_limit_does_not_split_complete_groups():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    snapshots = []
+    for market_type, outcome_sides, market_lines in [
+        (
+            "asian_handicap",
+            ["home", "away"],
+            [Decimal("-1.00"), Decimal("-0.75"), Decimal("-0.50")],
+        ),
+        (
+            "total_goals",
+            ["over", "under"],
+            [Decimal("3.00"), Decimal("3.25"), Decimal("3.50")],
+        ),
+        ("match_winner", ["home", "draw", "away"], [Decimal("0")]),
+    ]:
+        for index in range(80):
+            snapshot_time = kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=index * 10)
+            for market_line in market_lines:
+                for outcome_side in outcome_sides:
+                    snapshots.append(
+                        replace(
+                            _snapshot(match_id),
+                            market_type=market_type,
+                            market_id=f"{market_type}-{market_line}",
+                            market_line=market_line,
+                            outcome_side=outcome_side,
+                            snapshot_time=snapshot_time,
+                        )
+                    )
+
+    sampled = sample_oddspapi_training_snapshots(snapshots, kickoff_time=kickoff_time)
+
+    required_sides = {
+        "asian_handicap": {"home", "away"},
+        "total_goals": {"over", "under"},
+        "match_winner": {"home", "draw", "away"},
+    }
+    sides_by_group = {}
+    for snapshot in sampled:
+        key = (
+            snapshot.bookmaker,
+            snapshot.market_type,
+            snapshot.snapshot_time,
+            snapshot.market_line,
+        )
+        sides_by_group.setdefault(key, set()).add(snapshot.outcome_side)
+
+    assert len(sampled) <= 151
+    assert all(
+        required_sides[market_type].issubset(sides)
+        for (_, market_type, _, _), sides in sides_by_group.items()
     )

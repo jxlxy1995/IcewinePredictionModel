@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import json
 
 from icewine_prediction.oddspapi_worker_process_service import (
@@ -84,15 +84,15 @@ def test_batch_worker_status_reads_current_status_and_log_tail(monkeypatch, tmp_
         notify_on_complete=False,
         popen_factory=lambda command, **kwargs: type("FakeProcess", (), {"pid": 9876})(),
     )
-    start_result.log_path.write_text("第一行\n第二行\n第三行\n", encoding="utf-8")
+    start_result.log_path.write_text("line one\nline two\nline three\n", encoding="utf-8")
 
     output = build_oddspapi_batch_worker_status(log_dir=tmp_path, tail_lines=2)
 
     assert "pid=9876 status=running" in output
     assert str(start_result.log_path) in output
-    assert "第二行" in output
-    assert "第三行" in output
-    assert "第一行" not in output
+    assert "line two" in output
+    assert "line three" in output
+    assert "line one" not in output
 
 
 def test_batch_worker_status_includes_progress_snapshot(monkeypatch, tmp_path):
@@ -120,7 +120,7 @@ def test_batch_worker_status_includes_progress_snapshot(monkeypatch, tmp_path):
         notify_on_complete=False,
         popen_factory=lambda command, **kwargs: type("FakeProcess", (), {"pid": 9876})(),
     )
-    start_result.log_path.write_text("启动日志\n", encoding="utf-8")
+    start_result.log_path.write_text("鍚姩鏃ュ織\n", encoding="utf-8")
     (tmp_path / "oddspapi-worker-progress.json").write_text(
         json.dumps(
             {
@@ -129,10 +129,14 @@ def test_batch_worker_status_includes_progress_snapshot(monkeypatch, tmp_path):
                 "season": 2025,
                 "worker_count": 1,
                 "league_count": 1,
+                "total_matches": 20,
+                "progress_percent": 40.0,
                 "updated_at": "2026-05-26T21:50:00+08:00",
                 "current_league": {
                     "league_id": "62",
                     "league_name": "Ligue 2",
+                    "total_matches": 20,
+                    "progress_percent": 40.0,
                     "round": 3,
                     "processed_matches": 8,
                     "failed_matches": 1,
@@ -159,8 +163,9 @@ def test_batch_worker_status_includes_progress_snapshot(monkeypatch, tmp_path):
 
     output = build_oddspapi_batch_worker_status(log_dir=tmp_path, tail_lines=1)
 
-    assert "进度快照：" in output
+    assert "进度快照" in output
     assert "状态 running updated_at=2026-05-26T21:50:00+08:00" in output
-    assert "当前 Ligue 2 id=62 round=3 processed=8 snapshots=720 failed=1 requests=24" in output
+    assert "当前 Ligue 2 id=62 progress=8/20 (40.0%) round=3 processed=8 snapshots=720 failed=1 requests=24" in output
     assert "上一轮 processed=1 snapshots=100 failed=0 requests=5" in output
-    assert "总计 processed=8 snapshots=720 failed=1 requests=24" in output
+    assert "总计 progress=8/20 (40.0%) processed=8 snapshots=720 failed=1 requests=24" in output
+

@@ -130,9 +130,44 @@ class HistoricalOddsSnapshot(Base):
             "bookmaker",
             "market_type",
             "market_id",
+            "market_line",
             "outcome_side",
             "snapshot_time",
             name="uq_historical_odds_snapshot",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), nullable=False)
+    source_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_fixture_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    bookmaker: Mapped[str] = mapped_column(String(80), nullable=False)
+    market_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    market_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    market_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    market_line: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    outcome_side: Mapped[str] = mapped_column(String(20), nullable=False)
+    odds: Mapped[Decimal] = mapped_column(Numeric(8, 3), nullable=False)
+    snapshot_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period: Mapped[str] = mapped_column(String(40), nullable=False)
+    raw_payload: Mapped[str | None] = mapped_column(Text)
+
+    match: Mapped["Match"] = relationship()
+
+
+class HistoricalOddsRawSnapshot(Base):
+    __tablename__ = "historical_odds_raw_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "match_id",
+            "source_name",
+            "bookmaker",
+            "market_type",
+            "market_id",
+            "market_line",
+            "outcome_side",
+            "snapshot_time",
+            name="uq_historical_odds_raw_snapshot",
         ),
     )
 

@@ -1,9 +1,19 @@
 ﻿from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
 import json
 import os
 import time
+from zoneinfo import ZoneInfo
 
+from icewine_prediction.models import (
+    HistoricalOddsRawSnapshot,
+    HistoricalOddsSnapshot,
+    League,
+    Match,
+    OddsSourceMatch,
+    Team,
+)
 from icewine_prediction.oddspapi_batch_backfill_service import (
     BatchBackfillMode,
     LeagueBackfillJob,
@@ -15,6 +25,47 @@ from icewine_prediction.oddspapi_batch_backfill_service import (
 import icewine_prediction.oddspapi_batch_backfill_service as batch_service
 from icewine_prediction.oddspapi_sync_runner import OddsPapiSyncResult
 from icewine_prediction.settings import LeagueSettings
+
+
+def _batch_match(
+    session,
+    *,
+    source_match_id: str,
+    source_league_id: str = "169",
+    season: int = 2026,
+) -> Match:
+    league = (
+        session.query(League)
+        .filter_by(source_name="api_football", source_league_id=source_league_id)
+        .one_or_none()
+    )
+    if league is None:
+        league = League(
+            name=f"Super League {source_league_id}",
+            country_or_region="China",
+            level=1,
+            source_name="api_football",
+            source_league_id=source_league_id,
+        )
+    home_team = Team(canonical_name=f"Home {source_match_id}")
+    away_team = Team(canonical_name=f"Away {source_match_id}")
+    session.add_all([league, home_team, away_team])
+    session.flush()
+    match = Match(
+        league=league,
+        home_team=home_team,
+        away_team=away_team,
+        kickoff_time=datetime(2026, 5, 20, 19, 35, tzinfo=ZoneInfo("Asia/Shanghai")),
+        season=season,
+        status="finished",
+        home_score=1,
+        away_score=0,
+        source_name="api_football",
+        source_match_id=source_match_id,
+    )
+    session.add(match)
+    session.commit()
+    return match
 
 
 def test_build_league_backfill_jobs_orders_enabled_supported_leagues_by_priority():
@@ -46,6 +97,70 @@ def test_build_league_backfill_jobs_honors_requested_league_ids():
     jobs = build_league_backfill_jobs(leagues, requested_league_ids={"141", "62", "89", "41"})
 
     assert [job.league_id for job in jobs] == ["141", "62", "89", "41"]
+
+
+def test_count_candidate_matches_uses_same_filters_as_sync_selector(session):
+    empty_match = _batch_match(session, source_match_id="empty")
+    raw_only_match = _batch_match(session, source_match_id="raw-only")
+    cached_unfilled_match = _batch_match(session, source_match_id="cached-unfilled")
+    completed_match = _batch_match(session, source_match_id="completed")
+    session.add(
+        HistoricalOddsRawSnapshot(
+            match_id=raw_only_match.id,
+            source_name="oddspapi",
+            source_fixture_id="raw-only-fixture",
+            bookmaker="pinnacle",
+            market_type="asian_handicap",
+            market_id="ah-0",
+            market_name="Asian Handicap 0",
+            market_line=Decimal("0.00"),
+            outcome_side="home",
+            odds=Decimal("1.90"),
+            snapshot_time=datetime(2026, 5, 20, 18, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            period="fulltime",
+        )
+    )
+    session.add(
+        OddsSourceMatch(
+            match_id=cached_unfilled_match.id,
+            source_name="oddspapi",
+            source_fixture_id="cached-unfilled-fixture",
+            matched_at=datetime(2026, 5, 20, 18, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_confidence=Decimal("1.0000"),
+            match_reason="cached",
+            historical_odds_status=None,
+        )
+    )
+    session.add(
+        HistoricalOddsSnapshot(
+            match_id=completed_match.id,
+            source_name="oddspapi",
+            source_fixture_id="completed-fixture",
+            bookmaker="pinnacle",
+            market_type="asian_handicap",
+            market_id="ah-0",
+            market_name="Asian Handicap 0",
+            market_line=Decimal("0.00"),
+            outcome_side="home",
+            odds=Decimal("1.90"),
+            snapshot_time=datetime(2026, 5, 20, 18, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            period="fulltime",
+        )
+    )
+    session.commit()
+
+    count = batch_service._count_candidate_matches_for_league(
+        session=session,
+        league_id="169",
+        season=2026,
+        from_date=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
+        skip_match_ids=None,
+    )
+
+    assert count == 3
+    assert empty_match.id
+    assert raw_only_match.id
+    assert cached_unfilled_match.id
 
 
 def test_batch_backfill_stops_league_after_consecutive_empty_rounds():

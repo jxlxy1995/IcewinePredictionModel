@@ -518,6 +518,7 @@ def _count_candidate_matches_for_league(
         .filter(HistoricalOddsSnapshot.id.is_(None))
         .filter(
             (OddsSourceMatch.id.is_(None))
+            | (OddsSourceMatch.historical_odds_status.is_(None))
             | (~OddsSourceMatch.historical_odds_status.in_({"empty", "unavailable", "unmatched"}))
         )
     )

@@ -51,6 +51,15 @@ def test_oddspapi_client_adds_api_key_and_counts_requests():
     assert session.calls[0][1]["sportId"] == 10
 
 
+def test_oddspapi_client_default_session_ignores_environment_proxy():
+    client = OddsPapiClient(
+        base_url="https://api.oddspapi.io/v4",
+        api_key="secret",
+    )
+
+    assert client.session.trust_env is False
+
+
 def test_oddspapi_client_requires_api_key():
     with pytest.raises(MissingOddsPapiKeyError):
         OddsPapiClient(base_url="https://api.oddspapi.io/v4", api_key=None)

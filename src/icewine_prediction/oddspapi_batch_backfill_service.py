@@ -582,6 +582,7 @@ def _run_league_backfill(
                 from_date=from_date,
                 skip_match_ids=skip_match_ids,
                 historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
+                progress_callback=progress_callback,
             )
         finally:
             if round_timeout_timer is not None:
@@ -823,6 +824,7 @@ def _run_round_with_timeout(
     from_date: datetime | None,
     skip_match_ids: set[int] | None,
     historical_odds_cooldown_seconds: float,
+    progress_callback: Callable[[str], None] | None,
 ) -> OddsPapiSyncResult:
     # Do not enforce round timeouts with a thread: Python cannot stop the worker thread,
     # which can leave database writes running after the controller reports stopped.
@@ -836,7 +838,7 @@ def _run_round_with_timeout(
         "from_date": from_date,
         "skip_match_ids": skip_match_ids,
         "historical_odds_cooldown_seconds": historical_odds_cooldown_seconds,
-        "progress_callback": None,
+        "progress_callback": progress_callback,
     }
     return runner(**kwargs)
 

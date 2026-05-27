@@ -512,6 +512,45 @@ def test_batch_worker_writes_progress_to_output_and_log_file(tmp_path):
     assert "Ligue 2 第1轮 processed=1 snapshots=100 failed=0 requests=3" in log_text
 
 
+def test_batch_worker_passes_detail_progress_callback_to_runner(tmp_path):
+    calls = []
+
+    def fake_runner(**kwargs):
+        calls.append(kwargs)
+        kwargs["progress_callback"]("detail: historical_odds_request_start fixture=fixture-1")
+        return OddsPapiSyncResult(
+            processed_match_count=0,
+            matched_count=0,
+            failed_match_count=0,
+            inserted_snapshot_count=0,
+            skipped_duplicate_snapshot_count=0,
+            skipped_existing_odds_count=0,
+            asian_handicap_count=0,
+            total_goals_count=0,
+            requests_used=0,
+        )
+
+    run_oddspapi_batch_worker_with_runner(
+        jobs=(LeagueBackfillJob("62", "Ligue 2", 84),),
+        runner=fake_runner,
+        season=2025,
+        from_date=date(2026, 1, 15),
+        mode=BatchBackfillMode.SAFE,
+        chunk_size=1,
+        request_budget_per_league=100,
+        timeout_seconds=20,
+        max_snapshots_per_match=120,
+        max_rounds_per_league=1,
+        stop_after_empty_matches=8,
+        log_dir=tmp_path,
+        output_callback=None,
+    )
+
+    assert calls[0]["progress_callback"] is not None
+    log_text = "\n".join(path.read_text(encoding="utf-8") for path in tmp_path.glob("*.log"))
+    assert "detail: historical_odds_request_start fixture=fixture-1" in log_text
+
+
 def test_batch_worker_writes_structured_progress_snapshot(tmp_path):
     calls = []
 

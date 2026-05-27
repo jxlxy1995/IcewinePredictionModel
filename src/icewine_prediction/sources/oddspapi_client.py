@@ -33,7 +33,7 @@ class OddsPapiClient:
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
         self.request_budget = request_budget
-        self.session = session or requests.Session()
+        self.session = session or _build_default_session()
         self.request_count = 0
 
     def get(self, endpoint: str, params: dict[str, Any] | None = None) -> Any:
@@ -71,3 +71,9 @@ class OddsPapiClient:
         if isinstance(payload, dict) and payload.get("error"):
             raise OddsPapiApiError(f"OddsPapi returned error: {payload['error']}")
         return payload
+
+
+def _build_default_session() -> requests.Session:
+    session = requests.Session()
+    session.trust_env = False
+    return session

@@ -52,3 +52,38 @@ def test_map_markets_keeps_fulltime_asian_handicap_and_total_lines():
     assert mapped[1].market_type == "total_goals"
     assert mapped[1].line == Decimal("2.25")
     assert mapped[1].outcome_ids == ("10170", "10171")
+
+
+def test_map_markets_keeps_fulltime_match_winner_without_handicap():
+    markets = [
+        {
+            "marketId": 9001,
+            "marketName": "1X2 Full Time",
+            "marketType": "moneyline",
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 9001, "outcomeName": "1"},
+                {"outcomeId": 9002, "outcomeName": "X"},
+                {"outcomeId": 9003, "outcomeName": "2"},
+            ],
+        },
+        {
+            "marketId": 9004,
+            "marketName": "1X2 First Half",
+            "marketType": "moneyline",
+            "period": "1sthalf",
+            "outcomes": [
+                {"outcomeId": 9004, "outcomeName": "1"},
+                {"outcomeId": 9005, "outcomeName": "X"},
+                {"outcomeId": 9006, "outcomeName": "2"},
+            ],
+        },
+    ]
+
+    mapped = map_markets(markets)
+
+    assert len(mapped) == 1
+    assert mapped[0].market_id == "9001"
+    assert mapped[0].market_type == "match_winner"
+    assert mapped[0].line == Decimal("0")
+    assert mapped[0].outcome_ids == ("9001", "9002", "9003")

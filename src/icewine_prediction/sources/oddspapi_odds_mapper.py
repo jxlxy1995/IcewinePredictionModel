@@ -204,4 +204,11 @@ def _map_outcome_side(outcome: dict[str, Any], market_type: str) -> str | None:
             return "over"
         if "under" in outcome_name:
             return "under"
+    if market_type == "match_winner":
+        if outcome_name in {"1", "home"}:
+            return "home"
+        if outcome_name in {"x", "draw", "tie"}:
+            return "draw"
+        if outcome_name in {"2", "away"}:
+            return "away"
     return None

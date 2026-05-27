@@ -135,3 +135,151 @@ aliases:
     source_name: oddspapi
     canonical_name: Aarhus
     alias_name: AGF Aarhus
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Rennes
+    alias_name: Stade Rennais FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Marseille
+    alias_name: Olympique Marseille
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Stade Brestois 29
+    alias_name: Stade Brest 29
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Grasshoppers
+    alias_name: Grasshopper Club Zurich
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: BSC Young Boys
+    alias_name: Young Boys Bern
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Lausanne
+    alias_name: Lausanne-Sport
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: River Plate
+    alias_name: CA River Plate (ARG)
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Belgrano Cordoba
+    alias_name: CA Belgrano de Cordoba
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Argentinos JRS
+    alias_name: Argentinos Juniors
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Gimnasia L.P.
+    alias_name: Gimnasia y Esgrima La Plata
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Union Santa Fe
+    alias_name: Union de Santa Fe
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Estudiantes L.P.
+    alias_name: Estudiantes de La Plata
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Racing Club
+    alias_name: Racing Club Avellaneda
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Independ. Rivadavia
+    alias_name: Independiente Rivadavia
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Talleres Cordoba
+    alias_name: CA Talleres de Cordoba
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Estudiantes de Rio Cuarto
+    alias_name: Estudiantes Rio Cuarto
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Instituto Cordoba
+    alias_name: Instituto AC Cordoba
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Newells Old Boys
+    alias_name: Newell's Old Boys
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Gimnasia M.
+    alias_name: Gimnasia y Esgrima Mendoza
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: U. Catolica
+    alias_name: Universidad Catolica
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: D. La Serena
+    alias_name: Deportes La Serena
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Everton de Vina
+    alias_name: CD Everton Vina del Mar
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Shanghai Shenhua
+    alias_name: Shanghai Shenhua FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: SHANGHAI SIPG
+    alias_name: Shanghai Port FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Tianjin Teda
+    alias_name: Tianjin Jinmen Tiger
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Hangzhou Greentown
+    alias_name: Zhejiang FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Shandong Luneng
+    alias_name: Shandong Taishan FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Chengdu Better City
+    alias_name: Chengdu Rongcheng
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Qingdao Jonoon
+    alias_name: Qingdao Hainiu FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Shenyang Urban
+    alias_name: Liaoning Tieren FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Chongqing Tongliang Long
+    alias_name: Chongqing Tonglianglong FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Wuhan Three Towns
+    alias_name: Wuhan Three Towns FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Dalian Zhixing
+    alias_name: Dalian Yingbo FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Chengdu Better City
+    alias_name: Chengdu Rongcheng FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Qingdao Youth Island
+    alias_name: Qingdao West Coast FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Henan Jianye
+    alias_name: Henan
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Sichuan Jiuniu
+    alias_name: Shenzhen Peng City

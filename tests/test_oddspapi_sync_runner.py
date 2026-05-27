@@ -507,7 +507,7 @@ def test_format_oddspapi_probe_report_includes_skip_ids(session):
     assert "outcomes=4" in output
 
 
-def test_select_history_outcome_ids_returns_main_standard_handicap_and_total_outcomes():
+def test_select_history_outcome_ids_returns_main_standard_handicap_total_and_match_winner_outcomes():
     markets = [
         {
             "marketId": 106,
@@ -553,11 +553,22 @@ def test_select_history_outcome_ids_returns_main_standard_handicap_and_total_out
                 {"outcomeId": 211, "outcomeName": "2"},
             ],
         },
+        {
+            "marketId": 9001,
+            "marketName": "1X2 Full Time",
+            "marketType": "moneyline",
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 9001, "outcomeName": "1"},
+                {"outcomeId": 9002, "outcomeName": "X"},
+                {"outcomeId": 9003, "outcomeName": "2"},
+            ],
+        },
     ]
 
     outcome_ids = _select_history_outcome_ids(markets)
 
-    assert outcome_ids == ["210", "211", "1010", "1011"]
+    assert outcome_ids == ["210", "211", "1010", "1011", "9001", "9002", "9003"]
 
 
 def test_format_oddspapi_sync_plan_includes_candidate_matches(session):
@@ -666,11 +677,14 @@ def test_api_football_league_mappings_include_new_sleep_backfill_targets():
     mappings = oddspapi_sync_runner.API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS
 
     assert mappings["61"] == 34
+    assert mappings["71"] == 325
     assert mappings["144"] == 38
+    assert mappings["169"] == 649
     assert mappings["179"] == 36
     assert mappings["188"] == 136
     assert mappings["207"] == 215
     assert mappings["218"] == 45
+    assert mappings["265"] == 27665
 
 
 def test_run_oddspapi_sync_for_session_samples_snapshots_before_storing(session):

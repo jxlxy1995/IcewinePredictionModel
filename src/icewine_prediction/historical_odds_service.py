@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+import math
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from icewine_prediction.models import HistoricalOddsSnapshot, Match
 from icewine_prediction.sources.oddspapi_odds_mapper import MappedHistoricalOddsSnapshot
+
+REQUIRED_ODDSPAPI_MARKET_TYPES = ("asian_handicap", "total_goals", "match_winner")
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,18 @@ class HistoricalOddsCoverageReport:
     snapshot_count: int
     asian_handicap_count: int
     total_goals_count: int
+    match_winner_count: int
+
+
+@dataclass(frozen=True)
+class HistoricalOddsMarketCoverage:
+    total_finished_matches: int
+    complete_count: int
+    blank_count: int
+    missing_asian_handicap_count: int
+    missing_total_goals_count: int
+    missing_match_winner_count: int
+    status_by_match_id: dict[int, str]
 
 
 def sample_historical_odds_snapshots(
@@ -86,6 +101,11 @@ def sample_oddspapi_training_snapshots(
     fallback_window_hours: int = 4,
     fallback_min_snapshots: int = 30,
 ) -> list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot]:
+    primary_window_candidates = _filter_snapshots_before_kickoff(snapshots, kickoff_time)
+    primary_target_snapshot_count = _target_snapshot_count_for_market_types(
+        primary_window_candidates,
+        target_snapshots_per_market_type,
+    )
     if max_snapshots_per_match is not None and max_snapshots_per_match < fallback_min_snapshots:
         return sample_historical_odds_snapshots(
             snapshots,
@@ -94,12 +114,11 @@ def sample_oddspapi_training_snapshots(
         )
     primary = sample_historical_odds_snapshots(
         snapshots,
-        max_snapshots_per_match=target_snapshots_per_market_type * 2,
+        max_snapshots_per_match=primary_target_snapshot_count,
         kickoff_time=kickoff_time,
         max_snapshots_per_market_type=target_snapshots_per_market_type,
     )
-    target_snapshot_count = target_snapshots_per_market_type * 2
-    if len(primary) >= target_snapshot_count:
+    if len(primary) >= primary_target_snapshot_count:
         return primary
     kickoff_utc = _as_utc(kickoff_time)
     fallback_start = kickoff_utc - timedelta(hours=fallback_window_hours)
@@ -109,6 +128,20 @@ def sample_oddspapi_training_snapshots(
         if fallback_start <= _as_utc(snapshot.snapshot_time) <= kickoff_utc
     ]
     return _sample_snapshot_group(fallback_candidates, fallback_min_snapshots)
+
+
+def _target_snapshot_count_for_market_types(
+    snapshots: list[HistoricalOddsSnapshotInput | MappedHistoricalOddsSnapshot],
+    target_snapshots_per_market_type: int,
+) -> int:
+    market_types = {snapshot.market_type for snapshot in snapshots}
+    if not market_types:
+        return target_snapshots_per_market_type
+    return sum(
+        max(1, math.ceil(target_snapshots_per_market_type / _required_side_count(market_type)))
+        * _required_side_count(market_type)
+        for market_type in market_types
+    )
 
 
 def _sample_snapshot_group(
@@ -171,10 +204,11 @@ def _sample_market_type_pairs(
             snapshot.snapshot_time,
         )
         pair_groups.setdefault(key, []).append(snapshot)
+    required_side_count = _required_side_count(snapshots[0].market_type if snapshots else "")
     complete_pairs = [
         sorted(group, key=lambda snapshot: snapshot.outcome_side)
         for group in pair_groups.values()
-        if len({snapshot.outcome_side for snapshot in group}) >= 2
+        if len({snapshot.outcome_side for snapshot in group}) >= required_side_count
     ]
     complete_pairs = sorted(
         complete_pairs,
@@ -182,12 +216,18 @@ def _sample_market_type_pairs(
     )
     if not complete_pairs:
         return _sample_snapshot_group(snapshots, limit)
-    pair_limit = max(1, limit // 2)
+    pair_limit = max(1, math.ceil(limit / required_side_count))
     sampled_pairs = _sample_pair_group(complete_pairs, pair_limit)
     sampled = []
     for pair in sampled_pairs:
-        sampled.extend(pair[:2])
+        sampled.extend(pair[:required_side_count])
     return sampled
+
+
+def _required_side_count(market_type: str) -> int:
+    if market_type == "match_winner":
+        return 3
+    return 2
 
 
 def _sample_pair_group(
@@ -333,9 +373,74 @@ def build_historical_odds_coverage_report(
         .with_entities(func.count(HistoricalOddsSnapshot.id))
         .scalar()
     )
+    match_winner_count = (
+        query.filter(HistoricalOddsSnapshot.market_type == "match_winner")
+        .with_entities(func.count(HistoricalOddsSnapshot.id))
+        .scalar()
+    )
     return HistoricalOddsCoverageReport(
         match_count=match_count or 0,
         snapshot_count=snapshot_count or 0,
         asian_handicap_count=asian_handicap_count or 0,
         total_goals_count=total_goals_count or 0,
+        match_winner_count=match_winner_count or 0,
     )
+
+
+def build_historical_odds_market_coverage(
+    session: Session,
+    season: int | None = None,
+) -> HistoricalOddsMarketCoverage:
+    match_query = session.query(Match).filter(Match.status == "finished")
+    if season is not None:
+        match_query = match_query.filter(Match.season == season)
+    matches = match_query.all()
+    market_rows = (
+        session.query(HistoricalOddsSnapshot.match_id, HistoricalOddsSnapshot.market_type)
+        .filter(HistoricalOddsSnapshot.match_id.in_([match.id for match in matches]))
+        .distinct()
+        .all()
+    )
+    market_types_by_match_id: dict[int, set[str]] = {}
+    for match_id, market_type in market_rows:
+        market_types_by_match_id.setdefault(match_id, set()).add(market_type)
+
+    status_by_match_id = {
+        match.id: _classify_match_market_coverage(
+            market_types_by_match_id.get(match.id, set())
+        )
+        for match in matches
+    }
+    return HistoricalOddsMarketCoverage(
+        total_finished_matches=len(matches),
+        complete_count=sum(1 for status in status_by_match_id.values() if status == "complete"),
+        blank_count=sum(1 for status in status_by_match_id.values() if status == "blank"),
+        missing_asian_handicap_count=sum(
+            1
+            for markets in (market_types_by_match_id.get(match.id, set()) for match in matches)
+            if "asian_handicap" not in markets
+        ),
+        missing_total_goals_count=sum(
+            1
+            for markets in (market_types_by_match_id.get(match.id, set()) for match in matches)
+            if "total_goals" not in markets
+        ),
+        missing_match_winner_count=sum(
+            1
+            for markets in (market_types_by_match_id.get(match.id, set()) for match in matches)
+            if "match_winner" not in markets
+        ),
+        status_by_match_id=status_by_match_id,
+    )
+
+
+def _classify_match_market_coverage(market_types: set[str]) -> str:
+    present = set(market_types)
+    if not present:
+        return "blank"
+    missing = [market_type for market_type in REQUIRED_ODDSPAPI_MARKET_TYPES if market_type not in present]
+    if not missing:
+        return "complete"
+    if len(missing) == 1:
+        return f"missing_{missing[0]}"
+    return "missing_multiple_markets"

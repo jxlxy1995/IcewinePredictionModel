@@ -42,6 +42,7 @@ API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "41": 24,
     "61": 34,
     "62": 182,
+    "71": 325,
     "78": 35,
     "79": 44,
     "88": 37,
@@ -57,6 +58,7 @@ API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "140": 8,
     "141": 54,
     "144": 38,
+    "169": 649,
     "179": 36,
     "188": 136,
     "203": 52,
@@ -64,7 +66,7 @@ API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "218": 45,
     "235": 203,
     "244": 41,
-    "265": 244,
+    "265": 27665,
     "283": 152,
     "103": 20,
 }
@@ -99,6 +101,7 @@ class OddsPapiSyncResult:
     asian_handicap_count: int
     total_goals_count: int
     requests_used: int
+    match_winner_count: int = 0
     error_message: str | None = None
 
 
@@ -131,6 +134,7 @@ class HistoricalOddsStoreSummary:
     skipped_duplicate_count: int
     asian_handicap_count: int
     total_goals_count: int
+    match_winner_count: int = 0
 
 
 class OddsPapiRequestLimiter:
@@ -541,6 +545,7 @@ def run_oddspapi_sync_for_session(
     skipped_duplicates = 0
     asian_handicap_count = 0
     total_goals_count = 0
+    match_winner_count = 0
     processed = 0
     failed = 0
     total = len(matches)
@@ -587,6 +592,7 @@ def run_oddspapi_sync_for_session(
                 skipped_duplicates += store_summary.skipped_duplicate_count
                 asian_handicap_count += store_summary.asian_handicap_count
                 total_goals_count += store_summary.total_goals_count
+                match_winner_count += store_summary.match_winner_count
                 processed += 1
                 _emit_progress(
                     progress_callback,
@@ -646,6 +652,7 @@ def run_oddspapi_sync_for_session(
             skipped_duplicates += store_summary.skipped_duplicate_count
             asian_handicap_count += store_summary.asian_handicap_count
             total_goals_count += store_summary.total_goals_count
+            match_winner_count += store_summary.match_winner_count
             processed += 1
             _emit_progress(
                 progress_callback,
@@ -667,6 +674,7 @@ def run_oddspapi_sync_for_session(
                 skipped_existing_odds_count=skipped_existing_odds,
                 asian_handicap_count=asian_handicap_count,
                 total_goals_count=total_goals_count,
+                match_winner_count=match_winner_count,
                 requests_used=client.request_count,
                 error_message=str(exc),
             )
@@ -679,6 +687,7 @@ def run_oddspapi_sync_for_session(
         skipped_existing_odds_count=skipped_existing_odds,
         asian_handicap_count=asian_handicap_count,
         total_goals_count=total_goals_count,
+        match_winner_count=match_winner_count,
         requests_used=client.request_count,
         error_message=_format_error_summary(failed),
     )
@@ -856,6 +865,9 @@ def _fetch_and_store_historical_odds(
         total_goals_count=len(
             [snapshot for snapshot in snapshots if snapshot.market_type == "total_goals"]
         ),
+        match_winner_count=len(
+            [snapshot for snapshot in snapshots if snapshot.market_type == "match_winner"]
+        ),
     )
 
 
@@ -886,7 +898,7 @@ def _select_history_outcome_ids(market_definitions: list[dict[str, Any]]) -> lis
     markets_by_type = {}
     for market in map_markets(market_definitions):
         markets_by_type.setdefault(market.market_type, []).append(market)
-    for market_type in ("asian_handicap", "total_goals"):
+    for market_type in ("asian_handicap", "total_goals", "match_winner"):
         markets = markets_by_type.get(market_type) or []
         if not markets:
             continue

@@ -244,3 +244,74 @@ def test_map_historical_odds_handles_nested_oddspapi_response_with_market_defini
         "under",
     }
     assert snapshots[0].snapshot_time.isoformat() == "2026-05-23T18:00:00+00:00"
+
+
+def test_map_historical_odds_handles_nested_match_winner_response():
+    payload = {
+        "fixtureId": "oddspapi-fixture",
+        "bookmakers": {
+            "pinnacle": {
+                "markets": {
+                    "9001": {
+                        "outcomes": {
+                            "9001": {
+                                "players": {
+                                    "0": [
+                                        {
+                                            "createdAt": "2026-05-23T18:00:00Z",
+                                            "price": 2.10,
+                                        }
+                                    ]
+                                }
+                            },
+                            "9002": {
+                                "players": {
+                                    "0": [
+                                        {
+                                            "createdAt": "2026-05-23T18:00:00Z",
+                                            "price": 3.25,
+                                        }
+                                    ]
+                                }
+                            },
+                            "9003": {
+                                "players": {
+                                    "0": [
+                                        {
+                                            "createdAt": "2026-05-23T18:00:00Z",
+                                            "price": 3.60,
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    },
+                }
+            }
+        },
+    }
+    markets = [
+        {
+            "marketId": 9001,
+            "marketName": "1X2 Full Time",
+            "marketType": "moneyline",
+            "period": "fulltime",
+            "outcomes": [
+                {"outcomeId": 9001, "outcomeName": "1"},
+                {"outcomeId": 9002, "outcomeName": "X"},
+                {"outcomeId": 9003, "outcomeName": "2"},
+            ],
+        },
+    ]
+
+    snapshots = map_historical_odds(
+        payload,
+        match_id=42,
+        source_fixture_id="oddspapi-fixture",
+        market_definitions=markets,
+    )
+
+    assert len(snapshots) == 3
+    assert {snapshot.market_type for snapshot in snapshots} == {"match_winner"}
+    assert {snapshot.market_line for snapshot in snapshots} == {Decimal("0")}
+    assert {snapshot.outcome_side for snapshot in snapshots} == {"home", "draw", "away"}

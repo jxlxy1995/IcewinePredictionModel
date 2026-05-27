@@ -23,8 +23,8 @@ def map_markets(payload: list[dict[str, Any]]) -> list[MappedOddsMarket]:
         market_type = _map_market_type(item.get("marketType"))
         if market_type is None:
             continue
-        line = Decimal(str(item.get("handicap")))
-        if not is_standard_market_line(line):
+        line = _map_market_line(item, market_type)
+        if line is None:
             continue
         mapped.append(
             MappedOddsMarket(
@@ -44,8 +44,22 @@ def map_markets(payload: list[dict[str, Any]]) -> list[MappedOddsMarket]:
 
 
 def _map_market_type(source_market_type: str | None) -> str | None:
-    if source_market_type == "spreads":
+    normalized = str(source_market_type or "").replace("-", "_").lower()
+    if normalized == "spreads":
         return "asian_handicap"
-    if source_market_type == "totals":
+    if normalized == "totals":
         return "total_goals"
+    if normalized in {"moneyline", "h2h", "match_winner", "matchwinner", "1x2"}:
+        return "match_winner"
     return None
+
+
+def _map_market_line(item: dict[str, Any], market_type: str) -> Decimal | None:
+    if market_type == "match_winner":
+        return Decimal("0")
+    if item.get("handicap") is None:
+        return None
+    line = Decimal(str(item.get("handicap")))
+    if not is_standard_market_line(line):
+        return None
+    return line

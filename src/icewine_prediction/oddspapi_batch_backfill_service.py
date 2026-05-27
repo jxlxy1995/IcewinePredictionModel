@@ -48,6 +48,7 @@ class LeagueBackfillReport:
     total_goals_count: int
     requests_used: int
     stop_reason: str
+    match_winner_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -90,7 +91,7 @@ def run_oddspapi_batch_backfill(
     chunk_size: int = 20,
     request_budget_per_league: int = 800,
     timeout_seconds: int = 20,
-    max_snapshots_per_match: int = 120,
+    max_snapshots_per_match: int = 151,
     max_rounds_per_league: int = 20,
     stop_after_empty_matches: int = 8,
     stop_after_failed_rounds: int = 2,
@@ -126,7 +127,7 @@ def run_oddspapi_batch_worker(
     chunk_size: int = 10,
     request_budget_per_league: int = 500,
     timeout_seconds: int = 20,
-    max_snapshots_per_match: int = 120,
+    max_snapshots_per_match: int = 151,
     max_rounds_per_league: int = 2,
     stop_after_empty_matches: int = 8,
     stop_after_failed_rounds: int = 2,
@@ -367,7 +368,8 @@ def format_batch_backfill_report(report) -> str:
             f"snapshots={league_report.inserted_snapshot_count} "
             f"failed={league_report.failed_match_count} "
             f"requests={league_report.requests_used} "
-            f"reason={league_report.stop_reason}"
+            f"reason={league_report.stop_reason} "
+            f"match_winner={getattr(league_report, 'match_winner_count', 0)}"
         )
     return "\n".join(lines)
 
@@ -518,6 +520,7 @@ def _run_league_backfill(
         total_goals_count=totals.total_goals_count,
         requests_used=totals.requests_used,
         stop_reason=stop_reason,
+        match_winner_count=totals.match_winner_count,
     )
 
 
@@ -539,6 +542,7 @@ def _build_progress_league(
         "skipped_existing_odds": totals.skipped_existing_odds_count,
         "asian_handicap_snapshots": totals.asian_handicap_count,
         "total_goals_snapshots": totals.total_goals_count,
+        "match_winner_snapshots": totals.match_winner_count,
         "requests_used": totals.requests_used,
         "last_round": _build_progress_round(last_round),
     }
@@ -559,6 +563,7 @@ def _build_final_progress_league(report: LeagueBackfillReport, *, progress_path:
         "skipped_existing_odds": report.skipped_existing_odds_count,
         "asian_handicap_snapshots": report.asian_handicap_count,
         "total_goals_snapshots": report.total_goals_count,
+        "match_winner_snapshots": report.match_winner_count,
         "requests_used": report.requests_used,
         "stop_reason": report.stop_reason,
         "last_round": previous_last_round,
@@ -589,6 +594,7 @@ def _build_progress_round(result: OddsPapiSyncResult) -> dict:
         "skipped_existing_odds": result.skipped_existing_odds_count,
         "asian_handicap_snapshots": result.asian_handicap_count,
         "total_goals_snapshots": result.total_goals_count,
+        "match_winner_snapshots": result.match_winner_count,
         "requests_used": result.requests_used,
         "error_message": result.error_message,
     }
@@ -606,6 +612,7 @@ def _build_progress_totals_from_report(report: BatchBackfillReport) -> "_Mutable
         totals.skipped_existing_odds_count += league.skipped_existing_odds_count
         totals.asian_handicap_count += league.asian_handicap_count
         totals.total_goals_count += league.total_goals_count
+        totals.match_winner_count += league.match_winner_count
         totals.requests_used += league.requests_used
     return totals
 
@@ -637,6 +644,7 @@ def _write_worker_progress_snapshot(
             "skipped_existing_odds": totals.skipped_existing_odds_count,
             "asian_handicap_snapshots": totals.asian_handicap_count,
             "total_goals_snapshots": totals.total_goals_count,
+            "match_winner_snapshots": totals.match_winner_count,
             "requests_used": totals.requests_used,
         },
     }
@@ -696,6 +704,7 @@ class _MutableLeagueTotals:
     skipped_existing_odds_count: int = 0
     asian_handicap_count: int = 0
     total_goals_count: int = 0
+    match_winner_count: int = 0
     requests_used: int = 0
 
     def add(self, result: OddsPapiSyncResult) -> None:
@@ -708,6 +717,7 @@ class _MutableLeagueTotals:
         self.skipped_existing_odds_count += result.skipped_existing_odds_count
         self.asian_handicap_count += result.asian_handicap_count
         self.total_goals_count += result.total_goals_count
+        self.match_winner_count += result.match_winner_count
         self.requests_used += result.requests_used
 
 

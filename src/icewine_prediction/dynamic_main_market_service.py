@@ -50,6 +50,8 @@ def build_dynamic_main_market_snapshots(
 
 
 def _build_market_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
+    if snapshots and snapshots[0].market_type == "match_winner":
+        return _build_match_winner_timeline(snapshots)
     latest_by_line_and_side = {}
     selected = []
     for snapshot_time, time_snapshots in _group_snapshots_by_time(snapshots):
@@ -57,6 +59,26 @@ def _build_market_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
             latest_by_line_and_side[(snapshot.market_line, snapshot.outcome_side)] = snapshot
         selected_pair = _select_balanced_pair(list(latest_by_line_and_side.values()))
         selected.extend(_copy_pair_to_time(selected_pair, snapshot_time))
+    return selected
+
+
+def _build_match_winner_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
+    latest_by_side = {}
+    selected = []
+    for snapshot_time, time_snapshots in _group_snapshots_by_time(snapshots):
+        for snapshot in time_snapshots:
+            latest_by_side[snapshot.outcome_side] = snapshot
+        if {"home", "draw", "away"}.issubset(latest_by_side):
+            selected.extend(
+                _copy_pair_to_time(
+                    [
+                        latest_by_side["home"],
+                        latest_by_side["draw"],
+                        latest_by_side["away"],
+                    ],
+                    snapshot_time,
+                )
+            )
     return selected
 
 

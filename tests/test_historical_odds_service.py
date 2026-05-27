@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from icewine_prediction.historical_odds_service import (
     HistoricalOddsSnapshotInput,
+    build_historical_odds_market_coverage,
     build_historical_odds_coverage_report,
     sample_oddspapi_training_snapshots,
     sample_historical_odds_snapshots,
@@ -13,16 +14,23 @@ from icewine_prediction.historical_odds_service import (
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, Team
 
 
-def _match(session):
+def _match(
+    session,
+    *,
+    source_match_id: str = "1391195",
+    league_name: str = "La Liga",
+    home_team_name: str = "Mallorca",
+    away_team_name: str = "Oviedo",
+):
     league = League(
-        name="La Liga",
+        name=league_name,
         country_or_region="Spain",
         level=1,
         source_name="api_football",
         source_league_id="140",
     )
-    home_team = Team(canonical_name="Mallorca")
-    away_team = Team(canonical_name="Oviedo")
+    home_team = Team(canonical_name=home_team_name)
+    away_team = Team(canonical_name=away_team_name)
     session.add_all([league, home_team, away_team])
     session.flush()
     match = Match(
@@ -33,7 +41,7 @@ def _match(session):
         season=2025,
         status="finished",
         source_name="api_football",
-        source_match_id="1391195",
+        source_match_id=source_match_id,
     )
     session.add(match)
     session.commit()
@@ -95,6 +103,91 @@ def test_build_historical_odds_coverage_report_counts_matches_and_market_rows(se
     assert report.snapshot_count == 2
     assert report.asian_handicap_count == 1
     assert report.total_goals_count == 1
+
+
+def test_build_historical_odds_coverage_report_counts_match_winner_rows(session):
+    match = _match(session)
+    store_historical_odds_snapshots(
+        session,
+        [
+            replace(
+                _snapshot(match.id),
+                market_type="match_winner",
+                market_id="9001",
+                market_name="1X2 Full Time",
+                market_line=Decimal("0"),
+                outcome_side="home",
+                odds=Decimal("2.10"),
+            ),
+        ],
+    )
+
+    report = build_historical_odds_coverage_report(session, season=2025)
+
+    assert report.match_winner_count == 1
+
+
+def test_build_historical_odds_market_coverage_classifies_missing_markets(session):
+    full_match = _match(session)
+    only_two_markets = _match(
+        session,
+        source_match_id="1391196",
+        league_name="Championship",
+        home_team_name="Cardiff",
+        away_team_name="Swansea",
+    )
+    blank_match = _match(
+        session,
+        source_match_id="1391197",
+        league_name="Premier League",
+        home_team_name="Wolves",
+        away_team_name="Leeds",
+    )
+    store_historical_odds_snapshots(
+        session,
+        [
+            _snapshot(full_match.id),
+            replace(
+                _snapshot(full_match.id),
+                market_type="total_goals",
+                market_id="10170",
+                market_name="Over Under Full Time",
+                market_line=Decimal("2.25"),
+                outcome_side="over",
+            ),
+            replace(
+                _snapshot(full_match.id),
+                market_type="match_winner",
+                market_id="9001",
+                market_name="1X2 Full Time",
+                market_line=Decimal("0"),
+                outcome_side="home",
+            ),
+            _snapshot(only_two_markets.id),
+            replace(
+                _snapshot(only_two_markets.id),
+                market_type="total_goals",
+                market_id="10170",
+                market_name="Over Under Full Time",
+                market_line=Decimal("2.25"),
+                outcome_side="over",
+            ),
+        ],
+    )
+
+    coverage = build_historical_odds_market_coverage(session, season=2025)
+
+    assert coverage.total_finished_matches == 3
+    assert coverage.blank_count == 1
+    assert coverage.complete_count == 1
+    assert coverage.missing_match_winner_count == 2
+    assert coverage.missing_asian_handicap_count == 1
+    assert coverage.missing_total_goals_count == 1
+    assert coverage.status_by_match_id == {
+        full_match.id: "complete",
+        only_two_markets.id: "missing_match_winner",
+        blank_match.id: "blank",
+    }
 
 
 def test_sample_historical_odds_snapshots_keeps_first_last_and_even_time_shape():
@@ -283,6 +376,50 @@ def test_sample_oddspapi_training_snapshots_prefers_24_hour_100_snapshot_target(
         "asian_handicap": 50,
         "total_goals": 50,
     }
+
+
+def test_sample_oddspapi_training_snapshots_keeps_match_winner_triplets():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    snapshots = []
+    for market_type, outcome_sides in [
+        ("asian_handicap", ["home", "away"]),
+        ("total_goals", ["over", "under"]),
+        ("match_winner", ["home", "draw", "away"]),
+    ]:
+        for index in range(80):
+            snapshot_time = kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=index * 10)
+            for outcome_side in outcome_sides:
+                snapshots.append(
+                    replace(
+                        _snapshot(match_id),
+                        market_type=market_type,
+                        market_line=Decimal("0") if market_type == "match_winner" else Decimal("2.50"),
+                        outcome_side=outcome_side,
+                        snapshot_time=snapshot_time,
+                    )
+                )
+
+    sampled = sample_oddspapi_training_snapshots(snapshots, kickoff_time=kickoff_time)
+
+    counts_by_market_type = {}
+    sides_by_match_winner_time = {}
+    for snapshot in sampled:
+        counts_by_market_type[snapshot.market_type] = (
+            counts_by_market_type.get(snapshot.market_type, 0) + 1
+        )
+        if snapshot.market_type == "match_winner":
+            sides_by_match_winner_time.setdefault(snapshot.snapshot_time, set()).add(
+                snapshot.outcome_side
+            )
+
+    assert len(sampled) == 151
+    assert counts_by_market_type == {
+        "asian_handicap": 50,
+        "total_goals": 50,
+        "match_winner": 51,
+    }
+    assert {"home", "draw", "away"} in sides_by_match_winner_time.values()
 
 
 def test_sample_oddspapi_training_snapshots_accepts_4_hour_30_snapshot_floor():

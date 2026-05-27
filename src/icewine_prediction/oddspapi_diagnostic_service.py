@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time as datetime_time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
-from icewine_prediction.models import Match
+from icewine_prediction.models import League, Match
 from icewine_prediction.odds_source_match_service import (
     ExternalAliasInput,
     OddsPapiFixture,
@@ -36,6 +37,27 @@ from icewine_prediction.time_utils import now_beijing
 
 UTC_TIMEZONE = ZoneInfo("UTC")
 BEIJING_TIMEZONE = ZoneInfo("Asia/Shanghai")
+TEAM_ALIAS_ACTION = "add or adjust OddsPapi team aliases"
+MISSING_MAPPING_ACTION = "add API-Football to OddsPapi tournament mapping"
+NO_CANDIDATE_ACTION = "verify tournament mapping, kickoff time window, and OddsPapi coverage"
+SPECIAL_COMPETITION_ACTION = "retest a regular-season sample before changing tournament mapping"
+TIME_WINDOW_ACTION = "verify kickoff timezone and widen the diagnostic time window if needed"
+API_RATE_LIMIT_ACTION = "reduce concurrency or increase cooldown before retrying"
+API_NOT_FOUND_ACTION = "verify fixture endpoint coverage and tournament mapping"
+API_ERROR_ACTION = "inspect OddsPapi error and retry with a smaller batch"
+NO_ACTION = "no action"
+
+SPECIAL_COMPETITION_KEYWORDS = (
+    "playoff",
+    "play-off",
+    "relegation",
+    "promotion",
+    "championship round",
+    "relegation round",
+    "final",
+    "semi-final",
+    "quarter-final",
+)
 
 
 @dataclass(frozen=True)
@@ -77,6 +99,8 @@ class OddsPapiFixtureDiagnosticMatch:
     home_team_name: str
     away_team_name: str
     status: str
+    failure_category: str
+    recommended_action: str
     reason: str
     candidate_count: int
     best_fixture_id: str | None
@@ -94,6 +118,8 @@ class OddsPapiFixtureDiagnosticMatch:
             "home_team_name": self.home_team_name,
             "away_team_name": self.away_team_name,
             "status": self.status,
+            "failure_category": self.failure_category,
+            "recommended_action": self.recommended_action,
             "reason": self.reason,
             "candidate_count": self.candidate_count,
             "best_fixture_id": self.best_fixture_id,
@@ -113,6 +139,7 @@ class OddsPapiFixtureDiagnosticReport:
     no_candidate_count: int
     missing_mapping_count: int
     api_error_count: int
+    failure_category_counts: dict[str, int]
     skipped_existing_odds_count: int
     requests_used: int
     matches: tuple[OddsPapiFixtureDiagnosticMatch, ...]
@@ -128,6 +155,7 @@ class OddsPapiFixtureDiagnosticReport:
             "no_candidate_count": self.no_candidate_count,
             "missing_mapping_count": self.missing_mapping_count,
             "api_error_count": self.api_error_count,
+            "failure_category_counts": self.failure_category_counts,
             "skipped_existing_odds_count": self.skipped_existing_odds_count,
             "requests_used": self.requests_used,
         }
@@ -188,13 +216,31 @@ def run_oddspapi_fixture_diagnostics_for_session(
         league_ids=league_ids,
         from_date=from_date,
     )
+    matches = list(matches)
+    remaining_match_count = max(max_matches - len(matches), 0)
+    if remaining_match_count > 0:
+        matches.extend(
+            _select_missing_mapping_matches(
+                session=session,
+                season=season,
+                max_matches=remaining_match_count,
+                league_ids=league_ids,
+                from_date=from_date,
+                exclude_match_ids={match.id for match in matches},
+            )
+        )
     team_aliases = _load_team_aliases(session)
     fixture_cache: dict[tuple[int, str, str], list[OddsPapiFixture]] = {}
     diagnostic_matches = []
     for match in matches:
         if client.request_count >= request_budget:
             diagnostic_matches.append(
-                _build_api_error_match(match, "request budget exhausted before fixture fetch")
+                _build_api_error_match(
+                    match,
+                    "request budget exhausted before fixture fetch",
+                    failure_category="api_rate_limit",
+                    recommended_action=API_RATE_LIMIT_ACTION,
+                )
             )
             break
         diagnostic_matches.append(
@@ -254,6 +300,11 @@ def format_oddspapi_fixture_diagnostic_report(
             f"manual_review: {report.manual_review_count}",
             f"no_candidate: {report.no_candidate_count}",
             f"api_error: {report.api_error_count}",
+            "failure_categories: "
+            + ", ".join(
+                f"{category}={count}"
+                for category, count in sorted(report.failure_category_counts.items())
+            ),
             f"requests_used: {report.requests_used}",
         ]
     )
@@ -272,6 +323,8 @@ def _diagnose_match(
             match=match,
             expected_tournament_id=None,
             status="missing_tournament_mapping",
+            failure_category="missing_tournament_mapping",
+            recommended_action=MISSING_MAPPING_ACTION,
             reason="API-Football league is not mapped to OddsPapi tournament",
         )
     try:
@@ -298,23 +351,31 @@ def _diagnose_match(
         )
     )
     if not candidates:
+        failure_category, recommended_action = _classify_no_candidate(match)
         return _build_empty_match(
             match=match,
             expected_tournament_id=tournament_id,
             status="no_candidate",
+            failure_category=failure_category,
+            recommended_action=recommended_action,
             reason="OddsPapi returned no fixture candidates in the UTC window",
         )
     best = candidates[0]
     if best.confidence >= confidence_threshold:
         status = "matched"
+        failure_category = "matched"
+        recommended_action = NO_ACTION
         reason = "best candidate meets team similarity threshold"
     else:
         status = "manual_review"
+        failure_category, recommended_action = _classify_manual_review(best)
         reason = "team similarity below threshold; inspect candidates and aliases"
     return _build_match(
         match=match,
         expected_tournament_id=tournament_id,
         status=status,
+        failure_category=failure_category,
+        recommended_action=recommended_action,
         reason=reason,
         candidates=candidates,
         best_fixture_id=best.fixture_id,
@@ -377,6 +438,7 @@ def _build_report(
         no_candidate_count=_count_status(matches, "no_candidate"),
         missing_mapping_count=_count_status(matches, "missing_tournament_mapping"),
         api_error_count=_count_status(matches, "api_error"),
+        failure_category_counts=_count_failure_categories(matches),
         skipped_existing_odds_count=skipped_existing_odds,
         requests_used=requests_used,
         matches=matches,
@@ -387,12 +449,16 @@ def _build_empty_match(
     match: Match,
     expected_tournament_id: int | None,
     status: str,
+    failure_category: str,
+    recommended_action: str,
     reason: str,
 ) -> OddsPapiFixtureDiagnosticMatch:
     return _build_match(
         match=match,
         expected_tournament_id=expected_tournament_id,
         status=status,
+        failure_category=failure_category,
+        recommended_action=recommended_action,
         reason=reason,
         candidates=(),
         best_fixture_id=None,
@@ -404,11 +470,17 @@ def _build_api_error_match(
     match: Match,
     reason: str,
     expected_tournament_id: int | None = None,
+    failure_category: str | None = None,
+    recommended_action: str | None = None,
 ) -> OddsPapiFixtureDiagnosticMatch:
+    failure_category = failure_category or _classify_api_error(reason)
+    recommended_action = recommended_action or _recommended_api_error_action(failure_category)
     return _build_empty_match(
         match=match,
         expected_tournament_id=expected_tournament_id,
         status="api_error",
+        failure_category=failure_category,
+        recommended_action=recommended_action,
         reason=reason,
     )
 
@@ -417,6 +489,8 @@ def _build_match(
     match: Match,
     expected_tournament_id: int | None,
     status: str,
+    failure_category: str,
+    recommended_action: str,
     reason: str,
     candidates: tuple[OddsPapiFixtureDiagnosticCandidate, ...],
     best_fixture_id: str | None,
@@ -434,6 +508,8 @@ def _build_match(
         home_team_name=match.home_team.canonical_name,
         away_team_name=match.away_team.canonical_name,
         status=status,
+        failure_category=failure_category,
+        recommended_action=recommended_action,
         reason=reason,
         candidate_count=len(candidates),
         best_fixture_id=best_fixture_id,
@@ -457,6 +533,8 @@ def _write_manual_review_csv(report: OddsPapiFixtureDiagnosticReport) -> None:
                 "home_team_name",
                 "away_team_name",
                 "status",
+                "failure_category",
+                "recommended_action",
                 "reason",
                 "best_fixture_id",
                 "best_confidence",
@@ -475,6 +553,8 @@ def _write_manual_review_csv(report: OddsPapiFixtureDiagnosticReport) -> None:
                     "home_team_name": match.home_team_name,
                     "away_team_name": match.away_team_name,
                     "status": match.status,
+                    "failure_category": match.failure_category,
+                    "recommended_action": match.recommended_action,
                     "reason": match.reason,
                     "best_fixture_id": match.best_fixture_id or "",
                     "best_confidence": str(match.best_confidence)
@@ -500,9 +580,19 @@ def _format_summary_markdown(report: OddsPapiFixtureDiagnosticReport) -> str:
         f"- skipped_existing_odds: `{report.skipped_existing_odds_count}`",
         f"- requests_used: `{report.requests_used}`",
         "",
-        "## Review Targets",
+        "## Failure Categories",
         "",
     ]
+    if report.failure_category_counts:
+        for category, count in sorted(report.failure_category_counts.items()):
+            lines.append(f"- {category}: `{count}`")
+    else:
+        lines.append("No failure categories.")
+    lines.extend([
+        "",
+        "## Review Targets",
+        "",
+    ])
     review_matches = [match for match in report.matches if match.status != "matched"]
     if not review_matches:
         lines.append("No manual review targets.")
@@ -511,13 +601,102 @@ def _format_summary_markdown(report: OddsPapiFixtureDiagnosticReport) -> str:
         lines.append(
             f"- match_id={match.match_id} {match.league_name} "
             f"{match.kickoff_time_beijing} {match.home_team_name} vs {match.away_team_name} "
-            f"status={match.status} reason={match.reason}"
+            f"status={match.status} category={match.failure_category} "
+            f"action={match.recommended_action} reason={match.reason}"
         )
     return "\n".join(lines) + "\n"
 
 
 def _count_status(matches: tuple[OddsPapiFixtureDiagnosticMatch, ...], status: str) -> int:
     return len([match for match in matches if match.status == status])
+
+
+def _count_failure_categories(matches: tuple[OddsPapiFixtureDiagnosticMatch, ...]) -> dict[str, int]:
+    counts = Counter(
+        match.failure_category for match in matches if match.status != "matched"
+    )
+    return dict(counts)
+
+
+def _select_missing_mapping_matches(
+    session: Session,
+    season: int,
+    max_matches: int,
+    league_ids: set[str] | None,
+    from_date: date | datetime | None,
+    exclude_match_ids: set[int],
+) -> list[Match]:
+    if max_matches <= 0 or league_ids is None:
+        return []
+    normalized_from_date = _normalize_from_date(from_date)
+    query = (
+        session.query(Match)
+        .join(League)
+        .filter(Match.season == season)
+        .filter(Match.status == "finished")
+        .filter(Match.home_score.isnot(None))
+        .filter(Match.away_score.isnot(None))
+        .order_by(Match.kickoff_time.desc())
+    )
+    if normalized_from_date is not None:
+        query = query.filter(Match.kickoff_time >= normalized_from_date)
+    missing_matches = []
+    for match in query:
+        source_league_id = str(match.league.source_league_id)
+        if source_league_id not in league_ids:
+            continue
+        if source_league_id in API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS:
+            continue
+        if match.id in exclude_match_ids:
+            continue
+        missing_matches.append(match)
+        if len(missing_matches) >= max_matches:
+            break
+    return missing_matches
+
+
+def _normalize_from_date(value: date | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return datetime.combine(value, datetime_time.min, tzinfo=BEIJING_TIMEZONE)
+
+
+def _classify_no_candidate(match: Match) -> tuple[str, str]:
+    if _is_special_competition_round(match):
+        return "possible_special_competition", SPECIAL_COMPETITION_ACTION
+    return "no_fixture_candidates", NO_CANDIDATE_ACTION
+
+
+def _classify_manual_review(
+    best: OddsPapiFixtureDiagnosticCandidate,
+) -> tuple[str, str]:
+    if best.confidence >= Decimal("0.6000") and best.time_delta_seconds > 3600:
+        return "time_window_mismatch", TIME_WINDOW_ACTION
+    return "team_name_mismatch", TEAM_ALIAS_ACTION
+
+
+def _classify_api_error(reason: str) -> str:
+    reason_lower = reason.lower()
+    if "status=429" in reason_lower or "rate limit" in reason_lower or "budget" in reason_lower:
+        return "api_rate_limit"
+    if "status=404" in reason_lower:
+        return "api_not_found"
+    return "api_error"
+
+
+def _recommended_api_error_action(failure_category: str) -> str:
+    if failure_category == "api_rate_limit":
+        return API_RATE_LIMIT_ACTION
+    if failure_category == "api_not_found":
+        return API_NOT_FOUND_ACTION
+    return API_ERROR_ACTION
+
+
+def _is_special_competition_round(match: Match) -> bool:
+    round_text = (match.league_round or "").lower()
+    return any(keyword in round_text for keyword in SPECIAL_COMPETITION_KEYWORDS)
 
 
 def _as_utc(value: datetime, default_timezone: ZoneInfo) -> datetime:

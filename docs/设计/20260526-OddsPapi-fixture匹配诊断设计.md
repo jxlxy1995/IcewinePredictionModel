@@ -53,8 +53,8 @@ logs/odds-diagnostics/<run_id>/
 目录内包含：
 
 - `run.json`：本次运行汇总信息。
-- `matches.jsonl`：每场比赛一行 JSON，包含候选 fixture 明细和相似度。
-- `manual_review.csv`：只列出非 `matched` 的比赛，便于人工筛选。
+- `matches.jsonl`：每场比赛一行 JSON，包含候选 fixture 明细、相似度、失败分类和建议动作。
+- `manual_review.csv`：只列出非 `matched` 的比赛，便于人工筛选；包含 `failure_category` 和 `recommended_action`。
 - `summary.md`：人读摘要。
 
 ## 状态含义
@@ -64,6 +64,19 @@ logs/odds-diagnostics/<run_id>/
 - `no_candidate`：UTC 时间窗口内没有返回 fixture，优先检查联赛映射、比赛状态、时间窗口和 OddsPapi 覆盖。
 - `missing_tournament_mapping`：API-Football 联赛 id 尚未配置 OddsPapi tournament id。
 - `api_error`：请求 OddsPapi fixture 阶段发生异常或预算耗尽。
+
+## 失败分类
+
+`status` 继续保持粗粒度状态，便于兼容已有脚本。新增 `failure_category` 和 `recommended_action` 用于人工排查：
+
+- `missing_tournament_mapping`：API-Football 联赛 id 没有配置 OddsPapi tournament id。建议先查 OddsPapi tournaments，再人工确认映射。
+- `no_fixture_candidates`：常规赛样本在 UTC 时间窗口内没有候选。建议核对 tournament id、开赛时间窗口和 OddsPapi 覆盖。
+- `possible_special_competition`：无候选且比赛轮次疑似附加赛、升级/降级赛、争冠组、保级组或杯赛阶段。建议先用常规赛中段样本复测，不要直接判断整个联赛不可用。
+- `team_name_mismatch`：有候选 fixture，但主客队相似度不足。建议补 `config/external_aliases.yaml` 或数据库外部别名。
+- `time_window_mismatch`：队名相似度尚可，但时间差偏大。建议核对时区、API-Football 开赛时间和 OddsPapi 时间窗口。
+- `api_rate_limit`：请求预算耗尽或疑似 OddsPapi 429。建议降低并发、增大 cooldown 或缩小批次后重试。
+- `api_not_found`：fixture 请求返回 404 类错误。建议核对 tournament id 和 OddsPapi 覆盖。
+- `api_error`：其他 OddsPapi API 异常。建议查看原始错误并用更小批次复测。
 
 ## 使用建议
 

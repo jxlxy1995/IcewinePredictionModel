@@ -46,6 +46,9 @@ from icewine_prediction.oddspapi_batch_backfill_service import (
     run_oddspapi_batch_backfill,
     run_oddspapi_batch_worker,
 )
+from icewine_prediction.oddspapi_backfill_audit_service import (
+    build_oddspapi_backfill_audit,
+)
 from icewine_prediction.oddspapi_diagnostic_service import (
     run_oddspapi_fixture_diagnostics,
 )
@@ -923,6 +926,21 @@ def odds_source_oddspapi_diagnose_fixtures(
             league_ids=_parse_str_set(league_ids),
             from_date=date.fromisoformat(from_date) if from_date else None,
             confidence_threshold=confidence_threshold,
+        )
+    )
+
+
+@odds_source_app.command("oddspapi-audit-backfill")
+def odds_source_oddspapi_audit_backfill(
+    season: int = typer.Option(..., "--season"),
+    log_dir: str = typer.Option("logs/odds", "--log-dir"),
+    top_errors: int = typer.Option(5, "--top-errors"),
+):
+    typer.echo(
+        build_oddspapi_backfill_audit(
+            season=season,
+            log_dir=log_dir,
+            top_errors=top_errors,
         )
     )
 

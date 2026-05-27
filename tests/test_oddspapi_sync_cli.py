@@ -21,6 +21,7 @@ def test_odds_source_group_exposes_oddspapi_commands():
     assert "oddspapi-worker-start" in result.stdout
     assert "oddspapi-worker-status" in result.stdout
     assert "oddspapi-diagnose-fixtures" in result.stdout
+    assert "oddspapi-audit-backfill" in result.stdout
 
 
 def test_oddspapi_plan_accepts_season_and_match_limit(monkeypatch):
@@ -187,6 +188,31 @@ def test_oddspapi_diagnose_fixtures_accepts_background_report_options(monkeypatc
     assert "'135'" in result.stdout
     assert "'140'" in result.stdout
     assert ":2026-01-15:0.8" in result.stdout
+
+
+def test_oddspapi_audit_backfill_accepts_season_log_dir_and_top_errors(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_oddspapi_backfill_audit",
+        lambda season, log_dir, top_errors: f"audit-backfill:{season}:{log_dir}:{top_errors}",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "odds-source",
+            "oddspapi-audit-backfill",
+            "--season",
+            "2025",
+            "--log-dir",
+            "logs/odds",
+            "--top-errors",
+            "7",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "audit-backfill:2025:logs/odds:7" in result.stdout
 
 
 def test_oddspapi_match_report_accepts_match_id(monkeypatch):

@@ -2,6 +2,7 @@ import type {
   DashboardData,
   MatchOddsTrends,
   ModelTrainingOverview,
+  OddspapiBackfillAudit,
   TeamDisplayNameWorkspace
 } from "./types";
 
@@ -284,6 +285,70 @@ export const mockModelTrainingOverview: ModelTrainingOverview = {
   ]
 };
 
+export const mockOddspapiBackfillAudit: OddspapiBackfillAudit = {
+  season: 2025,
+  log_dir: "logs/odds",
+  worker_progress: {
+    status: "running",
+    mode: "balanced",
+    season: 2025,
+    updated_at: "2026-05-27T10:15:00+08:00",
+    current_league_id: "40",
+    current_league_name: "Championship",
+    current_league_display_name: "鑻卞啝",
+    round: 12,
+    processed_matches: 18,
+    inserted_snapshots: 540,
+    failed_matches: 2,
+    requests_used: 31,
+    total_processed_matches: 180,
+    total_inserted_snapshots: 5400,
+    total_failed_matches: 12,
+    total_requests_used: 310
+  },
+  league_summaries: [
+    {
+      league_name: "Championship",
+      league_display_name: "鑻卞啝",
+      source_league_id: "40",
+      finished_matches: 552,
+      matched_matches: 494,
+      snapshot_matches: 494,
+      snapshot_count: 14820,
+      asian_handicap_snapshot_count: 7410,
+      total_goals_snapshot_count: 7410,
+      status_counts: { success: 494, unmatched: 12, failed: 4 },
+      error_counts: { "team-name-mismatch": 8, "fixture-window-empty": 4 }
+    },
+    {
+      league_name: "Premier League",
+      league_display_name: "鑻辫秴",
+      source_league_id: "39",
+      finished_matches: 380,
+      matched_matches: 350,
+      snapshot_matches: 350,
+      snapshot_count: 10500,
+      asian_handicap_snapshot_count: 5250,
+      total_goals_snapshot_count: 5250,
+      status_counts: { success: 350, unmatched: 8 },
+      error_counts: { "same-kickoff-candidate-mismatch": 3 }
+    },
+    {
+      league_name: "Bundesliga",
+      league_display_name: "寰风敳",
+      source_league_id: "78",
+      finished_matches: 306,
+      matched_matches: 286,
+      snapshot_matches: 286,
+      snapshot_count: 8580,
+      asian_handicap_snapshot_count: 4290,
+      total_goals_snapshot_count: 4290,
+      status_counts: { success: 286, empty: 6 },
+      error_counts: {}
+    }
+  ]
+};
+
 export const mockDashboardData: DashboardData = {
   source: "mock",
   summary: {
@@ -351,6 +416,7 @@ export const mockDashboardData: DashboardData = {
       notify_on_complete: true
     }
   ],
+  oddspapiBackfillAudit: mockOddspapiBackfillAudit,
   unmatched: [
     {
       match_id: 1002,

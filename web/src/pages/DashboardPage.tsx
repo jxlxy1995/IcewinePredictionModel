@@ -4,6 +4,7 @@ import {
   BarChart3,
   BrainCircuit,
   CircleAlert,
+  ClipboardList,
   Database,
   Languages,
   ListChecks,
@@ -37,6 +38,10 @@ import {
   listRecentModelRuns
 } from "../modelTrainingWorkspace";
 import {
+  buildOddspapiAuditSummaryCards,
+  listOddspapiLeagueAuditRows
+} from "../oddspapiBackfillAuditWorkspace";
+import {
   buildRecommendationRecordGroups,
   buildRecommendationRecordSummary
 } from "../recordReportWorkspace";
@@ -49,6 +54,7 @@ type ViewKey =
   | "overview"
   | "coverage"
   | "workers"
+  | "oddspapiAudit"
   | "unmatched"
   | "displayNames"
   | "models"
@@ -65,6 +71,7 @@ const navItems: NavItem[] = [
   { key: "overview", label: "总览", icon: Activity },
   { key: "coverage", label: "覆盖率", icon: Database },
   { key: "workers", label: "Worker", icon: Radio },
+  { key: "oddspapiAudit", label: "回填审计", icon: ClipboardList },
   { key: "unmatched", label: "未匹配", icon: CircleAlert },
   { key: "displayNames", label: "中文名", icon: Languages },
   { key: "models", label: "模型训练", icon: BrainCircuit },
@@ -84,6 +91,10 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
   workers: {
     title: "Worker 状态",
     subtitle: "查看后台回填进程、批次参数和日志路径"
+  },
+  oddspapiAudit: {
+    title: "OddsPapi 回填审计",
+    subtitle: "查看后台回填进度、联赛覆盖和匹配失败分布"
   },
   unmatched: {
     title: "未匹配比赛",
@@ -214,6 +225,7 @@ export function DashboardPage() {
           />
         )}
         {activeView === "workers" && <WorkersView data={data} />}
+        {activeView === "oddspapiAudit" && <OddspapiAuditView data={data} />}
         {activeView === "unmatched" && <UnmatchedView data={data} />}
         {activeView === "displayNames" && (
           <DisplayNamesView
@@ -389,6 +401,103 @@ function WorkersView({ data }: { data: DashboardData }) {
   );
 }
 
+function OddspapiAuditView({ data }: { data: DashboardData }) {
+  const audit = data.oddspapiBackfillAudit;
+  const summaryCards = buildOddspapiAuditSummaryCards(audit);
+  const leagueRows = listOddspapiLeagueAuditRows(audit);
+  const progress = audit.worker_progress;
+
+  return (
+    <section className="single-column">
+      <section className="metrics compact-metrics">
+        {summaryCards.map((card) => (
+          <MetricCard key={card.label} label={card.label} value={card.value} />
+        ))}
+      </section>
+      <section className="grid">
+        <Panel title="Worker 进度">
+          {progress ? (
+            <div className="audit-progress">
+              <div className="match-heading">
+                <strong>{progress.current_league_display_name ?? progress.current_league_name ?? "-"}</strong>
+                <span>
+                  {progress.status ?? "-"} / {progress.mode ?? "-"} / {progress.updated_at ?? "-"}
+                </span>
+              </div>
+              <div className="audit-progress-grid">
+                <span>赛季</span>
+                <strong>{progress.season ?? audit.season}</strong>
+                <span>轮次</span>
+                <strong>{formatNullableNumber(progress.round)}</strong>
+                <span>当前处理</span>
+                <strong>{formatNullableNumber(progress.processed_matches)}</strong>
+                <span>当前快照</span>
+                <strong>{formatNullableNumber(progress.inserted_snapshots)}</strong>
+                <span>当前失败</span>
+                <strong>{formatNullableNumber(progress.failed_matches)}</strong>
+                <span>当前请求</span>
+                <strong>{formatNullableNumber(progress.requests_used)}</strong>
+              </div>
+            </div>
+          ) : (
+            <div className="empty-state">暂无 worker 进度快照</div>
+          )}
+        </Panel>
+        <Panel title="总计">
+          <div className="audit-progress-grid">
+            <span>已处理比赛</span>
+            <strong>{formatNullableNumber(progress?.total_processed_matches)}</strong>
+            <span>写入快照</span>
+            <strong>{formatNullableNumber(progress?.total_inserted_snapshots)}</strong>
+            <span>失败比赛</span>
+            <strong>{formatNullableNumber(progress?.total_failed_matches)}</strong>
+            <span>请求次数</span>
+            <strong>{formatNullableNumber(progress?.total_requests_used)}</strong>
+            <span>日志目录</span>
+            <strong>{audit.log_dir}</strong>
+          </div>
+        </Panel>
+      </section>
+      <Panel title="联赛回填审计">
+        <table>
+          <thead>
+            <tr>
+              <th>联赛</th>
+              <th>OddsPapi ID</th>
+              <th>完赛</th>
+              <th>已匹配</th>
+              <th>有快照</th>
+              <th>覆盖率</th>
+              <th>快照</th>
+              <th>亚盘</th>
+              <th>大小球</th>
+              <th>状态</th>
+              <th>主要失败原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            {leagueRows.map((league) => (
+              <tr key={`${league.league_name}-${league.source_league_id ?? "none"}`}>
+                <td>{league.league_display_name ?? league.league_name}</td>
+                <td>{league.source_league_id ?? "-"}</td>
+                <td>{league.finished_matches.toLocaleString()}</td>
+                <td>{league.matched_matches.toLocaleString()}</td>
+                <td>{league.snapshot_matches.toLocaleString()}</td>
+                <td>{league.snapshot_coverage_ratio}</td>
+                <td>{league.snapshot_count.toLocaleString()}</td>
+                <td>{league.asian_handicap_snapshot_count.toLocaleString()}</td>
+                <td>{league.total_goals_snapshot_count.toLocaleString()}</td>
+                <td>{league.status_summary}</td>
+                <td>{league.top_error}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+    </section>
+  );
+}
+
 function UnmatchedView({ data }: { data: DashboardData }) {
   return (
     <section className="single-column">
@@ -556,6 +665,10 @@ function OddsView({
       </Panel>
     </section>
   );
+}
+
+function formatNullableNumber(value: number | null | undefined) {
+  return value == null ? "-" : value.toLocaleString();
 }
 
 function formatShortDateTime(value: string) {

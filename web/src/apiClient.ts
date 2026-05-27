@@ -11,6 +11,7 @@ import type {
   LeagueCoverage,
   MatchWithOdds,
   MatchOddsTrends,
+  OddspapiBackfillAudit,
   RecommendationRecord,
   TeamDisplayNameRow,
   TeamDisplayNameWorkspace,
@@ -32,7 +33,8 @@ export async function loadDashboardData(): Promise<DashboardData> {
       matchesWithOdds,
       missingTeamDisplayNames,
       displayTranslationStatus,
-      recommendationRecords
+      recommendationRecords,
+      oddspapiBackfillAudit
     ] = await Promise.all([
       getJson<DashboardSummary>("/api/dashboard/summary"),
       getJson<LeagueCoverage[]>("/api/leagues/coverage"),
@@ -41,7 +43,8 @@ export async function loadDashboardData(): Promise<DashboardData> {
       getJson<MatchWithOdds[]>("/api/matches/with-odds"),
       getJson<TeamDisplayNameRow[]>("/api/display/missing-team-names"),
       getJson<DisplayTranslationStatus>("/api/display/translation-status"),
-      getJson<RecommendationRecord[]>("/api/recommendation-records")
+      getJson<RecommendationRecord[]>("/api/recommendation-records"),
+      getJson<OddspapiBackfillAudit>("/api/oddspapi/backfill-audit?season=2025")
     ]);
     const oddsTrends = await loadFirstOddsTrend(matchesWithOdds);
     return {
@@ -55,7 +58,8 @@ export async function loadDashboardData(): Promise<DashboardData> {
       missingTeamDisplayNames,
       doneDisplayTranslationKeys: displayTranslationStatus.done_league_seasons,
       modelTraining: mockModelTrainingOverview,
-      recommendationRecords
+      recommendationRecords,
+      oddspapiBackfillAudit
     };
   } catch {
     return {

@@ -29,6 +29,7 @@ from icewine_prediction.historical_performance_service import (
 )
 from icewine_prediction.historical_odds_audit_service import (
     audit_live_historical_odds,
+    clear_historical_odds_for_leagues,
     clear_historical_odds_snapshots,
     delete_live_historical_odds,
 )
@@ -956,6 +957,24 @@ def odds_source_oddspapi_clear_snapshots():
     with session_factory() as session:
         deleted = clear_historical_odds_snapshots(session, source_name="oddspapi")
     typer.echo(f"已删除 OddsPapi 历史赔率快照 {deleted}")
+
+
+@odds_source_app.command("oddspapi-clear-league-snapshots")
+def odds_source_oddspapi_clear_league_snapshots(
+    league_ids: str = typer.Option(..., "--league-ids"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = clear_historical_odds_for_leagues(
+            session,
+            source_name="oddspapi",
+            league_ids=_parse_str_set(league_ids) or set(),
+        )
+    typer.echo(f"已删除 OddsPapi 主表历史赔率快照 {report.main_snapshot_count}")
+    typer.echo(f"已删除 OddsPapi raw 历史赔率快照 {report.raw_snapshot_count}")
+    typer.echo(f"已重置 OddsPapi 比赛历史赔率状态 {report.reset_source_match_count}")
 
 
 @odds_source_app.command("oddspapi-match-report")

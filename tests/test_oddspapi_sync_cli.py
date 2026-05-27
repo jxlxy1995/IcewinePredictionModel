@@ -15,6 +15,7 @@ def test_odds_source_group_exposes_oddspapi_commands():
     assert "oddspapi-audit-live" in result.stdout
     assert "oddspapi-clear-live" in result.stdout
     assert "oddspapi-clear-snapshots" in result.stdout
+    assert "oddspapi-clear-league-snapshots" in result.stdout
     assert "oddspapi-match-report" in result.stdout
     assert "oddspapi-batch-backfill" in result.stdout
     assert "oddspapi-batch-worker" in result.stdout
@@ -203,6 +204,57 @@ def test_oddspapi_match_report_accepts_match_id(monkeypatch):
 
     assert result.exit_code == 0
     assert "match-report:1141" in result.stdout
+
+
+def test_oddspapi_clear_league_snapshots_accepts_league_ids(monkeypatch):
+    runner = CliRunner()
+    calls = {}
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeSessionFactory:
+        def __call__(self):
+            return FakeSession()
+
+    monkeypatch.setattr("icewine_prediction.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("icewine_prediction.cli.initialize_database", lambda engine: None)
+    monkeypatch.setattr("icewine_prediction.cli.create_session_factory", lambda engine: FakeSessionFactory())
+
+    def fake_clear(session, source_name, league_ids):
+        calls["source_name"] = source_name
+        calls["league_ids"] = league_ids
+        return type(
+            "Report",
+            (),
+            {
+                "main_snapshot_count": 12,
+                "raw_snapshot_count": 34,
+                "reset_source_match_count": 5,
+            },
+        )()
+
+    monkeypatch.setattr("icewine_prediction.cli.clear_historical_odds_for_leagues", fake_clear)
+
+    result = runner.invoke(
+        app,
+        [
+            "odds-source",
+            "oddspapi-clear-league-snapshots",
+            "--league-ids",
+            "103,113",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls == {"source_name": "oddspapi", "league_ids": {"103", "113"}}
+    assert "12" in result.stdout
+    assert "34" in result.stdout
+    assert "5" in result.stdout
 
 
 def test_oddspapi_batch_backfill_accepts_controller_options(monkeypatch):

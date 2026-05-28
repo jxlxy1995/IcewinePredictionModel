@@ -1,6 +1,5 @@
 from datetime import datetime
 from decimal import Decimal
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
@@ -102,6 +101,78 @@ def test_web_console_api_returns_worker_statuses(tmp_path):
             "notify_on_complete": True,
         }
     ]
+
+
+def test_web_console_api_returns_oddspapi_backfill_audit(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    _seed_console_data(session_factory)
+    (tmp_path / "oddspapi-worker-progress.json").write_text(
+        """
+        {
+          "status": "running",
+          "mode": "balanced",
+          "season": 2025,
+          "updated_at": "2026-05-27T10:15:00+08:00",
+          "current_league": {
+            "league_id": "40",
+            "league_name": "Championship",
+            "round": 12,
+            "processed_matches": 18,
+            "inserted_snapshots": 540,
+            "failed_matches": 2,
+            "requests_used": 31
+          },
+          "totals": {
+            "processed_matches": 180,
+            "inserted_snapshots": 5400,
+            "failed_matches": 12,
+            "requests_used": 310
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    client = TestClient(create_web_app(session_factory=session_factory, log_dir=tmp_path))
+
+    response = client.get("/api/oddspapi/backfill-audit?season=2025")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["season"] == 2025
+    assert payload["worker_progress"] == {
+        "status": "running",
+        "mode": "balanced",
+        "season": 2025,
+        "updated_at": "2026-05-27T10:15:00+08:00",
+        "current_league_id": "40",
+        "current_league_name": "Championship",
+        "current_league_display_name": "英冠",
+        "round": 12,
+        "processed_matches": 18,
+        "inserted_snapshots": 540,
+        "failed_matches": 2,
+        "requests_used": 31,
+        "total_processed_matches": 180,
+        "total_inserted_snapshots": 5400,
+        "total_failed_matches": 12,
+        "total_requests_used": 310,
+    }
+    assert len(payload["league_summaries"]) == 1
+    league_summary = payload["league_summaries"][0]
+    assert league_summary["league_name"]
+    assert league_summary["league_display_name"]
+    assert league_summary["source_league_id"] == "40"
+    assert league_summary["finished_matches"] == 2
+    assert league_summary["matched_matches"] == 0
+    assert league_summary["snapshot_matches"] == 1
+    assert league_summary["snapshot_count"] == 2
+    assert league_summary["asian_handicap_snapshot_count"] == 1
+    assert league_summary["total_goals_snapshot_count"] == 1
+    assert league_summary["status_counts"] == {"unmatched": 1}
+    assert league_summary["error_counts"] == {}
 
 
 def test_web_console_api_returns_unmatched_matches(tmp_path):

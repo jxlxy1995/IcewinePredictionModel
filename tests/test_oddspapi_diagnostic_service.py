@@ -29,13 +29,15 @@ def _finished_match(
     home_team_name="Mallorca",
     away_team_name="Oviedo",
     kickoff_time=None,
+    source_league_id="140",
+    league_round=None,
 ):
     league = League(
         name="La Liga",
         country_or_region="Spain",
         level=1,
         source_name="api_football",
-        source_league_id="140",
+        source_league_id=source_league_id,
     )
     home_team = Team(canonical_name=home_team_name)
     away_team = Team(canonical_name=away_team_name)
@@ -51,6 +53,7 @@ def _finished_match(
         status="finished",
         home_score=2,
         away_score=1,
+        league_round=league_round,
         source_name="api_football",
         source_match_id="1391195",
     )
@@ -140,8 +143,69 @@ def test_fixture_diagnostics_marks_manual_review_when_only_wrong_teams_return(
 
     assert report.manual_review_count == 1
     assert report.matches[0].status == "manual_review"
+    assert report.matches[0].failure_category == "team_name_mismatch"
+    assert report.matches[0].recommended_action == "add or adjust OddsPapi team aliases"
     assert report.matches[0].candidate_count == 1
     assert "team similarity below threshold" in report.matches[0].reason
+    run_dir = tmp_path / "manual-review-test"
+    match_rows = (run_dir / "matches.jsonl").read_text(encoding="utf-8").splitlines()
+    match_payload = json.loads(match_rows[0])
+    assert match_payload["failure_category"] == "team_name_mismatch"
+    assert match_payload["recommended_action"] == "add or adjust OddsPapi team aliases"
+    manual_review_csv = (run_dir / "manual_review.csv").read_text(encoding="utf-8")
+    assert "failure_category" in manual_review_csv
+    assert "team_name_mismatch" in manual_review_csv
+    summary = (run_dir / "summary.md").read_text(encoding="utf-8")
+    assert "- team_name_mismatch: `1`" in summary
+
+
+def test_fixture_diagnostics_classifies_no_candidate_special_round_for_review(
+    session,
+    tmp_path,
+):
+    _finished_match(session, league_round="Relegation Play-offs - Final")
+    raw_client = FakeOddsPapiFixtureClient([])
+
+    report = run_oddspapi_fixture_diagnostics_for_session(
+        session=session,
+        client=OddsPapiSyncClient(raw_client),
+        season=2025,
+        max_matches=1,
+        request_budget=10,
+        log_dir=tmp_path,
+        run_id="special-round-test",
+    )
+
+    assert report.no_candidate_count == 1
+    assert report.matches[0].status == "no_candidate"
+    assert report.matches[0].failure_category == "possible_special_competition"
+    assert (
+        report.matches[0].recommended_action
+        == "retest a regular-season sample before changing tournament mapping"
+    )
+
+
+def test_fixture_diagnostics_classifies_missing_tournament_mapping(
+    session,
+    tmp_path,
+):
+    _finished_match(session, source_league_id="999999")
+    raw_client = FakeOddsPapiFixtureClient([])
+
+    report = run_oddspapi_fixture_diagnostics_for_session(
+        session=session,
+        client=OddsPapiSyncClient(raw_client),
+        season=2025,
+        max_matches=1,
+        request_budget=10,
+        log_dir=tmp_path,
+        run_id="missing-mapping-test",
+        league_ids={"999999"},
+    )
+
+    assert report.missing_mapping_count == 1
+    assert report.matches[0].failure_category == "missing_tournament_mapping"
+    assert report.matches[0].recommended_action == "add API-Football to OddsPapi tournament mapping"
 
 
 def test_fixture_diagnostic_run_id_is_unique_within_same_second():

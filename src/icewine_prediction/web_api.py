@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import asdict
 from datetime import datetime
 from decimal import Decimal
 import json
@@ -25,6 +26,10 @@ from icewine_prediction.models import (
     OddsSourceMatch,
     RecommendationRecord,
     Team,
+)
+from icewine_prediction.oddspapi_backfill_audit_service import (
+    OddsPapiBackfillAuditReport,
+    build_oddspapi_backfill_audit_for_session,
 )
 from icewine_prediction.oddspapi_worker_process_service import _is_process_running
 
@@ -74,6 +79,18 @@ def create_web_app(
     @app.get("/api/workers")
     def workers() -> list[dict[str, Any]]:
         return build_worker_statuses(log_dir, process_running_checker=process_running_checker)
+
+    @app.get("/api/oddspapi/backfill-audit")
+    def oddspapi_backfill_audit(season: int = 2025, top_errors: int = 5) -> dict[str, Any]:
+        with session_factory() as session:
+            report = build_oddspapi_backfill_audit_for_session(
+                session=session,
+                season=season,
+                log_dir=log_dir,
+                top_errors=top_errors,
+                display_service=display_name_service,
+            )
+            return build_oddspapi_backfill_audit_payload(report)
 
     @app.get("/api/unmatched")
     def unmatched() -> list[dict[str, Any]]:
@@ -252,6 +269,19 @@ def build_worker_statuses(
         except (OSError, json.JSONDecodeError):
             pass
     return statuses
+
+
+def build_oddspapi_backfill_audit_payload(
+    report: OddsPapiBackfillAuditReport,
+) -> dict[str, Any]:
+    return {
+        "season": report.season,
+        "log_dir": str(report.log_dir),
+        "worker_progress": (
+            asdict(report.worker_progress) if report.worker_progress is not None else None
+        ),
+        "league_summaries": [asdict(summary) for summary in report.league_summaries],
+    }
 
 
 def build_unmatched_matches(

@@ -31,6 +31,46 @@ export type WorkerStatus = {
   notify_on_complete: boolean;
 };
 
+export type OddspapiWorkerProgressAudit = {
+  status: string | null;
+  mode: string | null;
+  season: number | null;
+  updated_at: string | null;
+  current_league_id: string | null;
+  current_league_name: string | null;
+  current_league_display_name: string | null;
+  round: number | null;
+  processed_matches: number | null;
+  inserted_snapshots: number | null;
+  failed_matches: number | null;
+  requests_used: number | null;
+  total_processed_matches: number | null;
+  total_inserted_snapshots: number | null;
+  total_failed_matches: number | null;
+  total_requests_used: number | null;
+};
+
+export type OddspapiLeagueBackfillAudit = {
+  league_name: string;
+  league_display_name?: string;
+  source_league_id: string | null;
+  finished_matches: number;
+  matched_matches: number;
+  snapshot_matches: number;
+  snapshot_count: number;
+  asian_handicap_snapshot_count: number;
+  total_goals_snapshot_count: number;
+  status_counts: Record<string, number>;
+  error_counts: Record<string, number>;
+};
+
+export type OddspapiBackfillAudit = {
+  season: number;
+  log_dir: string;
+  worker_progress: OddspapiWorkerProgressAudit | null;
+  league_summaries: OddspapiLeagueBackfillAudit[];
+};
+
 export type UnmatchedMatch = {
   match_id: number;
   league_name: string;
@@ -166,6 +206,7 @@ export type DashboardData = {
   summary: DashboardSummary;
   leagues: LeagueCoverage[];
   workers: WorkerStatus[];
+  oddspapiBackfillAudit: OddspapiBackfillAudit;
   unmatched: UnmatchedMatch[];
   oddsTrends: MatchOddsTrends;
   matchesWithOdds: MatchWithOdds[];

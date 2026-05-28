@@ -307,6 +307,28 @@ th {
   font-size: 13px;
 }
 
+.audit-progress {
+  display: grid;
+  gap: 12px;
+}
+
+.audit-progress-grid {
+  display: grid;
+  gap: 10px 14px;
+  grid-template-columns: minmax(92px, 0.55fr) minmax(0, 1fr);
+}
+
+.audit-progress-grid span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.audit-progress-grid strong {
+  color: #1d2733;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
 .trend-title {
   color: #475569;
   font-weight: 700;

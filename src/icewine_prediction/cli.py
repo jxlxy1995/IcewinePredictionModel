@@ -1,5 +1,6 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import typer
 from sqlalchemy import text
@@ -33,6 +34,16 @@ from icewine_prediction.historical_odds_audit_service import (
     clear_historical_odds_snapshots,
     delete_live_historical_odds,
 )
+from icewine_prediction.historical_training_sample_service import (
+    DEFAULT_ANCHORS,
+    HistoricalMarketTrainingSample,
+    list_historical_market_training_samples,
+)
+from icewine_prediction.historical_training_sample_report_service import (
+    DEFAULT_HISTORICAL_ODDS_ELIGIBLE_START,
+    build_historical_odds_sample_quality_report,
+    format_historical_odds_sample_quality_report,
+)
 from icewine_prediction.match_query_service import list_upcoming_matches
 from icewine_prediction.model_training_service import (
     BaselineResultEvaluation,
@@ -46,6 +57,12 @@ from icewine_prediction.negative_binomial_model_service import (
 from icewine_prediction.oddspapi_batch_backfill_service import (
     run_oddspapi_batch_backfill,
     run_oddspapi_batch_worker,
+)
+from icewine_prediction.oddspapi_backfill_audit_service import (
+    build_oddspapi_backfill_audit,
+)
+from icewine_prediction.oddspapi_alias_suggestion_service import (
+    build_oddspapi_alias_suggestions_text,
 )
 from icewine_prediction.oddspapi_diagnostic_service import (
     run_oddspapi_fixture_diagnostics,
@@ -78,6 +95,7 @@ from icewine_prediction.sample_report_service import (
     TrainingSampleReport,
     build_training_sample_report,
 )
+from icewine_prediction.config import BEIJING_TIMEZONE
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.skellam_model_service import SkellamMarginModel
 from icewine_prediction.sync_runner import (
@@ -421,6 +439,30 @@ def format_training_sample_line(
         f"主 {sample.home_handicap_result or '-'} 客 {sample.away_handicap_result or '-'} | "
         f"大小球 {sample.total_line or '-'} "
         f"大 {sample.over_result or '-'} 小 {sample.under_result or '-'}"
+    )
+
+
+def format_historical_market_training_sample_line(
+    sample: HistoricalMarketTrainingSample,
+    display_service: DisplayNameService,
+) -> str:
+    kickoff = sample.kickoff_time.strftime("%Y-%m-%d %H:%M")
+    league_name = display_service.display_league(sample.league_name)
+    home_name = display_service.display_team(sample.home_team_name)
+    away_name = display_service.display_team(sample.away_team_name)
+    anchor_labels = "/".join(anchor.label for anchor in sample.anchors) or "-"
+    missing_labels = "/".join(sample.missing_anchor_labels) or "-"
+    quality_tags = "/".join(sample.quality_tags) or "-"
+    return (
+        f"{league_name} {kickoff} {home_name} vs {away_name} | "
+        f"{sample.market_type} {sample.bookmaker} | "
+        f"锚点 {len(sample.anchors)}/{len(DEFAULT_ANCHORS)} {anchor_labels} | "
+        f"快照 {sample.snapshot_count} | "
+        f"盘口变化 {sample.line_movement if sample.line_movement is not None else '-'} | "
+        f"赔率变化 {sample.side_a_odds_movement if sample.side_a_odds_movement is not None else '-'}"
+        f"/{sample.side_b_odds_movement if sample.side_b_odds_movement is not None else '-'} | "
+        f"缺失 {missing_labels} | "
+        f"标签 {quality_tags}"
     )
 
 
@@ -928,6 +970,41 @@ def odds_source_oddspapi_diagnose_fixtures(
     )
 
 
+@odds_source_app.command("oddspapi-audit-backfill")
+def odds_source_oddspapi_audit_backfill(
+    season: int = typer.Option(..., "--season"),
+    log_dir: str = typer.Option("logs/odds", "--log-dir"),
+    top_errors: int = typer.Option(5, "--top-errors"),
+):
+    typer.echo(
+        build_oddspapi_backfill_audit(
+            season=season,
+            log_dir=log_dir,
+            top_errors=top_errors,
+        )
+    )
+
+
+@odds_source_app.command("oddspapi-suggest-aliases")
+def odds_source_oddspapi_suggest_aliases(
+    report_dir: str = typer.Option(..., "--report-dir"),
+    alias_config_path: str = typer.Option(
+        "config/external_aliases.yaml",
+        "--alias-config-path",
+    ),
+    alias_threshold: str = typer.Option("0.75", "--alias-threshold"),
+    anchor_threshold: str = typer.Option("0.75", "--anchor-threshold"),
+):
+    typer.echo(
+        build_oddspapi_alias_suggestions_text(
+            report_dir=report_dir,
+            alias_config_path=alias_config_path,
+            alias_threshold=alias_threshold,
+            anchor_threshold=anchor_threshold,
+        )
+    )
+
+
 @odds_source_app.command("oddspapi-audit-live")
 def odds_source_oddspapi_audit_live():
     engine = create_database_engine()
@@ -992,6 +1069,16 @@ def _parse_str_set(value: str) -> set[str] | None:
     if not value.strip():
         return None
     return {item.strip() for item in value.split(",") if item.strip()}
+
+
+def _parse_beijing_datetime(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise typer.BadParameter("expected ISO date or datetime") from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=ZoneInfo(BEIJING_TIMEZONE))
+    return parsed.astimezone(ZoneInfo(BEIJING_TIMEZONE))
 
 
 @aliases_app.command("add")
@@ -1072,6 +1159,52 @@ def samples_report(season: int | None = typer.Option(None, "--season")):
     with session_factory() as session:
         report = build_training_sample_report(session, season=season)
         typer.echo(format_training_sample_report(report))
+
+
+@samples_app.command("historical-odds-preview")
+def samples_historical_odds_preview(
+    season: int | None = typer.Option(None, "--season"),
+    limit: int = typer.Option(20, "--limit"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    display_service = DisplayNameService()
+    with session_factory() as session:
+        samples = list_historical_market_training_samples(
+            session,
+            season=season,
+            limit=limit,
+            bookmaker=bookmaker,
+        )
+        if not samples:
+            typer.echo("暂无历史赔率训练样本")
+            return
+        for sample in samples:
+            typer.echo(format_historical_market_training_sample_line(sample, display_service))
+
+
+@samples_app.command("historical-odds-report")
+def samples_historical_odds_report(
+    season: int | None = typer.Option(None, "--season"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+    eligible_start: str = typer.Option(
+        DEFAULT_HISTORICAL_ODDS_ELIGIBLE_START.strftime("%Y-%m-%d"),
+        "--eligible-start",
+    ),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_historical_odds_sample_quality_report(
+            session,
+            season=season,
+            eligible_start=_parse_beijing_datetime(eligible_start),
+            bookmaker=bookmaker,
+        )
+        typer.echo(format_historical_odds_sample_quality_report(report))
 
 
 @models_app.command("train-baseline")

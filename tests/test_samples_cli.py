@@ -10,6 +10,10 @@ from icewine_prediction.cli import (
     format_historical_market_training_sample_line,
     format_training_sample_line,
 )
+from icewine_prediction.close_market_baseline_service import (
+    CloseMarketBaselineMarketReport,
+    CloseMarketBaselineReport,
+)
 from icewine_prediction.display_service import DisplayNameService, DisplayNames
 from icewine_prediction.historical_odds_feature_service import HistoricalOddsMarketFeature
 from icewine_prediction.historical_training_sample_service import (
@@ -56,6 +60,15 @@ def test_samples_group_exposes_historical_odds_features_preview_help():
 
     assert result.exit_code == 0
     assert "historical-odds-features-preview" in result.stdout
+
+
+def test_samples_group_exposes_historical_odds_close_baseline_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "historical-odds-close-baseline" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -230,6 +243,57 @@ def test_samples_historical_odds_features_preview_command_outputs_features(monke
     assert result.exit_code == 0
     assert "match_winner" in result.stdout
     assert "close 0.5556/0.2500/0.2000" in result.stdout
+
+
+def test_samples_historical_odds_close_baseline_command_outputs_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build_report(session, *, season, limit, bookmaker):
+        captured["season"] = season
+        captured["limit"] = limit
+        captured["bookmaker"] = bookmaker
+        return CloseMarketBaselineReport(
+            total_feature_count=1,
+            evaluated_sample_count=1,
+            skipped_sample_count=0,
+            market_reports={
+                "match_winner": CloseMarketBaselineMarketReport(
+                    market_type="match_winner",
+                    feature_count=1,
+                    evaluated_sample_count=1,
+                    skipped_sample_count=0,
+                    average_log_loss=Decimal("0.5920"),
+                    average_brier_score=Decimal("0.2900"),
+                    accuracy=Decimal("1.0000"),
+                    average_overround=Decimal("1.0056"),
+                )
+            },
+        )
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_close_market_baseline_report_from_session",
+        fake_build_report,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "historical-odds-close-baseline",
+            "--season",
+            "2026",
+            "--limit",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["season"] == 2026
+    assert captured["limit"] == 5
+    assert captured["bookmaker"] == "pinnacle"
+    assert "close market baseline" in result.stdout
+    assert "match_winner: evaluated 1 skipped 0" in result.stdout
 
 
 def _historical_market_feature() -> HistoricalOddsMarketFeature:

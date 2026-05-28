@@ -6,6 +6,10 @@ import typer
 from sqlalchemy import text
 
 from icewine_prediction.alias_service import add_external_alias, list_external_aliases
+from icewine_prediction.close_market_baseline_service import (
+    build_close_market_baseline_report_from_session,
+    format_close_market_baseline_report,
+)
 from icewine_prediction.database import (
     create_database_engine,
     create_session_factory,
@@ -1282,6 +1286,25 @@ def samples_historical_odds_features_preview(
             return
         for feature in features:
             typer.echo(format_historical_odds_market_feature_line(feature, display_service))
+
+
+@samples_app.command("historical-odds-close-baseline")
+def samples_historical_odds_close_baseline(
+    season: int | None = typer.Option(None, "--season"),
+    limit: int | None = typer.Option(None, "--limit"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_close_market_baseline_report_from_session(
+            session,
+            season=season,
+            limit=limit,
+            bookmaker=bookmaker,
+        )
+        typer.echo(format_close_market_baseline_report(report))
 
 
 @models_app.command("train-baseline")

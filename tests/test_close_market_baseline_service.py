@@ -51,6 +51,40 @@ def test_build_close_market_baseline_report_evaluates_three_way_and_two_way_mark
     assert report.market_reports["total_goals"].skipped_sample_count == 1
 
 
+def test_build_close_market_baseline_report_scores_half_win_and_half_loss():
+    features = [
+        _feature(
+            market_type="total_goals",
+            probabilities=(Decimal("0.6000"), Decimal("0.4000"), None),
+            results=("half_win", "half_loss", None),
+        ),
+        _feature(
+            market_type="total_goals",
+            probabilities=(Decimal("0.6000"), Decimal("0.4000"), None),
+            results=("half_loss", "half_win", None),
+        ),
+    ]
+
+    report = build_close_market_baseline_report(features)
+
+    total_goals = report.market_reports["total_goals"]
+    assert total_goals.evaluated_sample_count == 2
+    assert total_goals.skipped_sample_count == 0
+    assert total_goals.accuracy == Decimal("0.5000")
+    assert total_goals.average_log_loss == _average(
+        [
+            _binary_soft_log_loss(Decimal("0.6000"), Decimal("0.75")),
+            _binary_soft_log_loss(Decimal("0.6000"), Decimal("0.25")),
+        ]
+    )
+    assert total_goals.average_brier_score == _average(
+        [
+            _binary_soft_brier(Decimal("0.6000"), Decimal("0.75")),
+            _binary_soft_brier(Decimal("0.6000"), Decimal("0.25")),
+        ]
+    )
+
+
 def test_format_close_market_baseline_report_summarizes_market_metrics():
     report = build_close_market_baseline_report(
         [
@@ -133,6 +167,29 @@ def _brier(probabilities: tuple[Decimal, ...], actual_index: int) -> Decimal:
         actual = Decimal("1") if index == actual_index else Decimal("0")
         total += (probability - actual) ** 2
     return total.quantize(Decimal("0.0001"))
+
+
+def _binary_soft_log_loss(side_a_probability: Decimal, side_a_target: Decimal) -> Decimal:
+    side_b_probability = Decimal("1") - side_a_probability
+    value = -(
+        side_a_target * Decimal(str(log(float(side_a_probability))))
+        + (Decimal("1") - side_a_target)
+        * Decimal(str(log(float(side_b_probability))))
+    )
+    return value.quantize(Decimal("0.0001"))
+
+
+def _binary_soft_brier(side_a_probability: Decimal, side_a_target: Decimal) -> Decimal:
+    side_b_probability = Decimal("1") - side_a_probability
+    side_b_target = Decimal("1") - side_a_target
+    return (
+        (side_a_probability - side_a_target) ** 2
+        + (side_b_probability - side_b_target) ** 2
+    ).quantize(Decimal("0.0001"))
+
+
+def _average(values: list[Decimal]) -> Decimal:
+    return (sum(values) / Decimal(len(values))).quantize(Decimal("0.0001"))
 
 
 def _normalize(probabilities: tuple[Decimal, ...]) -> tuple[Decimal, ...]:

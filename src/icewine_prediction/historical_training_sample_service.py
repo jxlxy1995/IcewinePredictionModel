@@ -41,6 +41,10 @@ class HistoricalOddsAnchorFeature:
     overround: Decimal
     side_a_result: str
     side_b_result: str
+    side_c: str | None = None
+    side_c_odds: Decimal | None = None
+    side_c_implied_probability: Decimal | None = None
+    side_c_result: str | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,7 @@ class HistoricalMarketTrainingSample:
     line_movement: Decimal | None
     side_a_odds_movement: Decimal | None
     side_b_odds_movement: Decimal | None
+    side_c_odds_movement: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -74,9 +79,14 @@ class _PairedMarketSnapshot:
     side_b: str
     side_a_odds: Decimal
     side_b_odds: Decimal
+    side_c: str | None = None
+    side_c_odds: Decimal | None = None
 
     @property
     def balance_gap(self) -> Decimal:
+        if self.side_c_odds is not None:
+            odds = [self.side_a_odds, self.side_b_odds, self.side_c_odds]
+            return max(odds) - min(odds)
         return abs(self.side_a_odds - self.side_b_odds)
 
 
@@ -114,7 +124,7 @@ def list_historical_market_training_samples(
     samples: list[HistoricalMarketTrainingSample] = []
     for match in matches:
         match_snapshots = snapshots_by_match_id.get(match.id, [])
-        for market_type in ("asian_handicap", "total_goals"):
+        for market_type in ("asian_handicap", "total_goals", "match_winner"):
             sample = _build_market_sample(
                 match=match,
                 market_type=market_type,
@@ -213,6 +223,11 @@ def _build_market_sample(
         line_movement=_round_line(last_anchor.market_line - first_anchor.market_line),
         side_a_odds_movement=_round_probability(last_anchor.side_a_odds - first_anchor.side_a_odds),
         side_b_odds_movement=_round_probability(last_anchor.side_b_odds - first_anchor.side_b_odds),
+        side_c_odds_movement=(
+            _round_probability(last_anchor.side_c_odds - first_anchor.side_c_odds)
+            if last_anchor.side_c_odds is not None and first_anchor.side_c_odds is not None
+            else None
+        ),
     )
 
 
@@ -231,8 +246,12 @@ def _pair_market_snapshots(
 
     pairs = []
     for (snapshot_time, bookmaker, market_line), by_side in grouped.items():
-        first = by_side.get(sides[0])
-        second = by_side.get(sides[1])
+        side_snapshots = [by_side.get(side) for side in sides]
+        if any(snapshot is None for snapshot in side_snapshots):
+            continue
+        first = side_snapshots[0]
+        second = side_snapshots[1]
+        third = side_snapshots[2] if len(side_snapshots) == 3 else None
         if first is None or second is None:
             continue
         pairs.append(
@@ -245,6 +264,8 @@ def _pair_market_snapshots(
                 side_b=sides[1],
                 side_a_odds=first.odds,
                 side_b_odds=second.odds,
+                side_c=sides[2] if third is not None else None,
+                side_c_odds=third.odds if third is not None else None,
             )
         )
     return sorted(pairs, key=lambda pair: (pair.snapshot_time, pair.balance_gap))
@@ -272,6 +293,11 @@ def _build_anchor_feature(
 ) -> HistoricalOddsAnchorFeature:
     side_a_implied = _implied_probability(pair.side_a_odds)
     side_b_implied = _implied_probability(pair.side_b_odds)
+    side_c_implied = (
+        _implied_probability(pair.side_c_odds)
+        if pair.side_c_odds is not None
+        else None
+    )
     return HistoricalOddsAnchorFeature(
         label=label,
         target_minutes_before_kickoff=target_minutes_before_kickoff,
@@ -294,9 +320,17 @@ def _build_anchor_feature(
         side_b_odds=pair.side_b_odds,
         side_a_implied_probability=side_a_implied,
         side_b_implied_probability=side_b_implied,
-        overround=_round_probability(side_a_implied + side_b_implied),
+        overround=_round_probability(side_a_implied + side_b_implied + (side_c_implied or Decimal("0"))),
         side_a_result=_settle_pair_side(match, pair, pair.side_a),
         side_b_result=_settle_pair_side(match, pair, pair.side_b),
+        side_c=pair.side_c,
+        side_c_odds=pair.side_c_odds,
+        side_c_implied_probability=side_c_implied,
+        side_c_result=(
+            _settle_pair_side(match, pair, pair.side_c)
+            if pair.side_c is not None
+            else None
+        ),
     )
 
 
@@ -308,19 +342,35 @@ def _settle_pair_side(match: Match, pair: _PairedMarketSnapshot, side: str) -> s
             pair.market_line,
             side,
         )
-    return settle_total_goals(
-        match.home_score,
-        match.away_score,
-        pair.market_line,
-        side,
-    )
+    if pair.market_type == "total_goals":
+        return settle_total_goals(
+            match.home_score,
+            match.away_score,
+            pair.market_line,
+            side,
+        )
+    if pair.market_type == "match_winner":
+        return _settle_match_winner(match, side)
+    raise ValueError(f"unsupported historical market type: {pair.market_type}")
 
 
-def _market_sides(market_type: str) -> tuple[str, str]:
+def _settle_match_winner(match: Match, side: str) -> str:
+    if match.home_score > match.away_score:
+        winning_side = "home"
+    elif match.home_score < match.away_score:
+        winning_side = "away"
+    else:
+        winning_side = "draw"
+    return "win" if side == winning_side else "loss"
+
+
+def _market_sides(market_type: str) -> tuple[str, ...]:
     if market_type == "asian_handicap":
         return "home", "away"
     if market_type == "total_goals":
         return "over", "under"
+    if market_type == "match_winner":
+        return "home", "draw", "away"
     raise ValueError(f"unsupported historical market type: {market_type}")
 
 

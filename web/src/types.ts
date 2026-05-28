@@ -92,6 +92,7 @@ export type OddsPoint = {
   market_line: string;
   home_odds?: string;
   away_odds?: string;
+  draw_odds?: string;
   over_odds?: string;
   under_odds?: string;
 };
@@ -107,6 +108,7 @@ export type MatchOddsTrends = {
   kickoff_time: string;
   asian_handicap: OddsPoint[];
   total_goals: OddsPoint[];
+  match_winner: OddsPoint[];
 };
 
 export type MatchWithOdds = {

@@ -57,6 +57,32 @@ export const mockOddsTrends: MatchOddsTrends = {
       over_odds: "2.010",
       under_odds: "1.870"
     }
+  ],
+  match_winner: [
+    {
+      snapshot_time: "12:00",
+      bookmaker: "pinnacle",
+      market_line: "0.00",
+      home_odds: "2.100",
+      draw_odds: "3.250",
+      away_odds: "3.400"
+    },
+    {
+      snapshot_time: "16:00",
+      bookmaker: "pinnacle",
+      market_line: "0.00",
+      home_odds: "2.000",
+      draw_odds: "3.300",
+      away_odds: "3.650"
+    },
+    {
+      snapshot_time: "20:00",
+      bookmaker: "pinnacle",
+      market_line: "0.00",
+      home_odds: "1.900",
+      draw_odds: "3.500",
+      away_odds: "3.900"
+    }
   ]
 };
 

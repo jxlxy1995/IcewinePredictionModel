@@ -7,11 +7,13 @@ from decimal import Decimal
 import json
 from pathlib import Path
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
+from icewine_prediction.config import BEIJING_TIMEZONE
 from icewine_prediction.database import create_database_engine, create_session_factory
 from icewine_prediction.display_service import (
     DisplayNameService,
@@ -514,6 +516,7 @@ def build_match_odds_trends(
         **_format_match_names(match, display_name_service),
         "asian_handicap": _build_market_points(snapshots, market_type="asian_handicap"),
         "total_goals": _build_market_points(snapshots, market_type="total_goals"),
+        "match_winner": _build_market_points(snapshots, market_type="match_winner"),
     }
 
 
@@ -569,7 +572,7 @@ def _build_market_points(
             continue
         key = (snapshot.snapshot_time, snapshot.market_line, snapshot.bookmaker)
         point = grouped[key]
-        point["snapshot_time"] = _format_datetime(snapshot.snapshot_time)
+        point["snapshot_time"] = _format_historical_odds_datetime(snapshot.snapshot_time)
         point["bookmaker"] = snapshot.bookmaker
         point["market_line"] = _format_decimal(snapshot.market_line, "0.00")
         if market_type == "asian_handicap":
@@ -582,6 +585,13 @@ def _build_market_points(
                 point["over_odds"] = _format_decimal(snapshot.odds, "0.000")
             if snapshot.outcome_side == "under":
                 point["under_odds"] = _format_decimal(snapshot.odds, "0.000")
+        if market_type == "match_winner":
+            if snapshot.outcome_side == "home":
+                point["home_odds"] = _format_decimal(snapshot.odds, "0.000")
+            if snapshot.outcome_side == "draw":
+                point["draw_odds"] = _format_decimal(snapshot.odds, "0.000")
+            if snapshot.outcome_side == "away":
+                point["away_odds"] = _format_decimal(snapshot.odds, "0.000")
     return list(grouped.values())
 
 
@@ -634,3 +644,11 @@ def _format_datetime(value: datetime | None) -> str | None:
     if value is None:
         return None
     return value.isoformat()
+
+
+def _format_historical_odds_datetime(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=ZoneInfo("UTC"))
+    return value.astimezone(ZoneInfo(BEIJING_TIMEZONE)).isoformat()

@@ -151,6 +151,56 @@ def test_historical_market_training_sample_marks_sparse_history_and_ignores_post
     ]
 
 
+def test_historical_market_training_sample_extracts_match_winner_triplets(session):
+    match = _add_finished_match(session)
+    kickoff = match.kickoff_time
+    for label, minutes, home_odds, draw_odds, away_odds in [
+        ("24h", 1440, Decimal("2.20"), Decimal("3.10"), Decimal("3.30")),
+        ("12h", 720, Decimal("2.10"), Decimal("3.20"), Decimal("3.40")),
+        ("6h", 360, Decimal("2.05"), Decimal("3.25"), Decimal("3.50")),
+        ("3h", 180, Decimal("2.00"), Decimal("3.30"), Decimal("3.60")),
+        ("1h", 60, Decimal("1.95"), Decimal("3.35"), Decimal("3.70")),
+        ("15m", 15, Decimal("1.92"), Decimal("3.40"), Decimal("3.80")),
+        ("close", 7, Decimal("1.90"), Decimal("3.50"), Decimal("3.90")),
+    ]:
+        _add_triplet(
+            session,
+            match,
+            snapshot_time=kickoff - timedelta(minutes=minutes),
+            home_odds=home_odds,
+            draw_odds=draw_odds,
+            away_odds=away_odds,
+            market_id=f"1x2-{label}",
+        )
+    session.commit()
+
+    samples = list_historical_market_training_samples(session, season=2026)
+
+    assert [sample.market_type for sample in samples] == ["match_winner"]
+    sample = samples[0]
+    assert sample.snapshot_count == 21
+    assert sample.missing_anchor_labels == ()
+    assert sample.quality_tags == ("thin_history",)
+    assert sample.line_movement == Decimal("0.00")
+    assert sample.side_a_odds_movement == Decimal("-0.3000")
+    assert sample.side_b_odds_movement == Decimal("0.4000")
+    assert [anchor.label for anchor in sample.anchors] == [
+        "24h",
+        "12h",
+        "6h",
+        "3h",
+        "1h",
+        "15m",
+        "close",
+    ]
+    assert sample.anchors[-1].side_a == "home"
+    assert sample.anchors[-1].side_b == "draw"
+    assert sample.anchors[-1].side_c == "away"
+    assert sample.anchors[-1].side_a_result == "win"
+    assert sample.anchors[-1].side_b_result == "loss"
+    assert sample.anchors[-1].side_c_result == "loss"
+
+
 def _add_finished_match(session) -> Match:
     league = League(name="Premier League", country_or_region="England", level=1)
     home = Team(canonical_name="Arsenal")
@@ -198,6 +248,39 @@ def _add_pair(
                 market_id=market_id,
                 market_name=market_type,
                 market_line=market_line,
+                outcome_side=side,
+                odds=odds,
+                snapshot_time=snapshot_time,
+                period="fulltime",
+            )
+        )
+
+
+def _add_triplet(
+    session,
+    match: Match,
+    *,
+    snapshot_time: datetime,
+    home_odds: Decimal,
+    draw_odds: Decimal,
+    away_odds: Decimal,
+    market_id: str,
+) -> None:
+    for side, odds in [
+        ("home", home_odds),
+        ("draw", draw_odds),
+        ("away", away_odds),
+    ]:
+        session.add(
+            HistoricalOddsSnapshot(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id="fixture-1",
+                bookmaker="pinnacle",
+                market_type="match_winner",
+                market_id=market_id,
+                market_name="Match Winner",
+                market_line=Decimal("0.00"),
                 outcome_side=side,
                 odds=odds,
                 snapshot_time=snapshot_time,

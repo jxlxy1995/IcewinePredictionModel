@@ -34,7 +34,7 @@ def test_web_console_api_returns_dashboard_summary(tmp_path):
     assert payload["finished_matches"] == 2
     assert payload["matches_with_historical_odds"] == 1
     assert payload["unmatched_matches"] == 1
-    assert payload["historical_odds_snapshots"] == 2
+    assert payload["historical_odds_snapshots"] == 5
 
 
 def test_web_console_api_returns_league_coverage(tmp_path):
@@ -168,7 +168,7 @@ def test_web_console_api_returns_oddspapi_backfill_audit(tmp_path):
     assert league_summary["finished_matches"] == 2
     assert league_summary["matched_matches"] == 0
     assert league_summary["snapshot_matches"] == 1
-    assert league_summary["snapshot_count"] == 2
+    assert league_summary["snapshot_count"] == 5
     assert league_summary["asian_handicap_snapshot_count"] == 1
     assert league_summary["total_goals_snapshot_count"] == 1
     assert league_summary["status_counts"] == {"unmatched": 1}
@@ -211,10 +211,15 @@ def test_web_console_api_returns_match_odds_trends(tmp_path):
     assert payload["league_name"] == "英冠"
     assert payload["home_team_name"] == "Cardiff"
     assert payload["away_team_name"] == "Swansea"
+    assert payload["asian_handicap"][0]["snapshot_time"] == "2026-05-20T20:00:00+08:00"
     assert payload["asian_handicap"][0]["market_line"] == "-0.25"
     assert payload["asian_handicap"][0]["home_odds"] == "1.930"
     assert payload["total_goals"][0]["market_line"] == "2.50"
     assert payload["total_goals"][0]["over_odds"] == "1.910"
+    assert payload["match_winner"][0]["market_line"] == "0.00"
+    assert payload["match_winner"][0]["home_odds"] == "2.100"
+    assert payload["match_winner"][0]["draw_odds"] == "3.250"
+    assert payload["match_winner"][0]["away_odds"] == "3.400"
 
 
 def test_web_console_api_returns_display_names_without_replacing_raw_names(tmp_path):
@@ -463,7 +468,7 @@ def test_web_console_api_returns_matches_with_odds(tmp_path):
     assert payload[0]["home_team_display_name"] == "卡迪夫城"
     assert payload[0]["away_team_name"] == "Swansea"
     assert payload[0]["away_team_display_name"] == "斯旺西"
-    assert payload[0]["snapshot_count"] == 2
+    assert payload[0]["snapshot_count"] == 5
 
 
 def test_web_console_api_returns_recommendation_records(tmp_path):
@@ -560,7 +565,7 @@ def _seed_console_data(session_factory):
                     market_line=Decimal("-0.25"),
                     outcome_side="home",
                     odds=Decimal("1.930"),
-                    snapshot_time=datetime(2026, 5, 20, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                    snapshot_time=datetime(2026, 5, 20, 12, 0, tzinfo=ZoneInfo("UTC")),
                     period="prematch",
                 ),
                 HistoricalOddsSnapshot(
@@ -574,7 +579,49 @@ def _seed_console_data(session_factory):
                     market_line=Decimal("2.50"),
                     outcome_side="over",
                     odds=Decimal("1.910"),
-                    snapshot_time=datetime(2026, 5, 20, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                    snapshot_time=datetime(2026, 5, 20, 12, 0, tzinfo=ZoneInfo("UTC")),
+                    period="prematch",
+                ),
+                HistoricalOddsSnapshot(
+                    match_id=matched_match.id,
+                    source_name="oddspapi",
+                    source_fixture_id="p1",
+                    bookmaker="pinnacle",
+                    market_type="match_winner",
+                    market_id="1x2",
+                    market_name="Match Winner",
+                    market_line=Decimal("0.00"),
+                    outcome_side="home",
+                    odds=Decimal("2.100"),
+                    snapshot_time=datetime(2026, 5, 20, 12, 0, tzinfo=ZoneInfo("UTC")),
+                    period="prematch",
+                ),
+                HistoricalOddsSnapshot(
+                    match_id=matched_match.id,
+                    source_name="oddspapi",
+                    source_fixture_id="p1",
+                    bookmaker="pinnacle",
+                    market_type="match_winner",
+                    market_id="1x2",
+                    market_name="Match Winner",
+                    market_line=Decimal("0.00"),
+                    outcome_side="draw",
+                    odds=Decimal("3.250"),
+                    snapshot_time=datetime(2026, 5, 20, 12, 0, tzinfo=ZoneInfo("UTC")),
+                    period="prematch",
+                ),
+                HistoricalOddsSnapshot(
+                    match_id=matched_match.id,
+                    source_name="oddspapi",
+                    source_fixture_id="p1",
+                    bookmaker="pinnacle",
+                    market_type="match_winner",
+                    market_id="1x2",
+                    market_name="Match Winner",
+                    market_line=Decimal("0.00"),
+                    outcome_side="away",
+                    odds=Decimal("3.400"),
+                    snapshot_time=datetime(2026, 5, 20, 12, 0, tzinfo=ZoneInfo("UTC")),
                     period="prematch",
                 ),
             ]

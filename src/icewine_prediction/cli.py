@@ -453,14 +453,19 @@ def format_historical_market_training_sample_line(
     anchor_labels = "/".join(anchor.label for anchor in sample.anchors) or "-"
     missing_labels = "/".join(sample.missing_anchor_labels) or "-"
     quality_tags = "/".join(sample.quality_tags) or "-"
+    odds_movement = (
+        f"{sample.side_a_odds_movement if sample.side_a_odds_movement is not None else '-'}"
+        f"/{sample.side_b_odds_movement if sample.side_b_odds_movement is not None else '-'}"
+    )
+    if sample.side_c_odds_movement is not None:
+        odds_movement = f"{odds_movement}/{sample.side_c_odds_movement}"
     return (
         f"{league_name} {kickoff} {home_name} vs {away_name} | "
         f"{sample.market_type} {sample.bookmaker} | "
         f"锚点 {len(sample.anchors)}/{len(DEFAULT_ANCHORS)} {anchor_labels} | "
         f"快照 {sample.snapshot_count} | "
         f"盘口变化 {sample.line_movement if sample.line_movement is not None else '-'} | "
-        f"赔率变化 {sample.side_a_odds_movement if sample.side_a_odds_movement is not None else '-'}"
-        f"/{sample.side_b_odds_movement if sample.side_b_odds_movement is not None else '-'} | "
+        f"赔率变化 {odds_movement} | "
         f"缺失 {missing_labels} | "
         f"标签 {quality_tags}"
     )

@@ -17,6 +17,7 @@ export function OddsTrendPanel({ trends }: OddsTrendPanelProps) {
       </div>
       <Trend title="亚盘" points={trends.asian_handicap} firstKey="home_odds" secondKey="away_odds" />
       <Trend title="大小球" points={trends.total_goals} firstKey="over_odds" secondKey="under_odds" />
+      <Trend title="胜平负" points={trends.match_winner} firstKey="home_odds" secondKey="draw_odds" thirdKey="away_odds" />
     </>
   );
 }
@@ -25,12 +26,14 @@ function Trend({
   title,
   points,
   firstKey,
-  secondKey
+  secondKey,
+  thirdKey
 }: {
   title: string;
   points: OddsPoint[];
   firstKey: keyof OddsPoint;
   secondKey: keyof OddsPoint;
+  thirdKey?: keyof OddsPoint;
 }) {
   if (points.length === 0) {
     return <div className="empty-state">{title}暂无走势数据</div>;
@@ -45,6 +48,7 @@ function Trend({
             <div className="bar-stack">
               <i style={{ height: `${Number(point[firstKey] ?? 1.8) * 38}px` }} />
               <b style={{ height: `${Number(point[secondKey] ?? 1.8) * 38}px` }} />
+              {thirdKey ? <i style={{ height: `${Number(point[thirdKey] ?? 1.8) * 38}px` }} /> : null}
             </div>
             <em>{point.market_line}</em>
           </div>

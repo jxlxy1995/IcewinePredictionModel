@@ -5,7 +5,7 @@ from enum import Enum
 import json
 import os
 from pathlib import Path
-from threading import Timer
+from threading import Lock, Timer
 from typing import Callable, Protocol
 from zoneinfo import ZoneInfo
 
@@ -63,7 +63,7 @@ class BatchBackfillReport:
     league_reports: tuple[LeagueBackfillReport, ...]
 
 
-@dataclass(frozen=True)
+@dataclass
 class WorkerProgressContext:
     progress_path: Path
     mode: str
@@ -71,6 +71,8 @@ class WorkerProgressContext:
     worker_count: int
     league_count: int
     totals_by_league_id: dict[str, int]
+    totals: "_MutableLeagueTotals"
+    lock: Lock
 
 
 class OddsPapiSyncRunner(Protocol):
@@ -281,6 +283,8 @@ def run_oddspapi_batch_worker_with_runner(
             from_date=_normalize_from_date(from_date),
             skip_match_ids=skip_match_ids,
         ),
+        totals=_MutableLeagueTotals(),
+        lock=Lock(),
     )
     logger.write(
         f"开始 OddsPapi 后台回填 mode={mode.value} workers={worker_count} "
@@ -589,18 +593,21 @@ def _run_league_backfill(
                 round_timeout_timer.cancel()
         totals.add(result)
         _emit_worker_progress(progress_callback, job, round_index, result)
-        _write_worker_progress_snapshot(
-            context=progress_context,
-            status="running",
-            current_league=_build_progress_league(
-                job,
-                round_index,
-                totals,
-                result,
-                progress_context,
-            ),
-            totals=totals,
-        )
+        if progress_context is not None:
+            with progress_context.lock:
+                progress_context.totals.add(result)
+                _write_worker_progress_snapshot(
+                    context=progress_context,
+                    status="running",
+                    current_league=_build_progress_league(
+                        job,
+                        round_index,
+                        totals,
+                        result,
+                        progress_context,
+                    ),
+                    totals=progress_context.totals,
+                )
         if result.error_message and "budget" in result.error_message.lower():
             stop_reason = result.error_message
             status = "stopped"

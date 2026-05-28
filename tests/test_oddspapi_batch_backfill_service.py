@@ -602,6 +602,75 @@ def test_batch_worker_writes_structured_progress_snapshot(tmp_path):
     assert progress["totals"]["requests_used"] == 3
 
 
+def test_batch_worker_progress_totals_accumulate_across_leagues(tmp_path):
+    calls = []
+    snapshots = []
+
+    def fake_runner(**kwargs):
+        calls.append(kwargs)
+        processed = 2 if len(calls) == 1 else 3 if len(calls) == 2 else 0
+        return OddsPapiSyncResult(
+            processed_match_count=processed,
+            matched_count=processed,
+            failed_match_count=0,
+            inserted_snapshot_count=processed * 100,
+            skipped_duplicate_snapshot_count=0,
+            skipped_existing_odds_count=0,
+            asian_handicap_count=processed * 50,
+            total_goals_count=processed * 50,
+            requests_used=processed * 3,
+        )
+
+    original_write_snapshot = batch_service._write_worker_progress_snapshot
+
+    def capture_progress_snapshot(**kwargs):
+        snapshots.append(
+            {
+                "status": kwargs["status"],
+                "current_league": kwargs["current_league"],
+                "processed": kwargs["totals"].processed_match_count,
+                "inserted": kwargs["totals"].inserted_snapshot_count,
+                "requests": kwargs["totals"].requests_used,
+            }
+        )
+        original_write_snapshot(**kwargs)
+
+    batch_service._write_worker_progress_snapshot = capture_progress_snapshot
+    try:
+        run_oddspapi_batch_worker_with_runner(
+            jobs=(
+                LeagueBackfillJob("62", "Ligue 2", 84),
+                LeagueBackfillJob("39", "Premier League", 380),
+            ),
+            runner=fake_runner,
+            season=2025,
+            from_date=date(2026, 1, 15),
+            mode=BatchBackfillMode.SAFE,
+            chunk_size=3,
+            request_budget_per_league=100,
+            timeout_seconds=20,
+            max_snapshots_per_match=120,
+            max_rounds_per_league=1,
+            stop_after_empty_matches=8,
+            log_dir=tmp_path,
+            output_callback=None,
+        )
+    finally:
+        batch_service._write_worker_progress_snapshot = original_write_snapshot
+
+    second_league_running = [
+        item
+        for item in snapshots
+        if item["status"] == "running"
+        and item["current_league"] is not None
+        and item["current_league"]["league_id"] == "39"
+    ][0]
+    assert second_league_running["current_league"]["processed_matches"] == 3
+    assert second_league_running["processed"] == 5
+    assert second_league_running["inserted"] == 500
+    assert second_league_running["requests"] == 15
+
+
 def test_batch_worker_log_filename_includes_process_id(tmp_path):
     def fake_runner(**kwargs):
         return OddsPapiSyncResult(

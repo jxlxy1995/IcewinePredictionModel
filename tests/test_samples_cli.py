@@ -6,10 +6,12 @@ from typer.testing import CliRunner
 
 from icewine_prediction.cli import (
     app,
+    format_historical_odds_market_feature_line,
     format_historical_market_training_sample_line,
     format_training_sample_line,
 )
 from icewine_prediction.display_service import DisplayNameService, DisplayNames
+from icewine_prediction.historical_odds_feature_service import HistoricalOddsMarketFeature
 from icewine_prediction.historical_training_sample_service import (
     HistoricalMarketTrainingSample,
     HistoricalOddsAnchorFeature,
@@ -45,6 +47,15 @@ def test_samples_group_exposes_historical_odds_report_help():
 
     assert result.exit_code == 0
     assert "historical-odds-report" in result.stdout
+
+
+def test_samples_group_exposes_historical_odds_features_preview_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "historical-odds-features-preview" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -106,6 +117,24 @@ def test_format_historical_market_training_sample_line_summarizes_anchor_coverag
     assert "锚点 2/7 24h/close" in line
     assert "缺失 12h" in line
     assert "标签 thin_history" in line
+
+
+def test_format_historical_odds_market_feature_line_summarizes_close_probability():
+    display_service = DisplayNameService(
+        DisplayNames(
+            leagues={"Premier League": "英超"},
+            teams={"Arsenal": "阿森纳", "Chelsea": "切尔西"},
+        )
+    )
+    feature = _historical_market_feature()
+
+    line = format_historical_odds_market_feature_line(feature, display_service)
+
+    assert "英超 2026-05-20 20:00 阿森纳 vs 切尔西" in line
+    assert "match_winner" in line
+    assert "锚点 24h->close" in line
+    assert "close 0.5556/0.2500/0.2000" in line
+    assert "prob变化 0.0556/0.0000/-0.0500" in line
 
 
 def test_samples_historical_odds_preview_command_outputs_samples(monkeypatch):
@@ -177,6 +206,73 @@ def test_samples_historical_odds_report_command_outputs_quality_report(monkeypat
     assert captured["eligible_start"].strftime("%Y-%m-%d %H:%M") == "2026-01-15 00:00"
     assert "eligible coverage 0.5000" in result.stdout
     assert "full-season coverage 0.3333" in result.stdout
+
+
+def test_samples_historical_odds_features_preview_command_outputs_features(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.list_historical_odds_market_features",
+        lambda session, season, limit, bookmaker: [_historical_market_feature()],
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "historical-odds-features-preview",
+            "--season",
+            "2026",
+            "--limit",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "match_winner" in result.stdout
+    assert "close 0.5556/0.2500/0.2000" in result.stdout
+
+
+def _historical_market_feature() -> HistoricalOddsMarketFeature:
+    return HistoricalOddsMarketFeature(
+        match_id=1,
+        source_match_id="1001",
+        league_name="Premier League",
+        home_team_name="Arsenal",
+        away_team_name="Chelsea",
+        kickoff_time=datetime(2026, 5, 20, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_score=2,
+        away_score=1,
+        market_type="match_winner",
+        bookmaker="pinnacle",
+        opening_anchor_label="24h",
+        close_anchor_label="close",
+        opening_market_line=Decimal("0.00"),
+        close_market_line=Decimal("0.00"),
+        line_movement=Decimal("0.00"),
+        side_a="home",
+        side_b="draw",
+        side_c="away",
+        opening_side_a_implied_probability=Decimal("0.5000"),
+        opening_side_b_implied_probability=Decimal("0.2500"),
+        opening_side_c_implied_probability=Decimal("0.2500"),
+        close_side_a_implied_probability=Decimal("0.5556"),
+        close_side_b_implied_probability=Decimal("0.2500"),
+        close_side_c_implied_probability=Decimal("0.2000"),
+        side_a_implied_probability_movement=Decimal("0.0556"),
+        side_b_implied_probability_movement=Decimal("0.0000"),
+        side_c_implied_probability_movement=Decimal("-0.0500"),
+        opening_overround=Decimal("1.0000"),
+        close_overround=Decimal("1.0056"),
+        side_a_odds_movement=Decimal("-0.2000"),
+        side_b_odds_movement=Decimal("0.0000"),
+        side_c_odds_movement=Decimal("1.0000"),
+        close_side_a_result="win",
+        close_side_b_result="loss",
+        close_side_c_result="loss",
+        snapshot_count=60,
+        missing_anchor_labels=(),
+        quality_tags=(),
+    )
 
 
 def _historical_market_sample(

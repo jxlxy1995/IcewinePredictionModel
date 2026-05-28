@@ -49,12 +49,27 @@ def test_historical_odds_sample_report_uses_eligible_start_denominator(session):
     assert report.match_with_sample_count == 1
     assert report.eligible_coverage_ratio == Decimal("0.5000")
     assert report.full_season_coverage_ratio == Decimal("0.3333")
+    assert set(report.market_reports) == {
+        "asian_handicap",
+        "total_goals",
+        "match_winner",
+    }
     assert report.market_reports["asian_handicap"].sample_count == 1
+    assert report.market_reports["asian_handicap"].eligible_match_count == 2
+    assert report.market_reports["asian_handicap"].sample_coverage_ratio == Decimal("0.5000")
+    assert report.market_reports["asian_handicap"].close_anchor_sample_count == 1
+    assert report.market_reports["asian_handicap"].close_anchor_coverage_ratio == Decimal("0.5000")
+    assert report.market_reports["asian_handicap"].complete_anchor_coverage_ratio == Decimal("0.0000")
     assert report.market_reports["asian_handicap"].thin_history_sample_count == 1
     assert report.market_reports["asian_handicap"].missing_anchor_counts["24h"] == 1
     assert report.market_reports["total_goals"].sample_count == 1
+    assert report.market_reports["match_winner"].sample_count == 0
+    assert report.market_reports["match_winner"].sample_coverage_ratio == Decimal("0.0000")
     assert report.league_reports["Premier League"].eligible_match_count == 2
     assert report.league_reports["Premier League"].match_with_sample_count == 1
+    assert report.league_reports["Premier League"].market_reports[
+        "match_winner"
+    ].sample_coverage_ratio == Decimal("0.0000")
 
 
 def test_format_historical_odds_sample_quality_report_summarizes_denominators(session):
@@ -78,7 +93,8 @@ def test_format_historical_odds_sample_quality_report_summarizes_denominators(se
     assert "eligible start 2026-01-15 00:00 Asia/Shanghai" in text
     assert "eligible coverage 1.0000" in text
     assert "full-season coverage 1.0000" in text
-    assert "asian_handicap: samples 1" in text
+    assert "asian_handicap: eligible 1 samples 1 coverage 1.0000" in text
+    assert "match_winner: eligible 1 samples 0 coverage 0.0000" in text
     assert "La Liga: eligible 1" in text
 
 

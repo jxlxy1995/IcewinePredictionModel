@@ -34,6 +34,10 @@ from icewine_prediction.historical_odds_audit_service import (
     clear_historical_odds_snapshots,
     delete_live_historical_odds,
 )
+from icewine_prediction.historical_odds_feature_service import (
+    HistoricalOddsMarketFeature,
+    list_historical_odds_market_features,
+)
 from icewine_prediction.historical_training_sample_service import (
     DEFAULT_ANCHORS,
     HistoricalMarketTrainingSample,
@@ -469,6 +473,50 @@ def format_historical_market_training_sample_line(
         f"缺失 {missing_labels} | "
         f"标签 {quality_tags}"
     )
+
+
+def format_historical_odds_market_feature_line(
+    feature: HistoricalOddsMarketFeature,
+    display_service: DisplayNameService,
+) -> str:
+    kickoff = feature.kickoff_time.strftime("%Y-%m-%d %H:%M")
+    league_name = display_service.display_league(feature.league_name)
+    home_name = display_service.display_team(feature.home_team_name)
+    away_name = display_service.display_team(feature.away_team_name)
+    close_probabilities = _format_probability_triplet(
+        feature.close_side_a_implied_probability,
+        feature.close_side_b_implied_probability,
+        feature.close_side_c_implied_probability,
+    )
+    probability_movement = _format_probability_triplet(
+        feature.side_a_implied_probability_movement,
+        feature.side_b_implied_probability_movement,
+        feature.side_c_implied_probability_movement,
+    )
+    return (
+        f"{league_name} {kickoff} {home_name} vs {away_name} | "
+        f"{feature.market_type} {feature.bookmaker} | "
+        f"锚点 {feature.opening_anchor_label}->{feature.close_anchor_label} | "
+        f"close {close_probabilities} | "
+        f"prob变化 {probability_movement} | "
+        f"盘口变化 {feature.line_movement if feature.line_movement is not None else '-'} | "
+        f"overround {feature.opening_overround}->{feature.close_overround} | "
+        f"标签 {'/'.join(feature.quality_tags) or '-'}"
+    )
+
+
+def _format_probability_triplet(
+    first: Decimal | None,
+    second: Decimal | None,
+    third: Decimal | None,
+) -> str:
+    parts = [
+        str(value) if value is not None else "-"
+        for value in (first, second, third)
+    ]
+    if third is None:
+        return "/".join(parts[:2])
+    return "/".join(parts)
 
 
 def _format_counter(counter: dict) -> str:
@@ -1210,6 +1258,30 @@ def samples_historical_odds_report(
             bookmaker=bookmaker,
         )
         typer.echo(format_historical_odds_sample_quality_report(report))
+
+
+@samples_app.command("historical-odds-features-preview")
+def samples_historical_odds_features_preview(
+    season: int | None = typer.Option(None, "--season"),
+    limit: int = typer.Option(20, "--limit"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    display_service = DisplayNameService()
+    with session_factory() as session:
+        features = list_historical_odds_market_features(
+            session,
+            season=season,
+            limit=limit,
+            bookmaker=bookmaker,
+        )
+        if not features:
+            typer.echo("暂无历史赔率特征")
+            return
+        for feature in features:
+            typer.echo(format_historical_odds_market_feature_line(feature, display_service))
 
 
 @models_app.command("train-baseline")

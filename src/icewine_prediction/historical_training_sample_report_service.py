@@ -20,17 +20,24 @@ BEIJING = ZoneInfo(BEIJING_TIMEZONE)
 DEFAULT_HISTORICAL_ODDS_ELIGIBLE_START = datetime(2026, 1, 15, tzinfo=BEIJING)
 RATIO_QUANT = Decimal("0.0000")
 AVERAGE_QUANT = Decimal("0.01")
+SUPPORTED_MARKET_TYPES = ("asian_handicap", "total_goals", "match_winner")
 
 
 @dataclass(frozen=True)
 class HistoricalOddsMarketSampleReport:
     market_type: str
+    eligible_match_count: int
     sample_count: int
+    sample_coverage_ratio: Decimal
     complete_anchor_sample_count: int
+    complete_anchor_coverage_ratio: Decimal
+    close_anchor_sample_count: int
+    close_anchor_coverage_ratio: Decimal
     thin_history_sample_count: int
     average_snapshot_count: Decimal
     average_absolute_line_movement: Decimal
     missing_anchor_counts: dict[str, int]
+    quality_tag_counts: dict[str, int]
 
 
 @dataclass(frozen=True)
@@ -100,7 +107,10 @@ def build_historical_odds_sample_quality_report(
         match_with_sample_count=len(match_ids_with_samples),
         eligible_coverage_ratio=_ratio(len(match_ids_with_samples), len(eligible_matches)),
         full_season_coverage_ratio=_ratio(len(match_ids_with_samples), len(matches)),
-        market_reports=_build_market_reports(eligible_samples),
+        market_reports=_build_market_reports(
+            eligible_samples,
+            eligible_match_count=len(eligible_matches),
+        ),
         league_reports=_build_league_reports(
             full_matches_by_league=full_matches_by_league,
             eligible_matches_by_league=eligible_matches_by_league,
@@ -198,26 +208,38 @@ def _build_league_reports(
             match_with_sample_count=match_with_sample_count,
             eligible_coverage_ratio=_ratio(match_with_sample_count, eligible_count),
             full_season_coverage_ratio=_ratio(match_with_sample_count, full_count),
-            market_reports=_build_market_reports(samples_by_league.get(league_name, [])),
+            market_reports=_build_market_reports(
+                samples_by_league.get(league_name, []),
+                eligible_match_count=eligible_count,
+            ),
         )
     return reports
 
 
 def _build_market_reports(
     samples: list[HistoricalMarketTrainingSample],
+    *,
+    eligible_match_count: int,
 ) -> dict[str, HistoricalOddsMarketSampleReport]:
     samples_by_market: dict[str, list[HistoricalMarketTrainingSample]] = {}
     for sample in samples:
         samples_by_market.setdefault(sample.market_type, []).append(sample)
+    market_types = set(SUPPORTED_MARKET_TYPES) | set(samples_by_market)
     return {
-        market_type: _build_market_report(market_type, market_samples)
-        for market_type, market_samples in samples_by_market.items()
+        market_type: _build_market_report(
+            market_type,
+            samples_by_market.get(market_type, []),
+            eligible_match_count=eligible_match_count,
+        )
+        for market_type in market_types
     }
 
 
 def _build_market_report(
     market_type: str,
     samples: list[HistoricalMarketTrainingSample],
+    *,
+    eligible_match_count: int,
 ) -> HistoricalOddsMarketSampleReport:
     missing_anchor_counts = {label: 0 for label, _ in DEFAULT_ANCHORS}
     for sample in samples:
@@ -231,11 +253,32 @@ def _build_market_report(
         for sample in samples
         if sample.line_movement is not None
     ]
+    quality_tag_counts: dict[str, int] = {}
+    for sample in samples:
+        for tag in sample.quality_tags:
+            quality_tag_counts[tag] = quality_tag_counts.get(tag, 0) + 1
+    complete_anchor_sample_count = sum(
+        1 for sample in samples if not sample.missing_anchor_labels
+    )
+    close_anchor_sample_count = sum(
+        1
+        for sample in samples
+        if any(anchor.label == "close" for anchor in sample.anchors)
+    )
     return HistoricalOddsMarketSampleReport(
         market_type=market_type,
+        eligible_match_count=eligible_match_count,
         sample_count=len(samples),
-        complete_anchor_sample_count=sum(
-            1 for sample in samples if not sample.missing_anchor_labels
+        sample_coverage_ratio=_ratio(len(samples), eligible_match_count),
+        complete_anchor_sample_count=complete_anchor_sample_count,
+        complete_anchor_coverage_ratio=_ratio(
+            complete_anchor_sample_count,
+            eligible_match_count,
+        ),
+        close_anchor_sample_count=close_anchor_sample_count,
+        close_anchor_coverage_ratio=_ratio(
+            close_anchor_sample_count,
+            eligible_match_count,
         ),
         thin_history_sample_count=sum(
             1 for sample in samples if "thin_history" in sample.quality_tags
@@ -246,14 +289,20 @@ def _build_market_report(
         ),
         average_absolute_line_movement=_average(movements, quant=AVERAGE_QUANT),
         missing_anchor_counts=missing_anchor_counts,
+        quality_tag_counts=quality_tag_counts,
     )
 
 
 def _format_market_report(report: HistoricalOddsMarketSampleReport) -> str:
     missing_text = _format_counter(report.missing_anchor_counts)
     return (
-        f"{report.market_type}: samples {report.sample_count}"
+        f"{report.market_type}: eligible {report.eligible_match_count}"
+        f" samples {report.sample_count}"
+        f" coverage {report.sample_coverage_ratio}"
         f" complete-anchors {report.complete_anchor_sample_count}"
+        f" complete-coverage {report.complete_anchor_coverage_ratio}"
+        f" close-anchors {report.close_anchor_sample_count}"
+        f" close-coverage {report.close_anchor_coverage_ratio}"
         f" thin-history {report.thin_history_sample_count}"
         f" avg-snapshots {report.average_snapshot_count}"
         f" avg-abs-line-move {report.average_absolute_line_movement}"
@@ -289,7 +338,7 @@ def _ratio(numerator: int, denominator: int) -> Decimal:
 
 def _average(values: list[Decimal], *, quant: Decimal) -> Decimal:
     if not values:
-        return quant
+        return Decimal("0").quantize(quant)
     return (sum(values) / Decimal(len(values))).quantize(quant, rounding=ROUND_HALF_UP)
 
 

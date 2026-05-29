@@ -58,31 +58,31 @@ Leagues still completely unrunned or intentionally pending:
 4. All four still failed fixture matching after targeted retry, so they were marked `unavailable`.
 5. Removed 德丙 from `config/leagues.yaml` and adjusted `tests/test_settings.py`.
 6. Committed the 德丙 whitelist removal and relay docs in `bed3ed9`.
-7. Ran a read-only candidate-league precheck using official API-Football metadata, API-Football fixtures, and OddsPapi `tournaments`/`fixtures`. This did not write to DB and did not fetch historical odds.
-8. Synced API-Football fixture/results history for the five candidate leagues only. This pulled schedule/result data, not odds:
+7. Ran a read-only precheck for five new main leagues using official API-Football metadata, API-Football fixtures, and OddsPapi `tournaments`/`fixtures`. This did not write to DB and did not fetch historical odds.
+8. Synced API-Football fixture/results history for the five new main leagues only. This pulled schedule/result data, not odds:
    - 爱超 `357`, season `2026`: `created=180`
    - 芬甲二级 `1087` Ykkösliiga, season `2026`: `created=135`
    - 挪甲 `104`, season `2026`: `created=240`
    - 丹麦甲 `120`, season `2025`: `created=192`
    - 印尼超 `274`, season `2025`: `created=306`
-9. After syncing, these five candidate leagues were set to `is_enabled=0` in the local DB so they remain candidates and do not affect enabled-league coverage until deliberately promoted.
-10. Added OddsPapi tournament mappings for candidate leagues in `9f51cd0`:
+9. These five leagues were initially kept disabled while they were being validated, but they are now treated as regular main leagues.
+10. Added OddsPapi tournament mappings for the five new main leagues in `9f51cd0`:
    - `357 -> 192` 爱超
    - `1087 -> 55` 芬甲/Ykkösliiga
    - `104 -> 22` 挪甲
    - `120 -> 47` 丹麦甲
    - `274 -> 1015` 印尼超
-11. Ran a small OddsPapi historical-odds sample backfill, 3 matches per candidate league. Final result after alias retry:
+11. Ran a small OddsPapi historical-odds sample backfill, 3 matches per new main league. Final result after alias retry:
    - 挪甲: `3/3` success
    - 芬甲: `2/3` success, `1` unavailable 404 (`17572` SJK Akatemia vs Haka)
    - 丹麦甲: `1/3` success, `1` unavailable 404 (`18040` Kolding IF vs B 93), `1` unmatched (`18041` Hillerød vs Aarhus Fremad)
    - 印尼超: `3/3` success
    - 爱超: `2/3` success, `1` unavailable 404 (`17471` Bohemians vs Shamrock Rovers)
-12. Added candidate alias fixes that turned 3 unmatched samples into successful backfills:
+12. Added alias fixes that turned 3 unmatched samples into successful backfills:
    - `hodd -> Hoedd IL`
    - `Strommen -> Stroemmen IF`
    - `EIF -> Ekenas Idrottsforening`
-13. Ran the first larger 2026 candidate worker for 挪甲/芬甲/爱超. Worker completed:
+13. Ran the first larger 2026 worker for 挪甲/芬甲/爱超. Worker completed:
    - Total: processed `142`, snapshots `20072`, failed `35`, requests `292`.
    - 挪甲: finished `71`, success/snapshot matches `46` before post-fix, then `47` after targeted alias retry; remaining `unknown=13`, `unavailable=10`.
    - 芬甲: finished `40`, success `18` before post-fix, then `20` after targeted alias retry; remaining `unknown=11`, `unavailable=9`.
@@ -98,14 +98,15 @@ Leagues still completely unrunned or intentionally pending:
 
 2026-05-29 later update:
 
-- Candidate odds backfill for the five new leagues is effectively complete for the current finished-match window.
-- Current candidate league status:
+- The five new leagues are now regular main leagues, not candidate leagues.
+- Odds backfill for these five main leagues is effectively complete for the current finished-match window.
+- Current new main league status:
   - Ireland Premier Division `357`: success `84`, unavailable `6`, empty `1`.
   - Finland Ykkosliiga `1087`: success `29`, unavailable `11`.
   - Norway 1. Division `104`: success `61`, unavailable `10`.
   - Denmark 1. Division `120`: success `69`, unavailable `9`.
   - Indonesia Liga 1 `274`: success `117`, empty `11`, unavailable `25`.
-- Remaining candidate failures are no longer alias backlog. They are OddsPapi 404/unavailable, empty usable main-line snapshots, or fixture candidates that clearly do not match the API-Football target match.
+- Remaining failures are no longer alias backlog. They are OddsPapi 404/unavailable, empty usable main-line snapshots, or fixture candidates that clearly do not match the API-Football target match.
 - Added Denmark 1. Division OddsPapi team aliases:
   - `Hillerød -> Hillerod Fodbold`
   - `B 93 -> B93 Copenhagen`
@@ -120,11 +121,11 @@ Leagues still completely unrunned or intentionally pending:
 Recommended next step:
 
 1. Freeze and commit display names plus Denmark alias repair.
-2. Promote or explicitly keep-disabled the five candidate leagues after deciding whether their coverage is good enough for model training.
-3. Build a training dataset/audit report that separates main enabled leagues, candidate leagues, and UEFA auxiliary results.
+2. Keep the five new leagues enabled in config and DB as regular main leagues.
+3. Build a training dataset/audit report that separates main enabled leagues and UEFA auxiliary results.
 4. Run a first model-training baseline using only settled matches with complete three-market OddsPapi snapshots.
 
-The user is considering adding more leagues to expand sample size:
+The following five leagues have been added to the regular main-league set:
 
 - 爱超, Ireland
 - 芬甲, Finland second tier
@@ -132,7 +133,7 @@ The user is considering adding more leagues to expand sample size:
 - 丹麦甲, Denmark second tier
 - 印尼超, Indonesia top tier
 
-Read-only candidate IDs found on 2026-05-29:
+Read-only IDs found on 2026-05-29:
 
 | 中文 | API-Football | API season | OddsPapi tournament | Notes |
 | --- | ---: | ---: | ---: | --- |
@@ -153,15 +154,15 @@ Read-only fixture prediagnostic result:
 | 丹麦甲 | `78` | `6` | `3 matched`, `1 weak`, `1 miss`, `1 OddsPapi 404` |
 | 印尼超 | `153` | `8` | `5 matched`, `2 weak`, `1 OddsPapi 404` |
 
-Local DB snapshot after candidate history sync:
+Local DB snapshot after history sync:
 
 | 中文 | DB source id | 2026 total | 2026 finished | DB enabled |
 | --- | ---: | ---: | ---: | ---: |
-| 爱超 | `357` | `180` | `91` | `0` |
-| 芬甲二级 | `1087` | `135` | `40` | `0` |
-| 挪甲 | `104` | `240` | `71` | `0` |
-| 丹麦甲 | `120` | `84` | `78` | `0` |
-| 印尼超 | `274` | `171` | `171` | `0` |
+| 爱超 | `357` | `180` | `91` | `1` |
+| 芬甲 | `1087` | `135` | `40` | `1` |
+| 挪甲 | `104` | `240` | `71` | `1` |
+| 丹麦甲 | `120` | `84` | `78` | `1` |
+| 印尼超 | `274` | `171` | `171` | `1` |
 
 芬甲二级人工校对样本, all `Group Stage`, not playoff/promotion/relegation-looking:
 
@@ -181,22 +182,11 @@ Observed alias needs before any real backfill:
 - 挪甲: `hodd`, `Strommen`, `Stromsgodset`, and `ODD Ballklubb` are now fixed in config. `Sogndal`/`Sandnes ULF` may still need alias review.
 - 芬甲: `EIF`, `Kooteepee`, and `MP` are now fixed in config. `SJK Akatemia` and possible future `KäPa` variants may still need alias review.
 
-Recommended approach:
+Current modeling direction:
 
-1. Do not add them directly to the main whitelist yet.
-2. If proceeding, first add temporary/real tournament mappings and aliases for the sample leagues.
-3. Sync local API-Football history only for the selected candidates.
-4. Generate sample candidates from local DB.
-5. Run small OddsPapi historical-odds backfill or targeted `match_ids` fetch for matched samples.
-6. If fixture matching and three-market odds coverage look good, add the league to `config/leagues.yaml`, display names, mapping tables, and alias data.
-
-Suggested priority:
-
-1. 爱超: best fixture match quality, but only 5 no-repeat teams in the first-pass sample.
-2. 印尼超: largest sample and good matching after obvious aliases.
-3. 丹麦甲: usable, moderate alias needs.
-4. 挪甲: enough sample size, but more alias misses.
-5. 芬甲二级: real second-tier candidate, but small sample and alias misses.
+1. Treat 爱超, 芬甲, 挪甲, 丹麦甲, and 印尼超 exactly like the other enabled main leagues.
+2. Do not backfill UEFA odds yet; keep UEFA results as auxiliary future context.
+3. Next major task is a full main-league training data audit using enabled leagues only.
 
 ## Useful Commands
 

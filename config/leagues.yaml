@@ -212,25 +212,25 @@ leagues:
   - name: 1. Division
     country: Norway
     api_football_id: 104
-    enabled: false
+    enabled: true
     priority: 53
   - name: Ykkösliiga
     country: Finland
     api_football_id: 1087
-    enabled: false
+    enabled: true
     priority: 52
   - name: Premier Division
     country: Ireland
     api_football_id: 357
-    enabled: false
+    enabled: true
     priority: 51
   - name: Liga 1
     country: Indonesia
     api_football_id: 274
-    enabled: false
+    enabled: true
     priority: 50
   - name: 1. Division
     country: Denmark
     api_football_id: 120
-    enabled: false
+    enabled: true
     priority: 49

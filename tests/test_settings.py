@@ -83,6 +83,7 @@ budget_guard_enabled: true
 
 def test_default_league_whitelist_contains_mainstream_leagues():
     settings = load_project_settings()
+    leagues_by_id = {league.api_football_id: league for league in settings.leagues}
     leagues_by_name = {league.name: league for league in settings.leagues}
 
     assert leagues_by_name["2. Bundesliga"].api_football_id == 79
@@ -95,3 +96,7 @@ def test_default_league_whitelist_contains_mainstream_leagues():
     assert leagues_by_name["Liga I"].api_football_id == 283
     assert leagues_by_name["Ekstraklasa"].api_football_id == 106
     assert leagues_by_name["Primera División"].api_football_id == 265
+
+    newly_promoted_main_league_ids = {104, 1087, 357, 274, 120}
+    assert newly_promoted_main_league_ids <= set(leagues_by_id)
+    assert all(leagues_by_id[league_id].enabled for league_id in newly_promoted_main_league_ids)

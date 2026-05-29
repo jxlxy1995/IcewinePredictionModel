@@ -838,7 +838,7 @@ def test_api_football_league_mappings_include_2025_sample_targets():
     assert mappings["307"] == 955
 
 
-def test_api_football_league_mappings_include_candidate_sample_targets():
+def test_api_football_league_mappings_include_new_main_leagues():
     mappings = oddspapi_sync_runner.API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS
 
     assert mappings["357"] == 192

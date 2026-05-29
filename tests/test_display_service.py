@@ -51,7 +51,7 @@ def test_default_display_names_include_mainstream_league_chinese_names():
     assert service.display_league("Primera División") == "智利甲"
 
 
-def test_default_display_names_include_candidate_league_chinese_names():
+def test_default_display_names_include_new_main_league_chinese_names():
     service = DisplayNameService()
 
     assert service.display_league("Premier Division (Ireland)") == "爱超"

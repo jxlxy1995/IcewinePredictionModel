@@ -22,6 +22,9 @@ def test_build_baseline_match_winner_model_report_trains_two_logistic_models(tmp
         "draw": 1,
         "away_win": 1,
     }
+    assert report.close_market_reference.calibration_bins[0].bucket == "0.30-0.40"
+    assert report.close_market_reference.calibration_bins[0].sample_count == 1
+    assert report.close_market_reference.calibration_bins[0].accuracy == 1
     assert set(report.model_reports) == {"team_form_only", "team_form_plus_market"}
     for model_report in report.model_reports.values():
         assert model_report.model_name == "LogisticRegression"
@@ -30,6 +33,8 @@ def test_build_baseline_match_winner_model_report_trains_two_logistic_models(tmp
         assert model_report.log_loss > 0
         assert model_report.brier_score > 0
         assert sum(model_report.predicted_result_counts.values()) == 3
+        assert model_report.calibration_bins
+        assert sum(bucket.sample_count for bucket in model_report.calibration_bins) == 3
 
 
 def test_format_baseline_match_winner_model_report_includes_metrics(tmp_path):
@@ -47,6 +52,8 @@ def test_format_baseline_match_winner_model_report_includes_metrics(tmp_path):
     assert "close_market_match_winner" in text
     assert "| close_market_match_winner | 3 | 1.0000 |" in text
     assert "### close_market_match_winner" in text
+    assert "## Calibration Buckets" in text
+    assert "| Bucket | Samples | Avg confidence | Accuracy |" in text
     assert "| Rows | 9 |" in text
     assert "| Train rows | 6 |" in text
     assert "| Validation rows | 3 |" in text

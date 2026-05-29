@@ -14,6 +14,16 @@ from sklearn.preprocessing import StandardScaler
 
 METRIC_QUANT = Decimal("0.0001")
 RESULT_LABELS = ("home_win", "draw", "away_win")
+CALIBRATION_BUCKETS = (
+    (0.0, 0.3, "0.00-0.30"),
+    (0.3, 0.4, "0.30-0.40"),
+    (0.4, 0.5, "0.40-0.50"),
+    (0.5, 0.6, "0.50-0.60"),
+    (0.6, 0.7, "0.60-0.70"),
+    (0.7, 0.8, "0.70-0.80"),
+    (0.8, 0.9, "0.80-0.90"),
+    (0.9, 1.01, "0.90-1.00"),
+)
 TEAM_FORM_FEATURES = (
     "home_prior_matches",
     "home_prior_points_per_match",
@@ -49,6 +59,14 @@ MODEL_FEATURE_SETS = {
 
 
 @dataclass(frozen=True)
+class CalibrationBucket:
+    bucket: str
+    sample_count: int
+    average_confidence: Decimal
+    accuracy: Decimal
+
+
+@dataclass(frozen=True)
 class MatchWinnerModelEvaluation:
     name: str
     model_name: str
@@ -59,6 +77,7 @@ class MatchWinnerModelEvaluation:
     log_loss: Decimal
     brier_score: Decimal
     predicted_result_counts: dict[str, int]
+    calibration_bins: list[CalibrationBucket]
 
 
 @dataclass(frozen=True)
@@ -68,6 +87,7 @@ class CloseMarketMatchWinnerReference:
     log_loss: Decimal
     brier_score: Decimal
     predicted_result_counts: dict[str, int]
+    calibration_bins: list[CalibrationBucket]
 
 
 @dataclass(frozen=True)
@@ -169,6 +189,14 @@ def format_baseline_match_winner_model_report(
             for result in RESULT_LABELS
         )
         lines.append("")
+    lines.extend(["## Calibration Buckets", ""])
+    _append_calibration_lines(
+        lines,
+        name="close_market_match_winner",
+        buckets=report.close_market_reference.calibration_bins,
+    )
+    for model_report in report.model_reports.values():
+        _append_calibration_lines(lines, name=model_report.name, buckets=model_report.calibration_bins)
     return "\n".join(lines)
 
 
@@ -223,6 +251,7 @@ def _fit_and_evaluate(
         log_loss=_decimal_metric(log_loss(validation_y, aligned_probabilities, labels=list(RESULT_LABELS))),
         brier_score=_decimal_metric(_multiclass_brier_score(validation_y, aligned_probabilities)),
         predicted_result_counts=predicted_counts,
+        calibration_bins=_build_calibration_bins(validation_y, predicted, aligned_probabilities),
     )
 
 
@@ -241,6 +270,7 @@ def _evaluate_close_market_reference(
             log_loss=Decimal("0.0000"),
             brier_score=Decimal("0.0000"),
             predicted_result_counts={},
+            calibration_bins=[],
         )
     actual = [row["target_match_result"] for row, _ in evaluated]
     probabilities = [probability_row for _, probability_row in evaluated]
@@ -254,6 +284,7 @@ def _evaluate_close_market_reference(
         log_loss=_decimal_metric(log_loss(actual, probabilities, labels=list(RESULT_LABELS))),
         brier_score=_decimal_metric(_multiclass_brier_score(actual, probabilities)),
         predicted_result_counts=predicted_counts,
+        calibration_bins=_build_calibration_bins(actual, predicted, probabilities),
     )
 
 
@@ -274,6 +305,71 @@ def _market_probabilities(row: dict[str, str]) -> list[float] | None:
 
 def _predicted_result(probabilities: list[float]) -> str:
     return RESULT_LABELS[max(range(len(probabilities)), key=lambda index: probabilities[index])]
+
+
+def _build_calibration_bins(
+    actual: list[str],
+    predicted: list[str],
+    probabilities: list[list[float]],
+) -> list[CalibrationBucket]:
+    rows_by_bucket: dict[str, list[tuple[float, bool]]] = {}
+    for actual_label, predicted_label, probability_row in zip(
+        actual,
+        predicted,
+        probabilities,
+        strict=True,
+    ):
+        confidence = max(probability_row)
+        bucket = _bucket_for_confidence(confidence)
+        rows_by_bucket.setdefault(bucket, []).append((confidence, predicted_label == actual_label))
+    buckets: list[CalibrationBucket] = []
+    for _, _, bucket in CALIBRATION_BUCKETS:
+        rows = rows_by_bucket.get(bucket, [])
+        if not rows:
+            continue
+        sample_count = len(rows)
+        buckets.append(
+            CalibrationBucket(
+                bucket=bucket,
+                sample_count=sample_count,
+                average_confidence=_decimal_metric(
+                    sum(confidence for confidence, _ in rows) / sample_count
+                ),
+                accuracy=_decimal_metric(
+                    sum(1 for _, is_correct in rows if is_correct) / sample_count
+                ),
+            )
+        )
+    return buckets
+
+
+def _bucket_for_confidence(confidence: float) -> str:
+    for lower, upper, label in CALIBRATION_BUCKETS:
+        if lower <= confidence < upper:
+            return label
+    return "0.90-1.00"
+
+
+def _append_calibration_lines(
+    lines: list[str],
+    *,
+    name: str,
+    buckets: list[CalibrationBucket],
+) -> None:
+    lines.extend(
+        [
+            f"### {name}",
+            "",
+            "| Bucket | Samples | Avg confidence | Accuracy |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+    )
+    lines.extend(
+        f"| {bucket.bucket} | {bucket.sample_count} | "
+        f"{bucket.average_confidence} | {bucket.accuracy} |"
+        for bucket in buckets
+    )
+    lines.append("")
 
 
 def _matrix(rows: list[dict[str, str]], features: tuple[str, ...]) -> list[list[float]]:

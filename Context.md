@@ -283,9 +283,14 @@ Baseline match-winner model v1 completed:
   - `team_form_only`: accuracy `0.3811`, log loss `1.1378`, brier `0.6582`.
   - `team_form_plus_market`: accuracy `0.4579`, log loss `1.3126`, brier `0.6275`.
 - Initial read: `team_form_plus_market` is roughly tied with same-split close market on log loss, trails it on accuracy/Brier, and predicts many more draws; `team_form_only` has better log loss but poor classification accuracy and Brier. Calibration and probability distribution diagnostics are the next modeling priority.
+- Calibration buckets were added to the match-winner model report:
+  - close market: confidence buckets are broadly monotonic; 0.80-0.90 bucket has `13` samples, avg confidence `0.8306`, accuracy `0.9231`.
+  - `team_form_only`: `798/1068` validation rows sit in 0.30-0.40 confidence with avg confidence `0.3679`, accuracy `0.3283`; low confidence concentration explains the low accuracy despite better log loss.
+  - `team_form_plus_market`: calibration is broadly monotonic and close-market-like; 0.60-0.70 bucket has avg confidence `0.6449`, accuracy `0.6907`.
 - Focused verification:
   - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_baseline_match_winner_model_service.py -q` -> `2 passed`
   - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_baseline_match_winner_model_service.py tests/test_samples_cli.py tests/test_baseline_feature_set_service.py -q` -> `29 passed`
+  - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_samples_cli.py tests/test_baseline_match_winner_model_service.py -q` -> `25 passed`
 
 ## Useful Commands
 

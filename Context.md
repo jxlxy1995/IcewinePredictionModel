@@ -4,16 +4,16 @@ Last updated: 2026-05-29, Asia/Shanghai.
 
 ## Current Git State
 
-There are local uncommitted changes from removing 德丙 from the whitelist:
+The whitelist/reminder-doc change has been committed:
 
-- `config/leagues.yaml`
-- `tests/test_settings.py`
+- Commit `bed3ed9 移除德丙白名单并新增接力文档`
+- Included `config/leagues.yaml`, `tests/test_settings.py`, `Agent.md`, `memory.md`, and `Context.md`
 
 The DB was also updated locally:
 
 - `leagues.source_league_id='80'` is now `is_enabled=0`.
 
-Focused test run after this change:
+Focused test run before commit:
 
 ```powershell
 $env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
@@ -21,8 +21,6 @@ C:\ProgramData\anaconda3\python.exe -m pytest tests/test_settings.py -q
 ```
 
 Result: `3 passed`.
-
-Next session should decide whether to commit this small change.
 
 ## Current Odds Coverage Snapshot
 
@@ -58,7 +56,9 @@ Leagues still completely unrunned or intentionally pending:
    - `6502` 荷乙 Cambuur vs Vitesse
    - `15939` 瑞典超甲 GIF Sundsvall vs United Nordic
 4. All four still failed fixture matching after targeted retry, so they were marked `unavailable`.
-5. Removed 德丙 from `config/leagues.yaml` and adjusted `tests/test_settings.py`, not yet committed.
+5. Removed 德丙 from `config/leagues.yaml` and adjusted `tests/test_settings.py`.
+6. Committed the 德丙 whitelist removal and relay docs in `bed3ed9`.
+7. Ran a read-only candidate-league precheck using official API-Football metadata, API-Football fixtures, and OddsPapi `tournaments`/`fixtures`. This did not write to DB and did not fetch historical odds.
 
 ## Likely Next Work
 
@@ -68,22 +68,52 @@ The user is considering adding more leagues to expand sample size:
 - 芬甲, Finland second tier
 - 挪甲, Norway second tier
 - 丹麦甲, Denmark second tier
+- 印尼超, Indonesia top tier
+
+Read-only candidate IDs found on 2026-05-29:
+
+| 中文 | API-Football | API season | OddsPapi tournament | Notes |
+| --- | ---: | ---: | ---: | --- |
+| 爱超 | `357` Premier Division | `2026` | `192` Premier Division, Ireland | 2026 current season |
+| 芬甲二级 | `1087` Ykkösliiga | `2026` | `55` Ykkosliiga, Finland | This is the better fit for "Finland second tier" |
+| 芬甲/API旧名 | `245` Ykkönen | `2026` | `42291` Ykkonen, Finland | Now appears separate from second-tier Ykkösliiga |
+| 挪甲 | `104` 1. Division | `2026` | `22` 1st Division, Norway | 2026 current season |
+| 丹麦甲 | `120` 1. Division | `2025` | `47` 1. Division, Denmark | Current season is API-Football `2025` |
+| 印尼超 | `274` Liga 1 | `2025` | `1015` Liga 1, Indonesia | Current season is API-Football `2025` |
+
+Read-only fixture prediagnostic result:
+
+| 中文 | Finished after 2026-01-15 | No-repeat sample | Fixture match result |
+| --- | ---: | ---: | --- |
+| 爱超 | `91` | `5` | `4 matched`, `1 OddsPapi 404` |
+| 芬甲二级 | `40` | `4` | `2 matched`, `2 miss`, likely needs aliases |
+| 挪甲 | `71` | `8` | `4 matched`, `4 miss`, likely needs aliases |
+| 丹麦甲 | `78` | `6` | `3 matched`, `1 weak`, `1 miss`, `1 OddsPapi 404` |
+| 印尼超 | `153` | `8` | `5 matched`, `2 weak`, `1 OddsPapi 404` |
+
+Observed alias needs before any real backfill:
+
+- 印尼超: `Pusamania Borneo -> Borneo Samarinda`, `Persepam Madura Utd -> Madura United`, `PSBS Biak Numfor -> PSBS Biak`.
+- 丹麦甲: `HB Koge -> HB Koege`, `B 93` may need manual alias/normalization check.
+- 挪甲: `Stromsgodset`, `ODD Ballklubb`, `hodd`, `Strommen`, and possibly `Sogndal`/`Sandnes ULF` need alias review.
+- 芬甲二级: `PK-35`, `EIF`, `SJK Akatemia`, `MP` need alias review.
 
 Recommended approach:
 
 1. Do not add them directly to the main whitelist yet.
-2. Identify API-Football league IDs and check whether local match history exists.
-3. Add display names only after deciding to test.
-4. Generate 8 no-repeated-team sample candidates per league if possible.
-5. Run small Oddspapi sample backfill.
-6. If fixture matching and odds coverage look good, add the league to `config/leagues.yaml` and mapping tables.
+2. If proceeding, first add temporary/real tournament mappings and aliases for the sample leagues.
+3. Sync local API-Football history only for the selected candidates.
+4. Generate sample candidates from local DB.
+5. Run small OddsPapi historical-odds backfill or targeted `match_ids` fetch for matched samples.
+6. If fixture matching and three-market odds coverage look good, add the league to `config/leagues.yaml`, display names, mapping tables, and alias data.
 
 Suggested priority:
 
-1. 挪甲
-2. 芬甲
-3. 丹麦甲
-4. 爱超
+1. 爱超: best fixture match quality, but only 5 no-repeat teams in the first-pass sample.
+2. 印尼超: largest sample and good matching after obvious aliases.
+3. 丹麦甲: usable, moderate alias needs.
+4. 挪甲: enough sample size, but more alias misses.
+5. 芬甲二级: real second-tier candidate, but small sample and alias misses.
 
 ## Useful Commands
 
@@ -108,4 +138,3 @@ Generate sample candidates:
 $env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
 C:\ProgramData\anaconda3\python.exe -m icewine_cli odds-source oddspapi-sample-candidates --season 2026 --league-ids <ids> --from-date 2026-01-15 --per-league 8
 ```
-

@@ -188,6 +188,17 @@ Current modeling direction:
 2. Do not backfill UEFA odds yet; keep UEFA results as auxiliary future context.
 3. Next major task is a full main-league training data audit using enabled leagues only.
 
+Main-league training data audit completed:
+
+- Report: `docs/团队协作/20260529-main-league-training-data-audit.md`
+- Scope: enabled main leagues, UEFA excluded from odds sample, `kickoff_time >= 2026-01-15`.
+- Eligible main-league matches: `5981`.
+- Complete three-market OddsPapi/Pinnacle matches: `5330` (`89.1%`).
+- Status split: success `5330`, empty `456`, unavailable `95`, none `100`, unmatched `0`, failed `0`.
+- New five main leagues contribute `360` complete three-market matches from `433` eligible matches (`83.1%`).
+- Low coverage under 80%: Ykkosliiga `72.5%`, Liga 1 Indonesia `76.5%`, Eerste Divisie `76.8%`.
+- Recommended next step: build the baseline training dataset from complete three-market main-league matches.
+
 ## Useful Commands
 
 Run local odds audit:

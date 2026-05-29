@@ -29,6 +29,12 @@ from icewine_prediction.baseline_feature_set_service import (
     write_baseline_feature_set_csv,
     write_baseline_feature_set_report,
 )
+from icewine_prediction.baseline_dynamic_feature_set_service import (
+    BaselineDynamicFeatureSet,
+    build_baseline_dynamic_feature_set,
+    write_baseline_dynamic_feature_set_csv,
+    write_baseline_dynamic_feature_set_report,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     BaselineAsianHandicapModelReport,
     build_baseline_asian_handicap_model_report,
@@ -676,6 +682,27 @@ def format_baseline_feature_set_command_result(
                 f"rows {feature_set.report.row_count}"
                 f" train {feature_set.report.train_rows}"
                 f" validation {feature_set.report.validation_rows}"
+            ),
+        ]
+    )
+
+
+def format_baseline_dynamic_feature_set_command_result(
+    *,
+    output_path: str,
+    report_path: str,
+    feature_set: BaselineDynamicFeatureSet,
+) -> str:
+    return "\n".join(
+        [
+            "baseline dynamic feature set written",
+            f"features: {output_path}",
+            f"report: {report_path}",
+            (
+                f"rows {feature_set.report.row_count}"
+                f" asian {feature_set.report.rows_with_asian_handicap_dynamic}"
+                f" total {feature_set.report.rows_with_total_goals_dynamic}"
+                f" complete-core {feature_set.report.complete_core_anchor_rows}"
             ),
         ]
     )
@@ -1698,6 +1725,42 @@ def samples_baseline_feature_set(
             feature_set=feature_set,
         )
     )
+
+
+@samples_app.command("baseline-dynamic-feature-set")
+def samples_baseline_dynamic_feature_set(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_features_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    output_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260529.csv",
+        "--output-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/团队协作/20260529-baseline-dynamic-feature-set-v1.md",
+        "--report-path",
+    ),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        feature_set = build_baseline_dynamic_feature_set(
+            session,
+            Path(csv_path),
+            bookmaker=bookmaker,
+        )
+        write_baseline_dynamic_feature_set_csv(feature_set, Path(output_path))
+        write_baseline_dynamic_feature_set_report(feature_set.report, Path(report_path))
+        typer.echo(
+            format_baseline_dynamic_feature_set_command_result(
+                output_path=output_path,
+                report_path=report_path,
+                feature_set=feature_set,
+            )
+        )
 
 
 @samples_app.command("baseline-match-winner-model")

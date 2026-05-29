@@ -26,6 +26,10 @@ from icewine_prediction.baseline_feature_set_service import (
     BaselineFeatureSet,
     BaselineFeatureSetReport,
 )
+from icewine_prediction.baseline_dynamic_feature_set_service import (
+    BaselineDynamicFeatureSet,
+    BaselineDynamicFeatureSetReport,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     AsianHandicapModelEvaluation,
     BaselineAsianHandicapModelReport,
@@ -156,6 +160,15 @@ def test_samples_group_exposes_baseline_feature_set_help():
 
     assert result.exit_code == 0
     assert "baseline-feature-set" in result.stdout
+
+
+def test_samples_group_exposes_baseline_dynamic_feature_set_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-dynamic-feature-set" in result.stdout
 
 
 def test_samples_group_exposes_baseline_match_winner_model_help():
@@ -432,6 +445,56 @@ def test_samples_baseline_feature_set_command_writes_csv_and_report(monkeypatch)
     assert captured["validation_ratio"] == "0.25"
     assert "baseline feature set written" in result.stdout
     assert "rows 4 train 3 validation 1" in result.stdout
+
+
+def test_samples_baseline_dynamic_feature_set_command_writes_csv_and_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(session, csv_path, *, bookmaker):
+        captured["csv_path"] = str(csv_path)
+        captured["bookmaker"] = bookmaker
+        return _baseline_dynamic_feature_set()
+
+    def fake_write_csv(feature_set, output_path):
+        captured["output_path"] = str(output_path)
+
+    def fake_write_report(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr("icewine_prediction.cli.build_baseline_dynamic_feature_set", fake_build)
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_dynamic_feature_set_csv",
+        fake_write_csv,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_dynamic_feature_set_report",
+        fake_write_report,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-dynamic-feature-set",
+            "--csv-path",
+            "local_data/training/features.csv",
+            "--output-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/团队协作/dynamic.md",
+            "--bookmaker",
+            "pinnacle",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\features.csv")
+    assert captured["output_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\团队协作\\dynamic.md")
+    assert captured["bookmaker"] == "pinnacle"
+    assert "baseline dynamic feature set written" in result.stdout
+    assert "rows 4 asian 4 total 4 complete-core 4" in result.stdout
 
 
 def test_samples_baseline_match_winner_model_command_writes_report(monkeypatch):
@@ -992,6 +1055,20 @@ def _baseline_feature_set() -> BaselineFeatureSet:
             validation_end="2026-02-10T20:00:00",
             by_league={"Premier League": {"rows": 4, "train": 3, "validation": 1}},
             zero_history_rows=2,
+        ),
+    )
+
+
+def _baseline_dynamic_feature_set() -> BaselineDynamicFeatureSet:
+    return BaselineDynamicFeatureSet(
+        rows=[{"match_id": "1", "asian_handicap_6h_line": "-0.50"}],
+        fieldnames=("match_id", "asian_handicap_6h_line"),
+        report=BaselineDynamicFeatureSetReport(
+            source_csv_path="local_data/training/features.csv",
+            row_count=4,
+            rows_with_asian_handicap_dynamic=4,
+            rows_with_total_goals_dynamic=4,
+            complete_core_anchor_rows=4,
         ),
     )
 

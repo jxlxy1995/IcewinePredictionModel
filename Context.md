@@ -375,6 +375,24 @@ Historical odds anchor coverage v1 completed:
     - `close`: `5330`, sample coverage `1.0000`.
 - Initial read: dynamic market features are viable. A v1 feature set can safely use `6h`, `3h`, `1h`, and `close`; `24h`/`12h` are also strong enough if missing values are imputed or if a complete-core subset is used for comparison.
 
+Baseline dynamic feature set v1 completed:
+
+- CLI command: `icewine samples baseline-dynamic-feature-set`.
+- Service: `src/icewine_prediction/baseline_dynamic_feature_set_service.py`.
+- Input: `local_data/training/baseline_features_main_leagues_20260529.csv`.
+- Output: `local_data/training/baseline_dynamic_features_main_leagues_20260529.csv` (local generated data, not committed).
+- Report: `docs/团队协作/20260529-baseline-dynamic-feature-set-v1.md`.
+- Rows: `5330`.
+- Rows with Asian handicap dynamic features: `5330`.
+- Rows with total-goals dynamic features: `5330`.
+- Complete core-anchor rows (`6h`, `3h`, `1h`, `close` for both Asian handicap and total goals): `5330`.
+- Dynamic CSV has `166` unique columns. Close-anchor dynamic fields are named with `close_anchor` (for example `asian_handicap_close_anchor_line`) to avoid colliding with existing static close fields.
+- Feature families added for both `asian_handicap` and `total_goals`:
+  - Anchor line, odds, implied probabilities, and overround for `24h`, `12h`, `6h`, `3h`, `1h`, and `close_anchor`.
+  - Anchor-to-close line movement and side probability movement.
+  - Snapshot count and missing anchor labels.
+- Initial read: the dynamic feature set is ready for the next modeling pass. Use the generated dynamic CSV as the model input and compare static-only vs static+dynamic variants for Asian handicap and total goals.
+
 ## Useful Commands
 
 Run local odds audit:

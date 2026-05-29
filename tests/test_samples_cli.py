@@ -15,6 +15,9 @@ from icewine_prediction.baseline_training_dataset_service import (
     BaselineTrainingDataset,
     BaselineTrainingDatasetAudit,
 )
+from icewine_prediction.baseline_training_dataset_qa_service import (
+    BaselineTrainingDatasetQaReport,
+)
 from icewine_prediction.close_market_baseline_service import (
     CloseMarketBaselineMarketReport,
     CloseMarketBaselineReport,
@@ -85,6 +88,15 @@ def test_samples_group_exposes_baseline_dataset_help():
     assert "baseline-dataset" in result.stdout
 
 
+def test_samples_group_exposes_baseline_dataset_qa_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-dataset-qa" in result.stdout
+
+
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
     text = format_baseline_training_dataset_command_result(
         dataset_path="local_data/training/baseline.csv",
@@ -149,6 +161,50 @@ def test_samples_baseline_dataset_command_writes_dataset_and_report(monkeypatch)
     assert captured["dataset_path"].endswith("local_data\\training\\test.csv")
     assert captured["report_path"].endswith("docs\\团队协作\\test.md")
     assert "rows 1/2" in result.stdout
+
+
+def test_samples_baseline_dataset_qa_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path, *, low_sample_threshold=30):
+        captured["csv_path"] = str(csv_path)
+        captured["low_sample_threshold"] = low_sample_threshold
+        return _baseline_qa_report()
+
+    def fake_write(report, output_path):
+        captured["output_path"] = str(output_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_training_dataset_qa_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_training_dataset_qa_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-dataset-qa",
+            "--csv-path",
+            "local_data/training/baseline.csv",
+            "--report-path",
+            "docs/团队协作/baseline-qa.md",
+            "--low-sample-threshold",
+            "25",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\baseline.csv")
+    assert captured["output_path"].endswith("docs\\团队协作\\baseline-qa.md")
+    assert captured["low_sample_threshold"] == 25
+    assert "baseline dataset QA written" in result.stdout
+    assert "rows 1" in result.stdout
+    assert "thin-history 0" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -442,6 +498,38 @@ def _baseline_dataset() -> BaselineTrainingDataset:
             by_league={"Premier League": 1},
             by_season={2026: 1},
         ),
+    )
+
+
+def _baseline_qa_report() -> BaselineTrainingDatasetQaReport:
+    return BaselineTrainingDatasetQaReport(
+        csv_path="local_data/training/baseline.csv",
+        row_count=1,
+        column_count=42,
+        empty_required_cells={},
+        invalid_odds_cells={},
+        invalid_probability_cells={},
+        invalid_overround_cells={},
+        overround_ranges={
+            "asian_handicap": ("1.0200", "1.0200"),
+            "total_goals": ("1.0200", "1.0200"),
+            "match_winner": ("1.0400", "1.0400"),
+        },
+        by_season={"2026": 1},
+        by_month={"2026-05": 1},
+        league_counts={"Premier League": 1},
+        low_sample_leagues={"Premier League": 1},
+        match_result_counts={"home_win": 1},
+        result_label_counts={},
+        asian_handicap_line_counts={"-0.25": 1},
+        total_goals_line_counts={"2.50": 1},
+        thin_history_count=0,
+        thin_history_ratio="0.0000",
+        snapshot_count_ranges={
+            "asian_handicap_snapshot_count": (40, 40),
+            "total_goals_snapshot_count": (40, 40),
+            "match_winner_snapshot_count": (40, 40),
+        },
     )
 
 

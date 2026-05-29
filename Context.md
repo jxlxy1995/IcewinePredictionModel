@@ -209,6 +209,18 @@ Baseline training dataset v1 completed:
 - CSV has `42` columns and includes match metadata, scores, result labels, close-line odds/probabilities/overrounds for `asian_handicap`, `total_goals`, and `match_winner`.
 - Boundary note: a Saudi match at DB kickoff `2026-01-14 22:45:00` is intentionally excluded to stay aligned with the audit's literal DB timestamp window.
 
+Baseline training dataset QA completed:
+
+- QA command: `icewine samples baseline-dataset-qa`.
+- QA report: `docs/团队协作/20260529-baseline-training-dataset-qa.md`.
+- Rows/columns: `5330` rows, `42` columns.
+- Validation issues: empty required cells `0`, invalid odds cells `0`, invalid probability cells `0`, invalid overround cells `0`.
+- Thin-history rows: `152` (`0.0285`).
+- Overround ranges: asian handicap `1.0090-1.0786`, total goals `1.0140-1.0922`, match winner `1.0171-1.1057`.
+- Match results: home win `2325`, draw `1404`, away win `1601`.
+- Low sample leagues under 30 rows: Ykkosliiga `29`.
+- Recommended next step: close-market baseline evaluation on this CSV.
+
 ## Useful Commands
 
 Run local odds audit:

@@ -13,6 +13,11 @@ from icewine_prediction.baseline_training_dataset_service import (
     write_baseline_training_dataset_csv,
     write_baseline_training_dataset_report,
 )
+from icewine_prediction.baseline_training_dataset_qa_service import (
+    BaselineTrainingDatasetQaReport,
+    build_baseline_training_dataset_qa_report,
+    write_baseline_training_dataset_qa_report,
+)
 from icewine_prediction.close_market_baseline_service import (
     build_close_market_baseline_report_from_session,
     format_close_market_baseline_report,
@@ -579,6 +584,25 @@ def format_baseline_training_dataset_command_result(
             (
                 f"rows {dataset.audit.complete_match_count}/{dataset.audit.eligible_match_count}"
                 f" coverage {dataset.audit.coverage_ratio}"
+            ),
+        ]
+    )
+
+
+def format_baseline_training_dataset_qa_command_result(
+    *,
+    report_path: str,
+    report: BaselineTrainingDatasetQaReport,
+) -> str:
+    return "\n".join(
+        [
+            "baseline dataset QA written",
+            f"report: {report_path}",
+            (
+                f"rows {report.row_count}"
+                f" invalid-cells "
+                f"{sum(report.empty_required_cells.values()) + sum(report.invalid_odds_cells.values()) + sum(report.invalid_probability_cells.values()) + sum(report.invalid_overround_cells.values())}"
+                f" thin-history {report.thin_history_count}"
             ),
         ]
     )
@@ -1393,6 +1417,31 @@ def samples_baseline_dataset(
             dataset_path=output_path,
             report_path=report_path,
             dataset=dataset,
+        )
+    )
+
+
+@samples_app.command("baseline-dataset-qa")
+def samples_baseline_dataset_qa(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/团队协作/20260529-baseline-training-dataset-qa.md",
+        "--report-path",
+    ),
+    low_sample_threshold: int = typer.Option(30, "--low-sample-threshold"),
+):
+    report = build_baseline_training_dataset_qa_report(
+        Path(csv_path),
+        low_sample_threshold=low_sample_threshold,
+    )
+    write_baseline_training_dataset_qa_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_training_dataset_qa_command_result(
+            report_path=report_path,
+            report=report,
         )
     )
 

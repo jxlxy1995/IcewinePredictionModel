@@ -68,13 +68,13 @@ const trainingWorkspace: TrainingWorkspace = {
   },
   dataset_report: {
     exists: true,
-    path: "docs/团队协作/20260529-baseline-training-dataset.md",
+    path: "docs/数据审计/20260529-baseline-training-dataset.md",
     updated_at: "2026-05-29T18:10:00",
     size_bytes: 1200
   },
   qa: {
     exists: true,
-    path: "docs/团队协作/20260529-baseline-training-dataset-qa.md",
+    path: "docs/数据审计/20260529-baseline-training-dataset-qa.md",
     updated_at: "2026-05-29T18:20:00",
     empty_required_cells: 0,
     invalid_odds_cells: 0,
@@ -86,7 +86,7 @@ const trainingWorkspace: TrainingWorkspace = {
   },
   market_baseline: {
     exists: true,
-    path: "docs/团队协作/20260529-close-market-baseline-evaluation.md",
+    path: "docs/模型实验/20260529-close-market-baseline-evaluation.md",
     updated_at: "2026-05-29T18:30:00",
     market_samples: 15990,
     evaluated_market_samples: 15326,

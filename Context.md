@@ -190,7 +190,7 @@ Current modeling direction:
 
 Main-league training data audit completed:
 
-- Report: `docs/团队协作/20260529-main-league-training-data-audit.md`
+- Report: `docs/数据审计/20260529-main-league-training-data-audit.md`
 - Scope: enabled main leagues, UEFA excluded from odds sample, `kickoff_time >= 2026-01-15`.
 - Eligible main-league matches: `5981`.
 - Complete three-market OddsPapi/Pinnacle matches: `5330` (`89.1%`).
@@ -203,7 +203,7 @@ Baseline training dataset v1 completed:
 
 - Generator command: `icewine samples baseline-dataset`.
 - Local CSV output: `local_data/training/baseline_main_leagues_20260529.csv` (gitignored local data).
-- Report: `docs/团队协作/20260529-baseline-training-dataset.md`.
+- Report: `docs/数据审计/20260529-baseline-training-dataset.md`.
 - Scope matches the main-league audit: enabled main leagues, UEFA excluded, finished/scored, `kickoff_time >= 2026-01-15` using the DB wall-time boundary.
 - Rows: `5330` complete three-market matches from `5981` eligible main-league matches; coverage `0.8912`.
 - CSV has `42` columns and includes match metadata, scores, result labels, close-line odds/probabilities/overrounds for `asian_handicap`, `total_goals`, and `match_winner`.
@@ -212,7 +212,7 @@ Baseline training dataset v1 completed:
 Baseline training dataset QA completed:
 
 - QA command: `icewine samples baseline-dataset-qa`.
-- QA report: `docs/团队协作/20260529-baseline-training-dataset-qa.md`.
+- QA report: `docs/数据审计/20260529-baseline-training-dataset-qa.md`.
 - Rows/columns: `5330` rows, `42` columns.
 - Validation issues: empty required cells `0`, invalid odds cells `0`, invalid probability cells `0`, invalid overround cells `0`.
 - Thin-history rows: `152` (`0.0285`).
@@ -224,7 +224,7 @@ Baseline training dataset QA completed:
 Close-market baseline evaluation completed:
 
 - Command: `icewine samples baseline-market-baseline`.
-- Report: `docs/团队协作/20260529-close-market-baseline-evaluation.md`.
+- Report: `docs/模型实验/20260529-close-market-baseline-evaluation.md`.
 - Evaluated market samples: `15326` of `15990`; skipped `664` mostly due binary-market push settlement.
 - Asian handicap: evaluated `4928`, skipped `402`, accuracy `0.5244`, log loss `0.6921`, brier `0.4412`, avg overround `1.0273`, max-probability flat ROI `-0.0188`.
 - Total goals: evaluated `5068`, skipped `262`, accuracy `0.5199`, log loss `0.6924`, brier `0.4474`, avg overround `1.0320`, max-probability flat ROI `-0.0220`.
@@ -254,7 +254,7 @@ Baseline feature set v1 completed:
 - CLI command: `icewine samples baseline-feature-set`.
 - Service: `src/icewine_prediction/baseline_feature_set_service.py`.
 - Local feature CSV output: `local_data/training/baseline_features_main_leagues_20260529.csv` (local data, not committed).
-- Report: `docs/团队协作/20260529-baseline-feature-set-v1.md`.
+- Report: `docs/数据审计/20260529-baseline-feature-set-v1.md`.
 - Input: `local_data/training/baseline_main_leagues_20260529.csv`.
 - Rows: `5330`; train rows `4262`; validation rows `1068`.
 - Split: time-ordered, validation ratio target `0.2000`, with identical kickoff times kept in the same split.
@@ -270,7 +270,7 @@ Baseline match-winner model v1 completed:
 
 - CLI command: `icewine samples baseline-match-winner-model`.
 - Service: `src/icewine_prediction/baseline_match_winner_model_service.py`.
-- Report: `docs/团队协作/20260529-baseline-match-winner-model-v1.md`.
+- Report: `docs/模型实验/20260529-baseline-match-winner-model-v1.md`.
 - Input: `local_data/training/baseline_features_main_leagues_20260529.csv`.
 - Model type: scikit-learn `LogisticRegression` with median imputation, standard scaling, balanced class weights, `max_iter=1000`, `random_state=42`.
 - Three model variants:
@@ -304,7 +304,7 @@ Baseline Asian handicap model v1 completed:
   - `asian_handicap_away_odds`
 - CLI command: `icewine samples baseline-asian-handicap-model`.
 - Service: `src/icewine_prediction/baseline_asian_handicap_model_service.py`.
-- Report: `docs/团队协作/20260529-baseline-asian-handicap-model-v1.md`.
+- Report: `docs/模型实验/20260529-baseline-asian-handicap-model-v1.md`.
 - Input: `local_data/training/baseline_features_main_leagues_20260529.csv`.
 - Scope: binary Asian handicap direction only; rows with push/half-win/half-loss or non-clear settlement are skipped for v1.
 - Rows: `5330`; train rows `3317`; validation rows `853`; skipped rows `1160`.
@@ -323,7 +323,7 @@ Baseline total-goals model v1 completed:
   - `total_goals_under_odds`
 - CLI command: `icewine samples baseline-total-goals-model`.
 - Service: `src/icewine_prediction/baseline_total_goals_model_service.py`.
-- Report: `docs/团队协作/20260529-baseline-total-goals-model-v1.md`.
+- Report: `docs/模型实验/20260529-baseline-total-goals-model-v1.md`.
 - Input: `local_data/training/baseline_features_main_leagues_20260529.csv`.
 - Scope: binary total-goals direction only; rows with push/half-win/half-loss or non-clear settlement are skipped for v1.
 - Rows: `5330`; train rows `3476`; validation rows `891`; skipped rows `963`.
@@ -337,7 +337,7 @@ Baseline market diagnostics v1 completed:
 
 - CLI command: `icewine samples baseline-market-diagnostics`.
 - Service: `src/icewine_prediction/baseline_market_diagnostics_service.py`.
-- Report: `docs/团队协作/20260529-baseline-market-diagnostics-v1.md`.
+- Report: `docs/数据审计/20260529-baseline-market-diagnostics-v1.md`.
 - Input: `local_data/training/baseline_features_main_leagues_20260529.csv`.
 - Scope: validation split only, close-market implied-probability direction, binary clear-settlement rows only.
 - Rows: `5330`; validation rows `1068`.
@@ -359,7 +359,7 @@ Historical odds anchor coverage v1 completed:
 
 - CLI command: `icewine samples historical-odds-anchor-coverage`.
 - Service: `src/icewine_prediction/historical_odds_anchor_coverage_service.py`.
-- Report: `docs/团队协作/20260529-historical-odds-anchor-coverage-v1.md`.
+- Report: `docs/数据审计/20260529-historical-odds-anchor-coverage-v1.md`.
 - Scope: all finished/scored matches after `2026-01-15` Beijing time, no season filter, bookmaker `pinnacle`, core markets `asian_handicap` and `total_goals`.
 - Eligible matches: `6377`.
 - Both Asian handicap and total goals:
@@ -381,7 +381,7 @@ Baseline dynamic feature set v1 completed:
 - Service: `src/icewine_prediction/baseline_dynamic_feature_set_service.py`.
 - Input: `local_data/training/baseline_features_main_leagues_20260529.csv`.
 - Output: `local_data/training/baseline_dynamic_features_main_leagues_20260529.csv` (local generated data, not committed).
-- Report: `docs/团队协作/20260529-baseline-dynamic-feature-set-v1.md`.
+- Report: `docs/数据审计/20260529-baseline-dynamic-feature-set-v1.md`.
 - Rows: `5330`.
 - Rows with Asian handicap dynamic features: `5330`.
 - Rows with total-goals dynamic features: `5330`.
@@ -397,8 +397,8 @@ Dynamic market model comparison v1 completed:
 
 - Input: `local_data/training/baseline_dynamic_features_main_leagues_20260529.csv`.
 - Reports:
-  - `docs/团队协作/20260529-baseline-asian-handicap-dynamic-model-v1.md`.
-  - `docs/团队协作/20260529-baseline-total-goals-dynamic-model-v1.md`.
+  - `docs/模型实验/20260529-baseline-asian-handicap-dynamic-model-v1.md`.
+  - `docs/模型实验/20260529-baseline-total-goals-dynamic-model-v1.md`.
 - Code now automatically adds dynamic model variants when the input CSV contains the dynamic core anchor columns:
   - Market-specific dynamic core: `6h`, `3h`, `1h`, `close_anchor`.
   - All dynamic core: both Asian handicap and total goals dynamic core columns.
@@ -420,8 +420,8 @@ HistGradientBoosting model comparison v1 completed:
 
 - Input: `local_data/training/baseline_dynamic_features_main_leagues_20260529.csv`.
 - Reports:
-  - `docs/团队协作/20260529-baseline-asian-handicap-hgb-comparison-v1.md`.
-  - `docs/团队协作/20260529-baseline-total-goals-hgb-comparison-v1.md`.
+  - `docs/模型实验/20260529-baseline-asian-handicap-hgb-comparison-v1.md`.
+  - `docs/模型实验/20260529-baseline-total-goals-hgb-comparison-v1.md`.
 - Code behavior:
   - Static feature CSV still only runs the existing LogisticRegression variants.
   - Dynamic feature CSV now also runs `HistGradientBoostingClassifier` variants for the same feature groups.

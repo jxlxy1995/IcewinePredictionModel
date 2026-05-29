@@ -210,13 +210,13 @@ def test_samples_group_exposes_baseline_market_diagnostics_help():
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
     text = format_baseline_training_dataset_command_result(
         dataset_path="local_data/training/baseline.csv",
-        report_path="docs/团队协作/baseline.md",
+        report_path="docs/数据审计/baseline.md",
         dataset=_baseline_dataset(),
     )
 
     assert "baseline dataset written" in text
     assert "local_data/training/baseline.csv" in text
-    assert "docs/团队协作/baseline.md" in text
+    assert "docs/数据审计/baseline.md" in text
     assert "rows 1/2" in text
     assert "coverage 0.5000" in text
 
@@ -258,7 +258,7 @@ def test_samples_baseline_dataset_command_writes_dataset_and_report(monkeypatch)
             "--output-path",
             "local_data/training/test.csv",
             "--report-path",
-            "docs/团队协作/test.md",
+            "docs/数据审计/test.md",
             "--eligible-start",
             "2026-01-15",
         ],
@@ -269,7 +269,7 @@ def test_samples_baseline_dataset_command_writes_dataset_and_report(monkeypatch)
     assert captured["bookmaker"] == "pinnacle"
     assert captured["eligible_start"].strftime("%Y-%m-%d %H:%M") == "2026-01-15 00:00"
     assert captured["dataset_path"].endswith("local_data\\training\\test.csv")
-    assert captured["report_path"].endswith("docs\\团队协作\\test.md")
+    assert captured["report_path"].endswith("docs\\数据审计\\test.md")
     assert "rows 1/2" in result.stdout
 
 
@@ -302,7 +302,7 @@ def test_samples_baseline_dataset_qa_command_writes_report(monkeypatch):
             "--csv-path",
             "local_data/training/baseline.csv",
             "--report-path",
-            "docs/团队协作/baseline-qa.md",
+            "docs/数据审计/baseline-qa.md",
             "--low-sample-threshold",
             "25",
         ],
@@ -310,7 +310,7 @@ def test_samples_baseline_dataset_qa_command_writes_report(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["csv_path"].endswith("local_data\\training\\baseline.csv")
-    assert captured["output_path"].endswith("docs\\团队协作\\baseline-qa.md")
+    assert captured["output_path"].endswith("docs\\数据审计\\baseline-qa.md")
     assert captured["low_sample_threshold"] == 25
     assert "baseline dataset QA written" in result.stdout
     assert "rows 1" in result.stdout
@@ -345,13 +345,13 @@ def test_samples_baseline_market_baseline_command_writes_report(monkeypatch):
             "--csv-path",
             "local_data/training/baseline.csv",
             "--report-path",
-            "docs/团队协作/market-baseline.md",
+            "docs/模型实验/market-baseline.md",
         ],
     )
 
     assert result.exit_code == 0
     assert captured["csv_path"].endswith("local_data\\training\\baseline.csv")
-    assert captured["output_path"].endswith("docs\\团队协作\\market-baseline.md")
+    assert captured["output_path"].endswith("docs\\模型实验\\market-baseline.md")
     assert "close-market baseline written" in result.stdout
     assert "evaluated 3/3" in result.stdout
 
@@ -390,7 +390,7 @@ def test_samples_historical_odds_anchor_coverage_command_writes_report(monkeypat
             "--bookmaker",
             "pinnacle",
             "--report-path",
-            "docs/团队协作/anchor.md",
+            "docs/数据审计/anchor.md",
         ],
     )
 
@@ -398,7 +398,7 @@ def test_samples_historical_odds_anchor_coverage_command_writes_report(monkeypat
     assert captured["season"] == 2026
     assert captured["bookmaker"] == "pinnacle"
     assert captured["eligible_start"].strftime("%Y-%m-%d") == "2026-01-15"
-    assert captured["output_path"].endswith("docs\\团队协作\\anchor.md")
+    assert captured["output_path"].endswith("docs\\数据审计\\anchor.md")
     assert "historical odds anchor coverage written" in result.stdout
     assert "asian_handicap samples 10 complete-core 8" in result.stdout
 
@@ -432,7 +432,7 @@ def test_samples_baseline_feature_set_command_writes_csv_and_report(monkeypatch)
             "--output-path",
             "local_data/training/features.csv",
             "--report-path",
-            "docs/团队协作/features.md",
+            "docs/数据审计/features.md",
             "--validation-ratio",
             "0.25",
         ],
@@ -441,7 +441,7 @@ def test_samples_baseline_feature_set_command_writes_csv_and_report(monkeypatch)
     assert result.exit_code == 0
     assert captured["csv_path"].endswith("local_data\\training\\baseline.csv")
     assert captured["output_path"].endswith("local_data\\training\\features.csv")
-    assert captured["report_path"].endswith("docs\\团队协作\\features.md")
+    assert captured["report_path"].endswith("docs\\数据审计\\features.md")
     assert captured["validation_ratio"] == "0.25"
     assert "baseline feature set written" in result.stdout
     assert "rows 4 train 3 validation 1" in result.stdout
@@ -482,7 +482,7 @@ def test_samples_baseline_dynamic_feature_set_command_writes_csv_and_report(monk
             "--output-path",
             "local_data/training/dynamic.csv",
             "--report-path",
-            "docs/团队协作/dynamic.md",
+            "docs/数据审计/dynamic.md",
             "--bookmaker",
             "pinnacle",
         ],
@@ -491,7 +491,7 @@ def test_samples_baseline_dynamic_feature_set_command_writes_csv_and_report(monk
     assert result.exit_code == 0
     assert captured["csv_path"].endswith("local_data\\training\\features.csv")
     assert captured["output_path"].endswith("local_data\\training\\dynamic.csv")
-    assert captured["report_path"].endswith("docs\\团队协作\\dynamic.md")
+    assert captured["report_path"].endswith("docs\\数据审计\\dynamic.md")
     assert captured["bookmaker"] == "pinnacle"
     assert "baseline dynamic feature set written" in result.stdout
     assert "rows 4 asian 4 total 4 complete-core 4" in result.stdout
@@ -525,13 +525,13 @@ def test_samples_baseline_match_winner_model_command_writes_report(monkeypatch):
             "--csv-path",
             "local_data/training/features.csv",
             "--report-path",
-            "docs/团队协作/match-winner.md",
+            "docs/模型实验/match-winner.md",
         ],
     )
 
     assert result.exit_code == 0
     assert captured["csv_path"].endswith("local_data\\training\\features.csv")
-    assert captured["report_path"].endswith("docs\\团队协作\\match-winner.md")
+    assert captured["report_path"].endswith("docs\\模型实验\\match-winner.md")
     assert "baseline match winner model written" in result.stdout
     assert "team_form_only log-loss 1.0000" in result.stdout
 
@@ -564,13 +564,13 @@ def test_samples_baseline_asian_handicap_model_command_writes_report(monkeypatch
             "--csv-path",
             "local_data/training/features.csv",
             "--report-path",
-            "docs/团队协作/asian-handicap.md",
+            "docs/模型实验/asian-handicap.md",
         ],
     )
 
     assert result.exit_code == 0
     assert captured["csv_path"].endswith("local_data\\training\\features.csv")
-    assert captured["report_path"].endswith("docs\\团队协作\\asian-handicap.md")
+    assert captured["report_path"].endswith("docs\\模型实验\\asian-handicap.md")
     assert "baseline asian handicap model written" in result.stdout
     assert "team_form_plus_all_markets log-loss 0.7000" in result.stdout
 
@@ -603,13 +603,13 @@ def test_samples_baseline_total_goals_model_command_writes_report(monkeypatch):
             "--csv-path",
             "local_data/training/features.csv",
             "--report-path",
-            "docs/鍥㈤槦鍗忎綔/total-goals.md",
+            "docs/模型实验/total-goals.md",
         ],
     )
 
     assert result.exit_code == 0
     assert captured["csv_path"].endswith("local_data\\training\\features.csv")
-    assert captured["report_path"].endswith("docs\\鍥㈤槦鍗忎綔\\total-goals.md")
+    assert captured["report_path"].endswith("docs\\模型实验\\total-goals.md")
     assert "baseline total goals model written" in result.stdout
     assert "team_form_plus_all_markets log-loss 0.7000" in result.stdout
 
@@ -642,13 +642,13 @@ def test_samples_baseline_market_diagnostics_command_writes_report(monkeypatch):
             "--csv-path",
             "local_data/training/features.csv",
             "--report-path",
-            "docs/团队协作/diagnostics.md",
+            "docs/数据审计/diagnostics.md",
         ],
     )
 
     assert result.exit_code == 0
     assert captured["csv_path"].endswith("local_data\\training\\features.csv")
-    assert captured["report_path"].endswith("docs\\团队协作\\diagnostics.md")
+    assert captured["report_path"].endswith("docs\\数据审计\\diagnostics.md")
     assert "baseline market diagnostics written" in result.stdout
     assert "asian_handicap accuracy 0.6000 rows 10" in result.stdout
     assert "total_goals accuracy 0.5000 rows 8" in result.stdout

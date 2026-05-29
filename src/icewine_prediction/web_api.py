@@ -60,13 +60,13 @@ def create_web_app(
     display_names_path: Path = Path("config/display_names.yaml"),
     baseline_dataset_path: Path = Path("local_data/training/baseline_main_leagues_20260529.csv"),
     baseline_dataset_report_path: Path = Path(
-        "docs/团队协作/20260529-baseline-training-dataset.md"
+        "docs/数据审计/20260529-baseline-training-dataset.md"
     ),
     baseline_qa_report_path: Path = Path(
-        "docs/团队协作/20260529-baseline-training-dataset-qa.md"
+        "docs/数据审计/20260529-baseline-training-dataset-qa.md"
     ),
     baseline_market_report_path: Path = Path(
-        "docs/团队协作/20260529-close-market-baseline-evaluation.md"
+        "docs/模型实验/20260529-close-market-baseline-evaluation.md"
     ),
 ) -> FastAPI:
     if session_factory is None:

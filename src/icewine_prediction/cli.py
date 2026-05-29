@@ -1546,7 +1546,7 @@ def samples_historical_odds_anchor_coverage(
         "--eligible-start",
     ),
     report_path: str = typer.Option(
-        "docs/团队协作/20260529-historical-odds-anchor-coverage-v1.md",
+        "docs/数据审计/20260529-historical-odds-anchor-coverage-v1.md",
         "--report-path",
     ),
 ):
@@ -1619,7 +1619,7 @@ def samples_baseline_dataset(
         "--output-path",
     ),
     report_path: str = typer.Option(
-        "docs/团队协作/20260529-baseline-training-dataset.md",
+        "docs/数据审计/20260529-baseline-training-dataset.md",
         "--report-path",
     ),
     eligible_start: str = typer.Option(
@@ -1657,7 +1657,7 @@ def samples_baseline_dataset_qa(
         "--csv-path",
     ),
     report_path: str = typer.Option(
-        "docs/团队协作/20260529-baseline-training-dataset-qa.md",
+        "docs/数据审计/20260529-baseline-training-dataset-qa.md",
         "--report-path",
     ),
     low_sample_threshold: int = typer.Option(30, "--low-sample-threshold"),
@@ -1682,7 +1682,7 @@ def samples_baseline_market_baseline(
         "--csv-path",
     ),
     report_path: str = typer.Option(
-        "docs/团队协作/20260529-close-market-baseline-evaluation.md",
+        "docs/模型实验/20260529-close-market-baseline-evaluation.md",
         "--report-path",
     ),
 ):
@@ -1707,7 +1707,7 @@ def samples_baseline_feature_set(
         "--output-path",
     ),
     report_path: str = typer.Option(
-        "docs/团队协作/20260529-baseline-feature-set-v1.md",
+        "docs/数据审计/20260529-baseline-feature-set-v1.md",
         "--report-path",
     ),
     validation_ratio: str = typer.Option("0.20", "--validation-ratio"),
@@ -1738,7 +1738,7 @@ def samples_baseline_dynamic_feature_set(
         "--output-path",
     ),
     report_path: str = typer.Option(
-        "docs/团队协作/20260529-baseline-dynamic-feature-set-v1.md",
+        "docs/数据审计/20260529-baseline-dynamic-feature-set-v1.md",
         "--report-path",
     ),
     bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
@@ -1770,7 +1770,7 @@ def samples_baseline_match_winner_model(
         "--csv-path",
     ),
     report_path: str = typer.Option(
-        "docs/团队协作/20260529-baseline-match-winner-model-v1.md",
+        "docs/模型实验/20260529-baseline-match-winner-model-v1.md",
         "--report-path",
     ),
 ):
@@ -1791,7 +1791,7 @@ def samples_baseline_asian_handicap_model(
         "--csv-path",
     ),
     report_path: str = typer.Option(
-        "docs/团队协作/20260529-baseline-asian-handicap-model-v1.md",
+        "docs/模型实验/20260529-baseline-asian-handicap-model-v1.md",
         "--report-path",
     ),
 ):
@@ -1812,7 +1812,7 @@ def samples_baseline_total_goals_model(
         "--csv-path",
     ),
     report_path: str = typer.Option(
-        "docs/团队协作/20260529-baseline-total-goals-model-v1.md",
+        "docs/模型实验/20260529-baseline-total-goals-model-v1.md",
         "--report-path",
     ),
 ):
@@ -1833,7 +1833,7 @@ def samples_baseline_market_diagnostics(
         "--csv-path",
     ),
     report_path: str = typer.Option(
-        "docs/团队协作/20260529-baseline-market-diagnostics-v1.md",
+        "docs/数据审计/20260529-baseline-market-diagnostics-v1.md",
         "--report-path",
     ),
 ):

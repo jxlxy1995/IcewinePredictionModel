@@ -232,6 +232,23 @@ Close-market baseline evaluation completed:
 - This looks like a sane market baseline: all simple max-probability flat-bet ROIs are negative and broadly track market overround.
 - Recommended next step: build first model feature set and compare validation metrics against this close-market baseline.
 
+Web training workspace v1 completed:
+
+- The Web console "模型训练" page is now a real training workflow workspace instead of only a static model overview.
+- Backend endpoints added:
+  - `GET /api/training/workspace`
+  - `POST /api/training/baseline-dataset`
+  - `POST /api/training/baseline-dataset-qa`
+  - `POST /api/training/market-baseline`
+- The backend still delegates business logic to the existing Python services/CLI layer and returns refreshed workspace status after each action.
+- Frontend now shows baseline dataset status, QA status, close-market baseline metrics, report paths, and workflow buttons for generating the dataset, running QA, and running the market baseline.
+- The model training page still keeps existing model-run and league-coverage panels below the new workflow panels.
+- Verification run for this work:
+  - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_web_console_api.py -q` -> `14 passed`
+  - `npm test -- modelTrainingWorkspace.test.ts` from `web` -> `5 passed`
+  - `npm run build` from `web` -> passed
+- `npm install` was run in `web` to restore local frontend dev dependencies; npm reported 5 moderate vulnerabilities, but no package manifest/lockfile diff was produced.
+
 ## Useful Commands
 
 Run local odds audit:

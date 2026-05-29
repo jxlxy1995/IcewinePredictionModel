@@ -4,6 +4,7 @@ from collections import defaultdict
 from dataclasses import asdict
 from datetime import datetime
 from decimal import Decimal
+import csv
 import json
 from pathlib import Path
 from typing import Any, Callable
@@ -14,6 +15,19 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from icewine_prediction.config import BEIJING_TIMEZONE
+from icewine_prediction.baseline_training_dataset_market_baseline_service import (
+    build_baseline_training_dataset_market_baseline_report,
+    write_baseline_training_dataset_market_baseline_report,
+)
+from icewine_prediction.baseline_training_dataset_qa_service import (
+    build_baseline_training_dataset_qa_report,
+    write_baseline_training_dataset_qa_report,
+)
+from icewine_prediction.baseline_training_dataset_service import (
+    build_baseline_training_dataset,
+    write_baseline_training_dataset_csv,
+    write_baseline_training_dataset_report,
+)
 from icewine_prediction.database import create_database_engine, create_session_factory
 from icewine_prediction.display_service import (
     DisplayNameService,
@@ -44,6 +58,16 @@ def create_web_app(
     display_name_service: DisplayNameService | None = None,
     display_translation_status_service: DisplayTranslationStatusService | None = None,
     display_names_path: Path = Path("config/display_names.yaml"),
+    baseline_dataset_path: Path = Path("local_data/training/baseline_main_leagues_20260529.csv"),
+    baseline_dataset_report_path: Path = Path(
+        "docs/团队协作/20260529-baseline-training-dataset.md"
+    ),
+    baseline_qa_report_path: Path = Path(
+        "docs/团队协作/20260529-baseline-training-dataset-qa.md"
+    ),
+    baseline_market_report_path: Path = Path(
+        "docs/团队协作/20260529-close-market-baseline-evaluation.md"
+    ),
 ) -> FastAPI:
     if session_factory is None:
         engine = create_database_engine()
@@ -164,6 +188,54 @@ def create_web_app(
     def recommendation_records() -> list[dict[str, Any]]:
         with session_factory() as session:
             return build_recommendation_records(session, display_name_service=display_name_service)
+
+    @app.get("/api/training/workspace")
+    def training_workspace() -> dict[str, Any]:
+        return build_training_workspace_payload(
+            baseline_dataset_path=baseline_dataset_path,
+            baseline_dataset_report_path=baseline_dataset_report_path,
+            baseline_qa_report_path=baseline_qa_report_path,
+            baseline_market_report_path=baseline_market_report_path,
+        )
+
+    @app.post("/api/training/baseline-dataset")
+    def run_training_baseline_dataset() -> dict[str, Any]:
+        with session_factory() as session:
+            dataset = build_baseline_training_dataset(session)
+        write_baseline_training_dataset_csv(dataset, baseline_dataset_path)
+        write_baseline_training_dataset_report(dataset.audit, baseline_dataset_report_path)
+        return build_training_workspace_payload(
+            baseline_dataset_path=baseline_dataset_path,
+            baseline_dataset_report_path=baseline_dataset_report_path,
+            baseline_qa_report_path=baseline_qa_report_path,
+            baseline_market_report_path=baseline_market_report_path,
+        )
+
+    @app.post("/api/training/baseline-dataset-qa")
+    def run_training_baseline_dataset_qa() -> dict[str, Any]:
+        if not baseline_dataset_path.exists():
+            raise HTTPException(status_code=404, detail="baseline dataset csv not found")
+        report = build_baseline_training_dataset_qa_report(baseline_dataset_path)
+        write_baseline_training_dataset_qa_report(report, baseline_qa_report_path)
+        return build_training_workspace_payload(
+            baseline_dataset_path=baseline_dataset_path,
+            baseline_dataset_report_path=baseline_dataset_report_path,
+            baseline_qa_report_path=baseline_qa_report_path,
+            baseline_market_report_path=baseline_market_report_path,
+        )
+
+    @app.post("/api/training/market-baseline")
+    def run_training_market_baseline() -> dict[str, Any]:
+        if not baseline_dataset_path.exists():
+            raise HTTPException(status_code=404, detail="baseline dataset csv not found")
+        report = build_baseline_training_dataset_market_baseline_report(baseline_dataset_path)
+        write_baseline_training_dataset_market_baseline_report(report, baseline_market_report_path)
+        return build_training_workspace_payload(
+            baseline_dataset_path=baseline_dataset_path,
+            baseline_dataset_report_path=baseline_dataset_report_path,
+            baseline_qa_report_path=baseline_qa_report_path,
+            baseline_market_report_path=baseline_market_report_path,
+        )
 
     return app
 
@@ -559,6 +631,97 @@ def build_recommendation_records(
         }
         for record in records
     ]
+
+
+def build_training_workspace_payload(
+    *,
+    baseline_dataset_path: Path,
+    baseline_dataset_report_path: Path,
+    baseline_qa_report_path: Path,
+    baseline_market_report_path: Path,
+) -> dict[str, Any]:
+    dataset_payload = _build_training_dataset_file_payload(baseline_dataset_path)
+    qa_payload: dict[str, Any] = {"exists": False, "path": str(baseline_qa_report_path)}
+    if baseline_dataset_path.exists():
+        qa_report = build_baseline_training_dataset_qa_report(baseline_dataset_path)
+        qa_payload = {
+            "exists": baseline_qa_report_path.exists(),
+            "path": str(baseline_qa_report_path),
+            "updated_at": _format_file_mtime(baseline_qa_report_path),
+            "empty_required_cells": sum(qa_report.empty_required_cells.values()),
+            "invalid_odds_cells": sum(qa_report.invalid_odds_cells.values()),
+            "invalid_probability_cells": sum(qa_report.invalid_probability_cells.values()),
+            "invalid_overround_cells": sum(qa_report.invalid_overround_cells.values()),
+            "thin_history_count": qa_report.thin_history_count,
+            "thin_history_ratio": qa_report.thin_history_ratio,
+            "low_sample_leagues": qa_report.low_sample_leagues,
+        }
+
+    market_payload: dict[str, Any] = {
+        "exists": False,
+        "path": str(baseline_market_report_path),
+    }
+    if baseline_dataset_path.exists():
+        market_report = build_baseline_training_dataset_market_baseline_report(
+            baseline_dataset_path
+        )
+        market_payload = {
+            "exists": baseline_market_report_path.exists(),
+            "path": str(baseline_market_report_path),
+            "updated_at": _format_file_mtime(baseline_market_report_path),
+            "market_samples": market_report.total_market_samples,
+            "evaluated_market_samples": market_report.total_evaluated_market_samples,
+            "skipped_market_samples": market_report.total_skipped_market_samples,
+            "market_reports": {
+                market_type: {
+                    "evaluated_count": report.evaluated_count,
+                    "skipped_count": report.skipped_count,
+                    "accuracy": str(report.accuracy),
+                    "log_loss": str(report.average_log_loss),
+                    "brier": str(report.average_brier_score),
+                    "overround": str(report.average_overround),
+                    "flat_bet_profit_units": str(report.flat_bet_profit_units),
+                    "flat_bet_roi": str(report.flat_bet_roi),
+                    "predicted_side_counts": report.predicted_side_counts,
+                }
+                for market_type, report in market_report.market_reports.items()
+            },
+        }
+
+    return {
+        "dataset": dataset_payload,
+        "dataset_report": _build_report_file_payload(baseline_dataset_report_path),
+        "qa": qa_payload,
+        "market_baseline": market_payload,
+    }
+
+
+def _build_training_dataset_file_payload(path: Path) -> dict[str, Any]:
+    payload = _build_report_file_payload(path)
+    payload.update({"row_count": 0, "column_count": 0})
+    if not path.exists():
+        return payload
+    with path.open(encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        row_count = sum(1 for _ in reader)
+        column_count = len(reader.fieldnames or [])
+    payload.update({"row_count": row_count, "column_count": column_count})
+    return payload
+
+
+def _build_report_file_payload(path: Path) -> dict[str, Any]:
+    return {
+        "exists": path.exists(),
+        "path": str(path),
+        "updated_at": _format_file_mtime(path),
+        "size_bytes": path.stat().st_size if path.exists() else 0,
+    }
+
+
+def _format_file_mtime(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return datetime.fromtimestamp(path.stat().st_mtime).isoformat()
 
 
 def _build_market_points(

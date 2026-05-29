@@ -497,6 +497,66 @@ def test_web_console_api_returns_recommendation_records(tmp_path):
     assert payload[0]["confidence_grade"] == "A-"
 
 
+def test_web_console_api_returns_training_workspace(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    dataset_path = tmp_path / "baseline.csv"
+    dataset_path.write_text(
+        "match_id,season,kickoff_time,league_name,match_result,total_goals,"
+        "asian_handicap_close_line,asian_handicap_home_odds,asian_handicap_away_odds,"
+        "asian_handicap_home_implied_probability,asian_handicap_away_implied_probability,"
+        "asian_handicap_overround,asian_handicap_home_result,asian_handicap_away_result,"
+        "total_goals_close_line,total_goals_over_odds,total_goals_under_odds,"
+        "total_goals_over_implied_probability,total_goals_under_implied_probability,"
+        "total_goals_overround,total_goals_over_result,total_goals_under_result,"
+        "match_winner_home_odds,match_winner_draw_odds,match_winner_away_odds,"
+        "match_winner_home_implied_probability,match_winner_draw_implied_probability,"
+        "match_winner_away_implied_probability,match_winner_overround,"
+        "match_winner_home_result,match_winner_draw_result,match_winner_away_result,"
+        "asian_handicap_snapshot_count,total_goals_snapshot_count,"
+        "match_winner_snapshot_count,quality_tags\n"
+        "1,2026,2026-05-01T20:00:00,Premier League,home_win,3,"
+        "-0.25,1.900,2.000,0.5263,0.5000,1.0263,win,loss,"
+        "2.50,1.950,1.950,0.5128,0.5128,1.0256,win,loss,"
+        "2.100,3.300,3.600,0.4762,0.3030,0.2778,1.0570,win,loss,loss,"
+        "40,38,42,\n",
+        encoding="utf-8",
+    )
+    dataset_report_path = tmp_path / "dataset.md"
+    qa_report_path = tmp_path / "qa.md"
+    market_report_path = tmp_path / "market.md"
+    dataset_report_path.write_text("dataset report", encoding="utf-8")
+    qa_report_path.write_text("qa report", encoding="utf-8")
+    market_report_path.write_text("market report", encoding="utf-8")
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            baseline_dataset_path=dataset_path,
+            baseline_dataset_report_path=dataset_report_path,
+            baseline_qa_report_path=qa_report_path,
+            baseline_market_report_path=market_report_path,
+        )
+    )
+
+    response = client.get("/api/training/workspace")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["dataset"]["exists"] is True
+    assert payload["dataset"]["row_count"] == 1
+    assert payload["dataset"]["column_count"] == 36
+    assert payload["dataset_report"]["exists"] is True
+    assert payload["qa"]["exists"] is True
+    assert payload["qa"]["empty_required_cells"] == 0
+    assert payload["qa"]["invalid_odds_cells"] == 0
+    assert payload["market_baseline"]["exists"] is True
+    assert payload["market_baseline"]["evaluated_market_samples"] == 3
+    assert payload["market_baseline"]["market_reports"]["match_winner"]["flat_bet_roi"] == "1.1000"
+
+
 def _seed_console_data(session_factory):
     with session_factory() as session:
         league = League(

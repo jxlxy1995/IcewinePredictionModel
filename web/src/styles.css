@@ -461,6 +461,128 @@ th {
   padding: 10px 12px;
 }
 
+.training-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.training-actions button {
+  align-items: center;
+  background: #1f2937;
+  border: 1px solid #1f2937;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 36px;
+  padding: 0 13px;
+}
+
+.training-actions button svg {
+  flex: 0 0 auto;
+  margin-right: 7px;
+}
+
+.training-actions button:hover {
+  background: #111827;
+}
+
+.training-actions button:disabled {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #64748b;
+  cursor: default;
+}
+
+.training-actions span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.training-status-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.status-line {
+  align-items: start;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 10px 12px;
+}
+
+.status-line strong,
+.status-line code {
+  display: block;
+}
+
+.status-line strong {
+  font-size: 14px;
+  margin-bottom: 5px;
+}
+
+.status-line code {
+  color: #64748b;
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.training-quality-list {
+  display: grid;
+  gap: 10px;
+}
+
+.training-quality-list div {
+  align-items: center;
+  border-bottom: 1px solid #eef2f7;
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 8px;
+}
+
+.training-quality-list span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.training-quality-list strong {
+  color: #1d2733;
+  font-size: 14px;
+  max-width: 64%;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.training-note {
+  color: #166534;
+  font-size: 13px;
+  margin-top: 12px;
+}
+
+.training-note.warning {
+  color: #b45309;
+}
+
+.positive-number {
+  color: #166534;
+  font-weight: 700;
+}
+
+.negative-number {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
 .status-pill {
   border-radius: 999px;
   display: inline-flex;

@@ -3,7 +3,8 @@ import type {
   MatchOddsTrends,
   ModelTrainingOverview,
   OddspapiBackfillAudit,
-  TeamDisplayNameWorkspace
+  TeamDisplayNameWorkspace,
+  TrainingWorkspace
 } from "./types";
 
 export const mockOddsTrends: MatchOddsTrends = {
@@ -311,6 +312,78 @@ export const mockModelTrainingOverview: ModelTrainingOverview = {
   ]
 };
 
+export const mockTrainingWorkspace: TrainingWorkspace = {
+  dataset: {
+    exists: true,
+    path: "local_data/training/baseline_main_leagues_20260529.csv",
+    updated_at: "2026-05-29T18:10:00",
+    size_bytes: 1441170,
+    row_count: 5330,
+    column_count: 42
+  },
+  dataset_report: {
+    exists: true,
+    path: "docs/团队协作/20260529-baseline-training-dataset.md",
+    updated_at: "2026-05-29T18:10:00",
+    size_bytes: 1200
+  },
+  qa: {
+    exists: true,
+    path: "docs/团队协作/20260529-baseline-training-dataset-qa.md",
+    updated_at: "2026-05-29T18:20:00",
+    empty_required_cells: 0,
+    invalid_odds_cells: 0,
+    invalid_probability_cells: 0,
+    invalid_overround_cells: 0,
+    thin_history_count: 152,
+    thin_history_ratio: "0.0285",
+    low_sample_leagues: { "Ykkosliiga (Finland)": 29 }
+  },
+  market_baseline: {
+    exists: true,
+    path: "docs/团队协作/20260529-close-market-baseline-evaluation.md",
+    updated_at: "2026-05-29T18:30:00",
+    market_samples: 15990,
+    evaluated_market_samples: 15326,
+    skipped_market_samples: 664,
+    market_reports: {
+      asian_handicap: {
+        evaluated_count: 4928,
+        skipped_count: 402,
+        accuracy: "0.5244",
+        log_loss: "0.6921",
+        brier: "0.4412",
+        overround: "1.0273",
+        flat_bet_profit_units: "-92.6695",
+        flat_bet_roi: "-0.0188",
+        predicted_side_counts: { home: 2527, away: 2401 }
+      },
+      total_goals: {
+        evaluated_count: 5068,
+        skipped_count: 262,
+        accuracy: "0.5199",
+        log_loss: "0.6924",
+        brier: "0.4474",
+        overround: "1.0320",
+        flat_bet_profit_units: "-111.2930",
+        flat_bet_roi: "-0.0220",
+        predicted_side_counts: { over: 2560, under: 2508 }
+      },
+      match_winner: {
+        evaluated_count: 5330,
+        skipped_count: 0,
+        accuracy: "0.5032",
+        log_loss: "1.0055",
+        brier: "0.6015",
+        overround: "1.0390",
+        flat_bet_profit_units: "-190.4020",
+        flat_bet_roi: "-0.0357",
+        predicted_side_counts: { home: 3608, away: 1690, draw: 32 }
+      }
+    }
+  }
+};
+
 export const mockOddspapiBackfillAudit: OddspapiBackfillAudit = {
   season: 2025,
   log_dir: "logs/odds",
@@ -481,6 +554,7 @@ export const mockDashboardData: DashboardData = {
   ],
   doneDisplayTranslationKeys: ["78-2025"],
   modelTraining: mockModelTrainingOverview,
+  trainingWorkspace: mockTrainingWorkspace,
   recommendationRecords: [
     {
       id: 1,

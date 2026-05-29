@@ -2,6 +2,7 @@ import {
   mockDashboardData,
   mockModelTrainingOverview,
   mockOddsTrends,
+  mockTrainingWorkspace,
   mockTeamDisplayNameWorkspaces
 } from "./mockData";
 import type {
@@ -15,6 +16,7 @@ import type {
   RecommendationRecord,
   TeamDisplayNameRow,
   TeamDisplayNameWorkspace,
+  TrainingWorkspace,
   UnmatchedMatch,
   WorkerStatus
 } from "./types";
@@ -34,7 +36,8 @@ export async function loadDashboardData(): Promise<DashboardData> {
       missingTeamDisplayNames,
       displayTranslationStatus,
       recommendationRecords,
-      oddspapiBackfillAudit
+      oddspapiBackfillAudit,
+      trainingWorkspace
     ] = await Promise.all([
       getJson<DashboardSummary>("/api/dashboard/summary"),
       getJson<LeagueCoverage[]>("/api/leagues/coverage"),
@@ -44,7 +47,8 @@ export async function loadDashboardData(): Promise<DashboardData> {
       getJson<TeamDisplayNameRow[]>("/api/display/missing-team-names"),
       getJson<DisplayTranslationStatus>("/api/display/translation-status"),
       getJson<RecommendationRecord[]>("/api/recommendation-records"),
-      getJson<OddspapiBackfillAudit>("/api/oddspapi/backfill-audit?season=2025")
+      getJson<OddspapiBackfillAudit>("/api/oddspapi/backfill-audit?season=2025"),
+      getJson<TrainingWorkspace>("/api/training/workspace")
     ]);
     const oddsTrends = await loadFirstOddsTrend(matchesWithOdds);
     return {
@@ -59,7 +63,8 @@ export async function loadDashboardData(): Promise<DashboardData> {
       doneDisplayTranslationKeys: displayTranslationStatus.done_league_seasons,
       modelTraining: mockModelTrainingOverview,
       recommendationRecords,
-      oddspapiBackfillAudit
+      oddspapiBackfillAudit,
+      trainingWorkspace
     };
   } catch {
     return {
@@ -138,6 +143,12 @@ export async function saveTeamDisplayNames(
     Object.assign(fallbackSavedTeamNames, teams);
     return { saved_count: Object.keys(teams).length };
   }
+}
+
+export async function runTrainingWorkflowAction(
+  action: "baseline-dataset" | "baseline-dataset-qa" | "market-baseline"
+): Promise<TrainingWorkspace> {
+  return await postJson<TrainingWorkspace>(`/api/training/${action}`, {});
 }
 
 async function getJson<T>(path: string): Promise<T> {

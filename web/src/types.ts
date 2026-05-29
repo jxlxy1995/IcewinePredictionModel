@@ -204,6 +204,60 @@ export type ModelTrainingOverview = {
   league_training_coverage: ModelLeagueTrainingCoverage[];
 };
 
+export type TrainingFileStatus = {
+  exists: boolean;
+  path: string;
+  updated_at: string | null;
+  size_bytes: number;
+};
+
+export type TrainingDatasetStatus = TrainingFileStatus & {
+  row_count: number;
+  column_count: number;
+};
+
+export type TrainingQaStatus = {
+  exists: boolean;
+  path: string;
+  updated_at: string | null;
+  empty_required_cells: number;
+  invalid_odds_cells: number;
+  invalid_probability_cells: number;
+  invalid_overround_cells: number;
+  thin_history_count: number;
+  thin_history_ratio: string;
+  low_sample_leagues: Record<string, number>;
+};
+
+export type TrainingMarketBaselineMetric = {
+  evaluated_count: number;
+  skipped_count: number;
+  accuracy: string;
+  log_loss: string;
+  brier: string;
+  overround: string;
+  flat_bet_profit_units: string;
+  flat_bet_roi: string;
+  predicted_side_counts: Record<string, number>;
+};
+
+export type TrainingMarketBaselineStatus = {
+  exists: boolean;
+  path: string;
+  updated_at: string | null;
+  market_samples: number;
+  evaluated_market_samples: number;
+  skipped_market_samples: number;
+  market_reports: Record<string, TrainingMarketBaselineMetric>;
+};
+
+export type TrainingWorkspace = {
+  dataset: TrainingDatasetStatus;
+  dataset_report: TrainingFileStatus;
+  qa: TrainingQaStatus;
+  market_baseline: TrainingMarketBaselineStatus;
+};
+
 export type DashboardData = {
   summary: DashboardSummary;
   leagues: LeagueCoverage[];
@@ -216,5 +270,6 @@ export type DashboardData = {
   doneDisplayTranslationKeys: string[];
   recommendationRecords: RecommendationRecord[];
   modelTraining: ModelTrainingOverview;
+  trainingWorkspace: TrainingWorkspace;
   source: "api" | "mock";
 };

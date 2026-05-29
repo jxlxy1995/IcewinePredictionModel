@@ -6,8 +6,11 @@ import {
   CircleAlert,
   ClipboardList,
   Database,
+  FileCheck2,
+  FlaskConical,
   Languages,
   ListChecks,
+  Play,
   Radio
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -16,6 +19,7 @@ import {
   loadDashboardData,
   loadMatchOddsTrend,
   markTeamDisplayNameWorkspaceDone,
+  runTrainingWorkflowAction,
   saveTeamDisplayNames,
   loadTeamDisplayNameWorkspace
 } from "../apiClient";
@@ -34,8 +38,12 @@ import {
 } from "../displayNameWorkspace";
 import {
   buildModelTrainingSummaryCards,
+  buildTrainingWorkspaceCards,
+  countTrainingQualityIssues,
   formatModelTrainingStatus,
-  listRecentModelRuns
+  formatMarketType,
+  listRecentModelRuns,
+  listTrainingMarketRows
 } from "../modelTrainingWorkspace";
 import {
   buildOddspapiAuditSummaryCards,
@@ -106,7 +114,7 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
   },
   models: {
     title: "模型训练",
-    subtitle: "查看训练样本覆盖、模型版本和最近训练结果"
+    subtitle: "生成 baseline 训练集、执行 QA，并用 close-market 基准做 sanity check"
   },
   odds: {
     title: "赔率走势",
@@ -144,6 +152,9 @@ export function DashboardPage() {
   const [coverageSort, setCoverageSort] = useState<
     "coverage_desc" | "coverage_asc" | "unmatched_desc"
   >("coverage_desc");
+  const [trainingAction, setTrainingAction] = useState<string | null>(null);
+  const [trainingMessage, setTrainingMessage] = useState<string | null>(null);
+  const [trainingError, setTrainingError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -296,7 +307,26 @@ export function DashboardPage() {
             workspaceMessage={displayWorkspaceMessage}
           />
         )}
-        {activeView === "models" && <ModelTrainingView data={data} />}
+        {activeView === "models" && (
+          <ModelTrainingView
+            actionInFlight={trainingAction}
+            data={data}
+            errorText={trainingError}
+            messageText={trainingMessage}
+            onRunAction={(action) => {
+              setTrainingAction(action);
+              setTrainingError(null);
+              setTrainingMessage(null);
+              runTrainingWorkflowAction(action)
+                .then((workspace) => {
+                  setData((current) => ({ ...current, trainingWorkspace: workspace }));
+                  setTrainingMessage("训练工作流已更新");
+                })
+                .catch(() => setTrainingError("训练工作流执行失败"))
+                .finally(() => setTrainingAction(null));
+            }}
+          />
+        )}
         {activeView === "odds" && (
           <OddsView
             data={data}
@@ -675,17 +705,174 @@ function formatShortDateTime(value: string) {
   return value.replace("T", " ").slice(0, 16);
 }
 
-function ModelTrainingView({ data }: { data: DashboardData }) {
+function ModelTrainingView({
+  actionInFlight,
+  data,
+  errorText,
+  messageText,
+  onRunAction
+}: {
+  actionInFlight: string | null;
+  data: DashboardData;
+  errorText: string | null;
+  messageText: string | null;
+  onRunAction: (action: "baseline-dataset" | "baseline-dataset-qa" | "market-baseline") => void;
+}) {
+  const workspace = data.trainingWorkspace;
+  const workflowCards = buildTrainingWorkspaceCards(workspace);
   const summaryCards = buildModelTrainingSummaryCards(data.modelTraining);
   const recentRuns = listRecentModelRuns(data.modelTraining);
+  const marketRows = listTrainingMarketRows(workspace);
+  const qualityIssues = countTrainingQualityIssues(workspace);
+  const lowSampleLeagueText = formatLowSampleLeagues(workspace.qa.low_sample_leagues);
 
   return (
     <section className="single-column">
+      <section className="metrics compact-metrics">
+        {workflowCards.map((card) => (
+          <MetricCard key={card.label} label={card.label} value={card.value} />
+        ))}
+      </section>
+
+      <section className="grid">
+        <Panel title="训练工作流">
+          {messageText && <div className="inline-success">{messageText}</div>}
+          {errorText && <div className="inline-warning">{errorText}</div>}
+          <div className="training-actions">
+            <button
+              disabled={actionInFlight !== null}
+              onClick={() => onRunAction("baseline-dataset")}
+              type="button"
+            >
+              <Play size={16} />
+              生成训练集
+            </button>
+            <button
+              disabled={actionInFlight !== null || !workspace.dataset.exists}
+              onClick={() => onRunAction("baseline-dataset-qa")}
+              type="button"
+            >
+              <FileCheck2 size={16} />
+              执行 QA
+            </button>
+            <button
+              disabled={actionInFlight !== null || !workspace.dataset.exists}
+              onClick={() => onRunAction("market-baseline")}
+              type="button"
+            >
+              <FlaskConical size={16} />
+              跑市场基准
+            </button>
+            {actionInFlight && <span>正在执行 {formatTrainingAction(actionInFlight)}</span>}
+          </div>
+          <div className="training-status-grid">
+            <StatusLine
+              label={`训练集 ${workspace.dataset.row_count.toLocaleString()} 行 / ${
+                workspace.dataset.column_count
+              } 列`}
+              path={workspace.dataset.path}
+              ready={workspace.dataset.exists}
+            />
+            <StatusLine
+              label="训练集报告"
+              path={workspace.dataset_report.path}
+              ready={workspace.dataset_report.exists}
+            />
+            <StatusLine label="QA 报告" path={workspace.qa.path} ready={workspace.qa.exists} />
+            <StatusLine
+              label="市场基准报告"
+              path={workspace.market_baseline.path}
+              ready={workspace.market_baseline.exists}
+            />
+          </div>
+        </Panel>
+
+        <Panel title="数据质量">
+          <div className="training-quality-list">
+            <div>
+              <span>必填空值</span>
+              <strong className={workspace.qa.empty_required_cells > 0 ? "negative-number" : ""}>
+                {workspace.qa.empty_required_cells.toLocaleString()}
+              </strong>
+            </div>
+            <div>
+              <span>赔率异常</span>
+              <strong className={workspace.qa.invalid_odds_cells > 0 ? "negative-number" : ""}>
+                {workspace.qa.invalid_odds_cells.toLocaleString()}
+              </strong>
+            </div>
+            <div>
+              <span>概率异常</span>
+              <strong
+                className={workspace.qa.invalid_probability_cells > 0 ? "negative-number" : ""}
+              >
+                {workspace.qa.invalid_probability_cells.toLocaleString()}
+              </strong>
+            </div>
+            <div>
+              <span>Overround 异常</span>
+              <strong
+                className={workspace.qa.invalid_overround_cells > 0 ? "negative-number" : ""}
+              >
+                {workspace.qa.invalid_overround_cells.toLocaleString()}
+              </strong>
+            </div>
+            <div>
+              <span>Thin history</span>
+              <strong>{`${workspace.qa.thin_history_count.toLocaleString()} / ${
+                workspace.qa.thin_history_ratio
+              }`}</strong>
+            </div>
+            <div>
+              <span>低样本联赛</span>
+              <strong>{lowSampleLeagueText}</strong>
+            </div>
+          </div>
+          <p className={qualityIssues > 0 ? "training-note warning" : "training-note"}>
+            {qualityIssues > 0
+              ? "当前训练集仍有质量问题，建议先修复再进入模型特征阶段。"
+              : "当前 baseline 训练集没有发现必填、赔率、概率或 overround 结构性问题。"}
+          </p>
+        </Panel>
+      </section>
+
+      <Panel title="Close-market 基准">
+        <table>
+          <thead>
+            <tr>
+              <th>盘口</th>
+              <th>评估样本</th>
+              <th>跳过</th>
+              <th>Accuracy</th>
+              <th>Log Loss</th>
+              <th>Brier</th>
+              <th>Flat ROI</th>
+            </tr>
+          </thead>
+          <tbody>
+            {marketRows.map((row) => (
+              <tr key={row.marketType}>
+                <td>{row.marketLabel}</td>
+                <td>{row.evaluatedCount.toLocaleString()}</td>
+                <td>{row.skippedCount.toLocaleString()}</td>
+                <td>{row.accuracy}</td>
+                <td>{row.logLoss}</td>
+                <td>{row.brier}</td>
+                <td className={row.flatBetRoi.startsWith("-") ? "negative-number" : "positive-number"}>
+                  {row.flatBetRoi}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+
       <section className="metrics compact-metrics">
         {summaryCards.map((card) => (
           <MetricCard key={card.label} label={card.label} value={card.value} />
         ))}
       </section>
+
       <section className="grid">
         <Panel title="最近训练结果">
           <table>
@@ -758,13 +945,33 @@ function ModelTrainingView({ data }: { data: DashboardData }) {
   );
 }
 
-function formatMarketType(value: string) {
+function StatusLine({ label, path, ready }: { label: string; path: string; ready: boolean }) {
+  return (
+    <div className="status-line">
+      <span className={`status-pill ${ready ? "ready" : "failed"}`}>{ready ? "可用" : "缺失"}</span>
+      <div>
+        <strong>{label}</strong>
+        <code>{path}</code>
+      </div>
+    </div>
+  );
+}
+
+function formatLowSampleLeagues(leagues: Record<string, number>) {
+  const entries = Object.entries(leagues);
+  if (entries.length === 0) {
+    return "-";
+  }
+  return entries.map(([league, count]) => `${league} ${count}`).join(" / ");
+}
+
+function formatTrainingAction(action: string) {
   const names: Record<string, string> = {
-    asian_handicap: "亚盘",
-    score_distribution: "比分分布",
-    total_goals: "大小球"
+    "baseline-dataset": "生成训练集",
+    "baseline-dataset-qa": "执行 QA",
+    "market-baseline": "市场基准"
   };
-  return names[value] ?? value;
+  return names[action] ?? action;
 }
 
 function RecordsView({ data }: { data: DashboardData }) {

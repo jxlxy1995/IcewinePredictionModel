@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { ModelTrainingOverview } from "./types";
+import type { ModelTrainingOverview, TrainingWorkspace } from "./types";
 import {
   buildModelTrainingSummaryCards,
+  buildTrainingWorkspaceCards,
   formatModelTrainingStatus,
-  listRecentModelRuns
+  listRecentModelRuns,
+  listTrainingMarketRows
 } from "./modelTrainingWorkspace";
 
 const overview: ModelTrainingOverview = {
@@ -55,13 +57,85 @@ const overview: ModelTrainingOverview = {
   ]
 };
 
+const trainingWorkspace: TrainingWorkspace = {
+  dataset: {
+    exists: true,
+    path: "local_data/training/baseline_main_leagues_20260529.csv",
+    updated_at: "2026-05-29T18:10:00",
+    size_bytes: 1441170,
+    row_count: 5330,
+    column_count: 42
+  },
+  dataset_report: {
+    exists: true,
+    path: "docs/团队协作/20260529-baseline-training-dataset.md",
+    updated_at: "2026-05-29T18:10:00",
+    size_bytes: 1200
+  },
+  qa: {
+    exists: true,
+    path: "docs/团队协作/20260529-baseline-training-dataset-qa.md",
+    updated_at: "2026-05-29T18:20:00",
+    empty_required_cells: 0,
+    invalid_odds_cells: 0,
+    invalid_probability_cells: 0,
+    invalid_overround_cells: 0,
+    thin_history_count: 152,
+    thin_history_ratio: "0.0285",
+    low_sample_leagues: { "Ykkosliiga (Finland)": 29 }
+  },
+  market_baseline: {
+    exists: true,
+    path: "docs/团队协作/20260529-close-market-baseline-evaluation.md",
+    updated_at: "2026-05-29T18:30:00",
+    market_samples: 15990,
+    evaluated_market_samples: 15326,
+    skipped_market_samples: 664,
+    market_reports: {
+      asian_handicap: {
+        evaluated_count: 4928,
+        skipped_count: 402,
+        accuracy: "0.5244",
+        log_loss: "0.6921",
+        brier: "0.4412",
+        overround: "1.0273",
+        flat_bet_profit_units: "-92.6695",
+        flat_bet_roi: "-0.0188",
+        predicted_side_counts: { home: 2527, away: 2401 }
+      },
+      total_goals: {
+        evaluated_count: 5068,
+        skipped_count: 262,
+        accuracy: "0.5199",
+        log_loss: "0.6924",
+        brier: "0.4474",
+        overround: "1.0320",
+        flat_bet_profit_units: "-111.2930",
+        flat_bet_roi: "-0.0220",
+        predicted_side_counts: { over: 2560, under: 2508 }
+      },
+      match_winner: {
+        evaluated_count: 5330,
+        skipped_count: 0,
+        accuracy: "0.5032",
+        log_loss: "1.0055",
+        brier: "0.6015",
+        overround: "1.0390",
+        flat_bet_profit_units: "-190.4020",
+        flat_bet_roi: "-0.0357",
+        predicted_side_counts: { home: 3608, away: 1690, draw: 32 }
+      }
+    }
+  }
+};
+
 describe("model training workspace helpers", () => {
   it("builds model training summary cards from overview data", () => {
     expect(buildModelTrainingSummaryCards(overview)).toEqual([
       { label: "训练样本", value: "1,844" },
       { label: "赔率快照", value: "183,204" },
       { label: "模型版本", value: "2" },
-      { label: "可出结果", value: "1" }
+      { label: "可用结果", value: "1" }
     ]);
   });
 
@@ -76,5 +150,21 @@ describe("model training workspace helpers", () => {
     expect(formatModelTrainingStatus("ready")).toBe("可用");
     expect(formatModelTrainingStatus("training")).toBe("训练中");
     expect(formatModelTrainingStatus("failed")).toBe("失败");
+  });
+
+  it("builds training workspace cards from workflow state", () => {
+    expect(buildTrainingWorkspaceCards(trainingWorkspace)).toEqual([
+      { label: "训练集样本", value: "5,330" },
+      { label: "数据质量问题", value: "0" },
+      { label: "Thin history", value: "152" },
+      { label: "市场基准样本", value: "15,326" }
+    ]);
+  });
+
+  it("lists market baseline rows with display names", () => {
+    const rows = listTrainingMarketRows(trainingWorkspace);
+
+    expect(rows.map((row) => row.marketLabel)).toEqual(["亚盘", "大小球", "胜平负"]);
+    expect(rows[0].flatBetRoi).toBe("-0.0188");
   });
 });

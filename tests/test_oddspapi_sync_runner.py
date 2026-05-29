@@ -838,6 +838,16 @@ def test_api_football_league_mappings_include_2025_sample_targets():
     assert mappings["307"] == 955
 
 
+def test_api_football_league_mappings_include_candidate_sample_targets():
+    mappings = oddspapi_sync_runner.API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS
+
+    assert mappings["357"] == 192
+    assert mappings["1087"] == 55
+    assert mappings["104"] == 22
+    assert mappings["120"] == 47
+    assert mappings["274"] == 1015
+
+
 def test_run_oddspapi_sync_for_session_samples_snapshots_before_storing(session):
     _match(session)
     raw_client = FakeOddsPapiClient()

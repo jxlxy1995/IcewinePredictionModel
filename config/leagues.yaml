@@ -169,11 +169,6 @@ leagues:
     api_football_id: 103
     enabled: true
     priority: 63
-  - name: 3. Liga
-    country: Germany
-    api_football_id: 80
-    enabled: false
-    priority: 62
   - name: J1 League
     country: Japan
     api_football_id: 98

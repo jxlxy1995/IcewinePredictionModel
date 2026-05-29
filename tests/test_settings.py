@@ -86,7 +86,6 @@ def test_default_league_whitelist_contains_mainstream_leagues():
     leagues_by_name = {league.name: league for league in settings.leagues}
 
     assert leagues_by_name["2. Bundesliga"].api_football_id == 79
-    assert leagues_by_name["3. Liga"].api_football_id == 80
     assert leagues_by_name["J1 League"].api_football_id == 98
     assert leagues_by_name["K League 1"].api_football_id == 292
     assert leagues_by_name["Ligue 2"].api_football_id == 62

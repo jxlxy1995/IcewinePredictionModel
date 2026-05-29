@@ -49,6 +49,14 @@ aliases:
     alias_name: Stroemmen IF
   - entity_type: team
     source_name: oddspapi
+    canonical_name: ODD Ballklubb
+    alias_name: Odds BK
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Stromsgodset
+    alias_name: Stroemsgodset IF
+  - entity_type: team
+    source_name: oddspapi
     canonical_name: Ham-Kam
     alias_name: HamKam
   - entity_type: team
@@ -127,6 +135,14 @@ aliases:
     source_name: oddspapi
     canonical_name: EIF
     alias_name: Ekenas Idrottsforening
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Kooteepee
+    alias_name: FC KTP Kotka
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: MP
+    alias_name: Mikkelin Palloilijat
   - entity_type: team
     source_name: oddspapi
     canonical_name: Gençlerbirliği S.K.

@@ -82,6 +82,17 @@ Leagues still completely unrunned or intentionally pending:
    - `hodd -> Hoedd IL`
    - `Strommen -> Stroemmen IF`
    - `EIF -> Ekenas Idrottsforening`
+13. Ran the first larger 2026 candidate worker for 挪甲/芬甲/爱超. Worker completed:
+   - Total: processed `142`, snapshots `20072`, failed `35`, requests `292`.
+   - 挪甲: finished `71`, success/snapshot matches `46` before post-fix, then `47` after targeted alias retry; remaining `unknown=13`, `unavailable=10`.
+   - 芬甲: finished `40`, success `18` before post-fix, then `20` after targeted alias retry; remaining `unknown=11`, `unavailable=9`.
+   - 爱超: finished `91`, success `84`, unavailable `6`, empty `1`. This league looks healthy enough for future continuation.
+14. Post-worker alias repair added:
+   - `ODD Ballklubb -> Odds BK`
+   - `Stromsgodset -> Stroemsgodset IF`
+   - `Kooteepee -> FC KTP Kotka`
+   - `MP -> Mikkelin Palloilijat`
+   Targeted retry of `17737,17733,17575,17571` produced 3 successes and 1 real 404 (`17737` ODD Ballklubb vs Ranheim).
 
 ## Likely Next Work
 
@@ -139,8 +150,8 @@ Observed alias needs before any real backfill:
 
 - 印尼超: `Pusamania Borneo -> Borneo Samarinda`, `Persepam Madura Utd -> Madura United`, `PSBS Biak Numfor -> PSBS Biak`.
 - 丹麦甲: `HB Koge -> HB Koege`, `B 93` may need manual alias/normalization check.
-- 挪甲: `hodd` and `Strommen` are now fixed in config. `Stromsgodset`, `ODD Ballklubb`, and possibly `Sogndal`/`Sandnes ULF` still need alias review before large backfill.
-- 芬甲: `EIF` is now fixed in config. `SJK Akatemia`, `MP`, and possible future `KäPa` variants still need alias review before large backfill.
+- 挪甲: `hodd`, `Strommen`, `Stromsgodset`, and `ODD Ballklubb` are now fixed in config. `Sogndal`/`Sandnes ULF` may still need alias review.
+- 芬甲: `EIF`, `Kooteepee`, and `MP` are now fixed in config. `SJK Akatemia` and possible future `KäPa` variants may still need alias review.
 
 Recommended approach:
 

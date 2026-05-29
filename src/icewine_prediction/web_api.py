@@ -48,6 +48,11 @@ from icewine_prediction.oddspapi_backfill_audit_service import (
     build_oddspapi_backfill_audit_for_session,
 )
 from icewine_prediction.oddspapi_worker_process_service import _is_process_running
+from icewine_prediction.paper_recommendation_queue_service import (
+    PaperQueueScore,
+    build_paper_recommendation_queue,
+)
+from icewine_prediction.time_utils import now_beijing
 
 
 def create_web_app(
@@ -68,6 +73,8 @@ def create_web_app(
     baseline_market_report_path: Path = Path(
         "docs/模型实验/20260529-close-market-baseline-evaluation.md"
     ),
+    paper_queue_scorer: Callable[[dict[str, str]], PaperQueueScore | None] | None = None,
+    clock: Callable[[], datetime] = now_beijing,
 ) -> FastAPI:
     if session_factory is None:
         engine = create_database_engine()
@@ -188,6 +195,27 @@ def create_web_app(
     def recommendation_records() -> list[dict[str, Any]]:
         with session_factory() as session:
             return build_recommendation_records(session, display_name_service=display_name_service)
+
+    @app.get("/api/paper-recommendations/queue")
+    def paper_recommendation_queue(
+        hours: int = 72,
+        near_start_hours: int = 6,
+        edge_threshold: str = "0.10",
+    ) -> dict[str, Any]:
+        with session_factory() as session:
+            report = build_paper_recommendation_queue(
+                session,
+                now=clock(),
+                hours=hours,
+                near_start_hours=near_start_hours,
+                edge_threshold=edge_threshold,
+                scorer=paper_queue_scorer,
+                display_name_service=display_name_service,
+            )
+            return build_paper_recommendation_queue_payload(
+                report,
+                display_name_service=display_name_service,
+            )
 
     @app.get("/api/training/workspace")
     def training_workspace() -> dict[str, Any]:
@@ -633,6 +661,54 @@ def build_recommendation_records(
     ]
 
 
+def build_paper_recommendation_queue_payload(
+    report,
+    *,
+    display_name_service: DisplayNameService | None = None,
+) -> dict[str, Any]:
+    display_name_service = display_name_service or DisplayNameService()
+    return {
+        "generated_at": report.generated_at,
+        "window_start": report.window_start,
+        "window_end": report.window_end,
+        "hours": report.hours,
+        "near_start_hours": report.near_start_hours,
+        "edge_threshold": str(report.edge_threshold),
+        "model_name": report.model_name,
+        "total_matches": report.total_matches,
+        "candidate_count": report.candidate_count,
+        "status_counts": report.status_counts,
+        "prefetch_requested": report.prefetch_requested,
+        "near_start_fixture_ids": report.near_start_fixture_ids,
+        "prefetch_result": report.prefetch_result,
+        "rows": [
+            {
+                "match_id": row.match_id,
+                "source_match_id": row.source_match_id,
+                "kickoff_time": row.kickoff_time,
+                "league_name": row.league_name,
+                "league_display_name": row.league_display_name,
+                "home_team_name": row.home_team_name,
+                "home_team_display_name": row.home_team_display_name,
+                "away_team_name": row.away_team_name,
+                "away_team_display_name": row.away_team_display_name,
+                "status": row.status,
+                "market_type": row.market_type,
+                "line": _format_optional_decimal(row.line, "0.00"),
+                "side": row.side,
+                "recommended_handicap": row.recommended_handicap,
+                "odds": _format_optional_decimal(row.odds, "0.000"),
+                "model_probability": _format_optional_decimal(row.model_probability, "0.0000"),
+                "market_probability": _format_optional_decimal(row.market_probability, "0.0000"),
+                "edge": _format_optional_decimal(row.edge, "0.0000"),
+                "line_bucket": row.line_bucket,
+                "risk_tags": list(row.risk_tags),
+            }
+            for row in report.rows
+        ],
+    }
+
+
 def build_training_workspace_payload(
     *,
     baseline_dataset_path: Path,
@@ -801,6 +877,12 @@ def _format_ratio(count: int, total: int) -> str:
 
 def _format_decimal(value: Decimal, pattern: str) -> str:
     return str(Decimal(value).quantize(Decimal(pattern)))
+
+
+def _format_optional_decimal(value: Decimal | None, pattern: str) -> str | None:
+    if value is None:
+        return None
+    return _format_decimal(value, pattern)
 
 
 def _format_datetime(value: datetime | None) -> str | None:

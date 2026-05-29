@@ -67,6 +67,9 @@ class ExternalOddsSnapshot:
     total_line: Decimal | None
     over_odds: Decimal | None
     under_odds: Decimal | None
+    match_winner_home_odds: Decimal | None = None
+    match_winner_draw_odds: Decimal | None = None
+    match_winner_away_odds: Decimal | None = None
 
 
 def _map_status(short_status: str) -> str:
@@ -230,6 +233,22 @@ def _extract_total_line(bookmaker: dict) -> tuple[Decimal | None, Decimal | None
     return _select_balanced_line(lines, "over", "under")
 
 
+def _extract_match_winner(bookmaker: dict) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+    bet = _find_bet(bookmaker, "Match Winner")
+    if bet is None:
+        return None, None, None
+    odds_by_side: dict[str, Decimal] = {}
+    for value in bet.get("values", []):
+        label = value["value"]
+        if label == "Home":
+            odds_by_side["home"] = Decimal(value["odd"])
+        elif label == "Draw":
+            odds_by_side["draw"] = Decimal(value["odd"])
+        elif label == "Away":
+            odds_by_side["away"] = Decimal(value["odd"])
+    return odds_by_side.get("home"), odds_by_side.get("draw"), odds_by_side.get("away")
+
+
 def map_odds_snapshots(payload: dict) -> list[ExternalOddsSnapshot]:
     snapshots = []
     captured_at = now_beijing()
@@ -238,7 +257,18 @@ def map_odds_snapshots(payload: dict) -> list[ExternalOddsSnapshot]:
         for bookmaker in item.get("bookmakers", []):
             asian_handicap, home_odds, away_odds = _extract_asian_handicap(bookmaker)
             total_line, over_odds, under_odds = _extract_total_line(bookmaker)
-            if asian_handicap is None and total_line is None:
+            (
+                match_winner_home_odds,
+                match_winner_draw_odds,
+                match_winner_away_odds,
+            ) = _extract_match_winner(bookmaker)
+            if (
+                asian_handicap is None
+                and total_line is None
+                and match_winner_home_odds is None
+                and match_winner_draw_odds is None
+                and match_winner_away_odds is None
+            ):
                 continue
             snapshots.append(
                 ExternalOddsSnapshot(
@@ -252,6 +282,9 @@ def map_odds_snapshots(payload: dict) -> list[ExternalOddsSnapshot]:
                     total_line=total_line,
                     over_odds=over_odds,
                     under_odds=under_odds,
+                    match_winner_home_odds=match_winner_home_odds,
+                    match_winner_draw_odds=match_winner_draw_odds,
+                    match_winner_away_odds=match_winner_away_odds,
                 )
             )
     return snapshots

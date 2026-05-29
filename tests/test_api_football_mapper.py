@@ -22,6 +22,16 @@ def test_map_fixtures_converts_api_response():
 
 def test_map_odds_snapshots_extracts_asian_handicap_and_total_line():
     payload = json.loads(Path("tests/fixtures/api_football/odds.json").read_text(encoding="utf-8"))
+    payload["response"][0]["bookmakers"][0]["bets"].append(
+        {
+            "name": "Match Winner",
+            "values": [
+                {"value": "Home", "odd": "2.10"},
+                {"value": "Draw", "odd": "3.25"},
+                {"value": "Away", "odd": "3.40"},
+            ],
+        }
+    )
 
     snapshots = map_odds_snapshots(payload)
 
@@ -34,6 +44,9 @@ def test_map_odds_snapshots_extracts_asian_handicap_and_total_line():
     assert snapshots[0].total_line == Decimal("2.5")
     assert snapshots[0].over_odds == Decimal("1.94")
     assert snapshots[0].under_odds == Decimal("1.94")
+    assert snapshots[0].match_winner_home_odds == Decimal("2.10")
+    assert snapshots[0].match_winner_draw_odds == Decimal("3.25")
+    assert snapshots[0].match_winner_away_odds == Decimal("3.40")
 
 
 def test_map_odds_snapshots_pairs_same_market_line_and_selects_balanced_line():

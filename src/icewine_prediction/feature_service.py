@@ -37,6 +37,9 @@ class MatchOddsFeatures:
     total_line: OddsMarketAggregate
     over_odds: OddsMarketAggregate
     under_odds: OddsMarketAggregate
+    match_winner_home_odds: OddsMarketAggregate
+    match_winner_draw_odds: OddsMarketAggregate
+    match_winner_away_odds: OddsMarketAggregate
 
 
 @dataclass(frozen=True)
@@ -127,6 +130,15 @@ def build_match_odds_features(match: Match) -> MatchOddsFeatures:
     main_total_line = _select_main_market_line(
         [snapshot.total_line for snapshot in total_line_snapshots]
     )
+    match_winner_snapshots = [
+        snapshot
+        for snapshot in snapshots
+        if (
+            snapshot.match_winner_home_odds is not None
+            or snapshot.match_winner_draw_odds is not None
+            or snapshot.match_winner_away_odds is not None
+        )
+    ]
     main_asian_handicap_snapshots = [
         snapshot
         for snapshot in asian_handicap_snapshots
@@ -136,7 +148,8 @@ def build_match_odds_features(match: Match) -> MatchOddsFeatures:
         snapshot for snapshot in total_line_snapshots if snapshot.total_line == main_total_line
     ]
     valid_bookmakers = {
-        snapshot.bookmaker for snapshot in asian_handicap_snapshots + total_line_snapshots
+        snapshot.bookmaker
+        for snapshot in asian_handicap_snapshots + total_line_snapshots + match_winner_snapshots
     }
     return MatchOddsFeatures(
         match_id=match.id,
@@ -173,6 +186,27 @@ def build_match_odds_features(match: Match) -> MatchOddsFeatures:
                 snapshot.under_odds
                 for snapshot in main_total_line_snapshots
                 if snapshot.under_odds is not None
+            ]
+        ),
+        match_winner_home_odds=_aggregate_decimal_values(
+            [
+                snapshot.match_winner_home_odds
+                for snapshot in snapshots
+                if snapshot.match_winner_home_odds is not None
+            ]
+        ),
+        match_winner_draw_odds=_aggregate_decimal_values(
+            [
+                snapshot.match_winner_draw_odds
+                for snapshot in snapshots
+                if snapshot.match_winner_draw_odds is not None
+            ]
+        ),
+        match_winner_away_odds=_aggregate_decimal_values(
+            [
+                snapshot.match_winner_away_odds
+                for snapshot in snapshots
+                if snapshot.match_winner_away_odds is not None
             ]
         ),
     )

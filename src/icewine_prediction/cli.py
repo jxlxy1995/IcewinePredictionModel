@@ -165,6 +165,11 @@ from icewine_prediction.oddspapi_worker_process_service import (
     build_oddspapi_batch_worker_status,
     start_oddspapi_batch_worker_process,
 )
+from icewine_prediction.paper_recommendation_queue_service import (
+    PaperRecommendationQueueReport,
+    build_paper_recommendation_queue,
+    write_paper_recommendation_queue_report,
+)
 from icewine_prediction.recommendation_service import (
     Recommendation,
     build_model_recommendations_from_features,
@@ -187,7 +192,9 @@ from icewine_prediction.config import BEIJING_TIMEZONE
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.skellam_model_service import SkellamMarginModel
 from icewine_prediction.sync_runner import (
+    build_api_football_provider,
     build_history_backfill_plan,
+    fetch_and_store_odds_snapshots,
     run_history_backfill,
     run_sync_historical_odds,
     run_sync_history,
@@ -899,6 +906,31 @@ def format_baseline_away_cover_stability_command_result(
     return "\n".join(lines)
 
 
+def format_paper_recommendation_queue_command_result(
+    *,
+    report_path: str,
+    report: PaperRecommendationQueueReport,
+) -> str:
+    lines = [
+        "paper recommendation queue written",
+        f"report: {report_path}",
+        (
+            f"window {report.hours}h near-start {report.near_start_hours}h "
+            f"candidates {report.candidate_count}/{report.total_matches}"
+        ),
+    ]
+    lines.extend(
+        f"status {status} {count}" for status, count in sorted(report.status_counts.items())
+    )
+    if report.prefetch_result is not None:
+        lines.append(
+            "prefetch "
+            f"created {report.prefetch_result.get('created')} "
+            f"skipped {report.prefetch_result.get('skipped')}"
+        )
+    return "\n".join(lines)
+
+
 def format_baseline_market_diagnostics_command_result(
     *,
     report_path: str,
@@ -1088,6 +1120,48 @@ def recommendations_model_preview(
             )
             recommendations = enrich_recommendations_with_history(session, recommendations)
             typer.echo(format_recommendation_line(row.match, recommendations, display_service))
+
+
+@recommendations_app.command("paper-queue")
+def recommendations_paper_queue(
+    hours: int = typer.Option(72, "--hours"),
+    near_start_hours: int = typer.Option(6, "--near-start-hours"),
+    edge_threshold: str = typer.Option("0.10", "--edge-threshold"),
+    prefetch_odds: bool = typer.Option(False, "--prefetch-odds/--no-prefetch-odds"),
+    report_path: str = typer.Option(
+        "docs/模型实验/20260530-paper-recommendation-queue-v1.md",
+        "--report-path",
+    ),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        provider = None
+
+        def odds_prefetcher(fixture_ids: list[str]):
+            nonlocal provider
+            if provider is None:
+                provider = build_api_football_provider(load_project_settings())
+            return fetch_and_store_odds_snapshots(session, provider, fixture_ids)
+
+        report = build_paper_recommendation_queue(
+            session,
+            now=now_beijing(),
+            hours=hours,
+            near_start_hours=near_start_hours,
+            edge_threshold=edge_threshold,
+            prefetch_odds=prefetch_odds,
+            odds_prefetcher=odds_prefetcher,
+            display_name_service=DisplayNameService(),
+        )
+    write_paper_recommendation_queue_report(report, Path(report_path))
+    typer.echo(
+        format_paper_recommendation_queue_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
 
 
 @recommendations_app.command("record")

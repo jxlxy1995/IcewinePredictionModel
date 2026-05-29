@@ -82,6 +82,11 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
             "historical_odds_checked_at": "DATETIME",
             "historical_odds_error": "TEXT",
         },
+        "odds_snapshots": {
+            "match_winner_home_odds": "NUMERIC(6, 3)",
+            "match_winner_draw_odds": "NUMERIC(6, 3)",
+            "match_winner_away_odds": "NUMERIC(6, 3)",
+        },
     }
     with engine.begin() as connection:
         for table_name, columns in missing_columns_by_table.items():

@@ -40,6 +40,9 @@ def _create_match_with_odds(session) -> Match:
                 total_line=Decimal("2.50"),
                 over_odds=Decimal("1.57"),
                 under_odds=Decimal("2.38"),
+                match_winner_home_odds=Decimal("2.10"),
+                match_winner_draw_odds=Decimal("3.25"),
+                match_winner_away_odds=Decimal("3.40"),
             ),
             OddsSnapshot(
                 match=match,
@@ -52,6 +55,9 @@ def _create_match_with_odds(session) -> Match:
                 total_line=Decimal("3.00"),
                 over_odds=Decimal("1.95"),
                 under_odds=Decimal("1.79"),
+                match_winner_home_odds=Decimal("2.15"),
+                match_winner_draw_odds=Decimal("3.20"),
+                match_winner_away_odds=Decimal("3.30"),
             ),
             OddsSnapshot(
                 match=match,
@@ -109,6 +115,9 @@ def test_build_match_odds_features_aggregates_handicap_and_total_lines(session):
     assert features.total_line.disagreement == Decimal("0.50")
     assert features.over_odds.mean == Decimal("1.60")
     assert features.under_odds.mean == Decimal("2.32")
+    assert features.match_winner_home_odds.mean == Decimal("2.13")
+    assert features.match_winner_draw_odds.mean == Decimal("3.23")
+    assert features.match_winner_away_odds.mean == Decimal("3.35")
 
 
 def test_list_upcoming_match_odds_features_filters_window_and_requires_odds(session):

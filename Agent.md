@@ -8,7 +8,10 @@ This document is for future Codex sessions working in this repository.
 - Keep the user informed while running long checks or workers, but avoid excessive narration.
 - Do not expose `.env` values or API keys.
 - Do not stop active workers unless the user asks, or unless continuing would clearly damage data or waste requests.
-- When showing odds timestamps to the user, convert UTC database values to Beijing time.
+- When showing any match, odds, worker, or report timestamp to the user, convert UTC database values to Beijing time.
+- When showing league/team names to the user, use configured Chinese display names when available. Keep raw/source names only as secondary debug fields.
+- When showing Asian handicap recommendations, spell out the playable side and handicap in user-facing language, e.g. `客队 +0.50`; do not rely only on internal labels such as `away_cover`.
+- Asian handicap line is stored from the home-team perspective: `-0.50` means home gives 0.5 and away recommendation is `客队 +0.50`; `+0.25` means home receives 0.25 and away recommendation is `客队 -0.25`.
 - Prefer exact local commands and file paths. The user shares the same workspace.
 
 ## Repo And Runtime
@@ -66,4 +69,3 @@ C:\ProgramData\anaconda3\python.exe -m icewine_cli odds-source oddspapi-worker-s
 ```
 
 `odds audit` is local DB/log based and does not call Oddspapi. Probe, fixture diagnosis, fetch, and worker commands do call Oddspapi.
-

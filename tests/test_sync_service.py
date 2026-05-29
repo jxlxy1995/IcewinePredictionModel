@@ -138,6 +138,9 @@ def test_upsert_odds_snapshots_saves_snapshot_for_existing_match(session):
         total_line=Decimal("2.5"),
         over_odds=Decimal("1.94"),
         under_odds=Decimal("1.94"),
+        match_winner_home_odds=Decimal("2.10"),
+        match_winner_draw_odds=Decimal("3.25"),
+        match_winner_away_odds=Decimal("3.40"),
     )
 
     result = upsert_odds_snapshots(session, [snapshot])
@@ -145,3 +148,6 @@ def test_upsert_odds_snapshots_saves_snapshot_for_existing_match(session):
     assert result.created_odds_snapshots == 1
     saved = session.query(OddsSnapshot).one()
     assert saved.asian_handicap == Decimal("-0.25")
+    assert saved.match_winner_home_odds == Decimal("2.10")
+    assert saved.match_winner_draw_odds == Decimal("3.25")
+    assert saved.match_winner_away_odds == Decimal("3.40")

@@ -12,6 +12,7 @@ from icewine_prediction.models import (
     League,
     Match,
     OddsSourceMatch,
+    OddsSnapshot,
     RecommendationRecord,
     Team,
 )
@@ -495,6 +496,70 @@ def test_web_console_api_returns_recommendation_records(tmp_path):
     assert payload[0]["away_team_display_name"] == "斯旺西"
     assert payload[0]["market_type"] == "asian_handicap"
     assert payload[0]["confidence_grade"] == "A-"
+
+
+def test_web_console_api_returns_paper_recommendation_queue(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    seeded = _seed_console_data(session_factory)
+
+    with session_factory() as session:
+        match = session.get(Match, seeded["matched_match_id"])
+        match.status = "scheduled"
+        match.kickoff_time = datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        session.add(
+            OddsSnapshot(
+                match_id=match.id,
+                captured_at=datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                data_source="api_football",
+                bookmaker="Bet365",
+                asian_handicap=Decimal("0.25"),
+                home_odds=Decimal("1.95"),
+                away_odds=Decimal("1.95"),
+                total_line=Decimal("2.50"),
+                over_odds=Decimal("1.90"),
+                under_odds=Decimal("2.00"),
+            )
+        )
+        session.commit()
+
+    def fake_scorer(row):
+        from icewine_prediction.paper_recommendation_queue_service import PaperQueueScore
+
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1500"),
+            model_name="fake_hgb",
+        )
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            display_name_service=DisplayNameService(
+                DisplayNames(
+                    leagues={"鑻卞啝": "Test League", "英冠": "Test League"},
+                    teams={"Cardiff": "Test Home", "Swansea": "Test Away"},
+                )
+            ),
+            paper_queue_scorer=fake_scorer,
+            clock=lambda: datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    response = client.get("/api/paper-recommendations/queue?hours=6&near_start_hours=3")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_matches"] == 1
+    assert payload["candidate_count"] == 1
+    assert payload["rows"][0]["status"] == "candidate"
+    assert payload["rows"][0]["league_display_name"] == "Test League"
+    assert payload["rows"][0]["home_team_display_name"] == "Test Home"
+    assert payload["rows"][0]["recommended_handicap"] == "客队 -0.25"
 
 
 def test_web_console_api_returns_training_workspace(tmp_path):

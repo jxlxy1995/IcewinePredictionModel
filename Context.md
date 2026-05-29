@@ -2,6 +2,13 @@
 
 Last updated: 2026-05-29, Asia/Shanghai.
 
+## Display Rules For Future Agents
+
+- User-facing times for matches, odds, reports, workers, and logs should be shown in Beijing time.
+- User-facing league/team names should use configured Chinese display names when mappings exist. Raw/source names may be included only as secondary debug context.
+- User-facing Asian handicap recommendations must include the explicit playable side and handicap, such as `客队 +0.50` or `主队 -0.25`; internal labels like `away_cover` are debug context only.
+- Asian handicap line is stored from the home-team perspective: `-0.50` means home gives 0.5 and away recommendation is `客队 +0.50`; `+0.25` means home receives 0.25 and away recommendation is `客队 -0.25`.
+
 ## Current Git State
 
 The whitelist/reminder-doc change has been committed:

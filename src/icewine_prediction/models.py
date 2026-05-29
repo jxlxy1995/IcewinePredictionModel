@@ -97,6 +97,9 @@ class OddsSnapshot(Base):
     total_line: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     over_odds: Mapped[Decimal | None] = mapped_column(Numeric(6, 3))
     under_odds: Mapped[Decimal | None] = mapped_column(Numeric(6, 3))
+    match_winner_home_odds: Mapped[Decimal | None] = mapped_column(Numeric(6, 3))
+    match_winner_draw_odds: Mapped[Decimal | None] = mapped_column(Numeric(6, 3))
+    match_winner_away_odds: Mapped[Decimal | None] = mapped_column(Numeric(6, 3))
 
     match: Mapped["Match"] = relationship(back_populates="odds_snapshots")
 

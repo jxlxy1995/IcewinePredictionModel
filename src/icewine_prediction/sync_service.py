@@ -195,6 +195,9 @@ def upsert_odds_snapshots(session: Session, snapshots: list[ExternalOddsSnapshot
                 total_line=snapshot.total_line,
                 over_odds=snapshot.over_odds,
                 under_odds=snapshot.under_odds,
+                match_winner_home_odds=snapshot.match_winner_home_odds,
+                match_winner_draw_odds=snapshot.match_winner_draw_odds,
+                match_winner_away_odds=snapshot.match_winner_away_odds,
             )
         )
         created += 1

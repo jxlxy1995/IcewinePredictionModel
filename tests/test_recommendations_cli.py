@@ -7,6 +7,9 @@ from typer.testing import CliRunner
 
 from icewine_prediction.cli import app, format_recommendation_line
 from icewine_prediction.display_service import DisplayNameService, DisplayNames
+from icewine_prediction.paper_recommendation_queue_service import (
+    PaperRecommendationQueueReport,
+)
 from icewine_prediction.recommendation_service import Recommendation
 
 
@@ -17,6 +20,80 @@ def test_recommendations_group_exposes_preview_help():
 
     assert result.exit_code == 0
     assert "preview" in result.stdout
+    assert "paper-queue" in result.stdout
+
+
+def test_recommendations_paper_queue_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(
+        session,
+        *,
+        now,
+        hours,
+        near_start_hours,
+        edge_threshold,
+        prefetch_odds,
+        odds_prefetcher,
+        display_name_service,
+    ):
+        captured["hours"] = hours
+        captured["near_start_hours"] = near_start_hours
+        captured["edge_threshold"] = edge_threshold
+        captured["prefetch_odds"] = prefetch_odds
+        captured["has_prefetcher"] = odds_prefetcher is not None
+        captured["display_name_service"] = display_name_service
+        return PaperRecommendationQueueReport(
+            generated_at="2026-05-30T00:00:00+08:00",
+            window_start="2026-05-30T00:00:00+08:00",
+            window_end="2026-06-02T00:00:00+08:00",
+            hours=72,
+            near_start_hours=6,
+            edge_threshold=Decimal("0.1000"),
+            model_name="raw_hgb_team_form_plus_all_markets",
+            total_matches=3,
+            candidate_count=1,
+            status_counts={"candidate": 1, "no_odds": 2},
+            prefetch_requested=True,
+            near_start_fixture_ids=["1001"],
+            prefetch_result={"created": 2, "skipped": 0, "failed_fixture_id": None, "error_message": None},
+            rows=[],
+        )
+
+    def fake_write(report, output_path):
+        captured["report_path"] = str(output_path)
+
+    monkeypatch.setattr("icewine_prediction.cli.build_paper_recommendation_queue", fake_build)
+    monkeypatch.setattr("icewine_prediction.cli.write_paper_recommendation_queue_report", fake_write)
+
+    result = runner.invoke(
+        app,
+        [
+            "recommendations",
+            "paper-queue",
+            "--hours",
+            "72",
+            "--near-start-hours",
+            "6",
+            "--edge-threshold",
+            "0.10",
+            "--prefetch-odds",
+            "--report-path",
+            "docs/模型实验/paper-queue.md",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["hours"] == 72
+    assert captured["near_start_hours"] == 6
+    assert captured["edge_threshold"] == "0.10"
+    assert captured["prefetch_odds"] is True
+    assert captured["has_prefetcher"] is True
+    assert isinstance(captured["display_name_service"], DisplayNameService)
+    assert captured["report_path"].endswith("docs\\模型实验\\paper-queue.md")
+    assert "paper recommendation queue written" in result.stdout
+    assert "candidates 1/3" in result.stdout
 
 
 def test_format_recommendation_line_uses_chinese_match_and_recommendation_text():

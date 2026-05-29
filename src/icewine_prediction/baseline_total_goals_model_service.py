@@ -14,9 +14,11 @@ from sklearn.preprocessing import StandardScaler
 from icewine_prediction.baseline_asian_handicap_model_service import _count_labels
 from icewine_prediction.baseline_match_winner_model_service import (
     ALL_MARKET_FEATURES,
+    ALL_DYNAMIC_CORE_FEATURES,
     CalibrationBucket,
     MARKET_FEATURES,
     TEAM_FORM_FEATURES,
+    TOTAL_GOALS_DYNAMIC_CORE_FEATURES,
     _build_calibration_bins,
     _decimal_metric,
     _matrix,
@@ -73,9 +75,10 @@ def build_baseline_total_goals_model_report(csv_path: Path) -> BaselineTotalGoal
     validation_rows = [row for row in eligible_rows if row.get("split") == "validation"]
     if not train_rows or not validation_rows:
         raise ValueError("total goals model requires both train and validation rows")
+    model_feature_sets = _model_feature_sets(rows)
     model_reports = {
         name: _fit_and_evaluate(name, features, train_rows, validation_rows)
-        for name, features in MODEL_FEATURE_SETS.items()
+        for name, features in model_feature_sets.items()
     }
     return BaselineTotalGoalsModelReport(
         csv_path=csv_path,
@@ -86,6 +89,24 @@ def build_baseline_total_goals_model_report(csv_path: Path) -> BaselineTotalGoal
         close_market_reference=_evaluate_close_market_reference(validation_rows),
         model_reports=model_reports,
     )
+
+
+def _model_feature_sets(rows: list[dict[str, str]]) -> dict[str, tuple[str, ...]]:
+    feature_sets = dict(MODEL_FEATURE_SETS)
+    available_features = set(rows[0]) if rows else set()
+    if _has_features(available_features, TOTAL_GOALS_DYNAMIC_CORE_FEATURES):
+        feature_sets["team_form_plus_all_markets_plus_total_goals_dynamic_core"] = (
+            TEAM_FORM_FEATURES + ALL_MARKET_FEATURES + TOTAL_GOALS_DYNAMIC_CORE_FEATURES
+        )
+    if _has_features(available_features, ALL_DYNAMIC_CORE_FEATURES):
+        feature_sets["team_form_plus_all_markets_plus_all_dynamic_core"] = (
+            TEAM_FORM_FEATURES + ALL_MARKET_FEATURES + ALL_DYNAMIC_CORE_FEATURES
+        )
+    return feature_sets
+
+
+def _has_features(available_features: set[str], required_features: tuple[str, ...]) -> bool:
+    return all(feature in available_features for feature in required_features)
 
 
 def format_baseline_total_goals_model_report(report: BaselineTotalGoalsModelReport) -> str:

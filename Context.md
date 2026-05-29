@@ -393,6 +393,29 @@ Baseline dynamic feature set v1 completed:
   - Snapshot count and missing anchor labels.
 - Initial read: the dynamic feature set is ready for the next modeling pass. Use the generated dynamic CSV as the model input and compare static-only vs static+dynamic variants for Asian handicap and total goals.
 
+Dynamic market model comparison v1 completed:
+
+- Input: `local_data/training/baseline_dynamic_features_main_leagues_20260529.csv`.
+- Reports:
+  - `docs/团队协作/20260529-baseline-asian-handicap-dynamic-model-v1.md`.
+  - `docs/团队协作/20260529-baseline-total-goals-dynamic-model-v1.md`.
+- Code now automatically adds dynamic model variants when the input CSV contains the dynamic core anchor columns:
+  - Market-specific dynamic core: `6h`, `3h`, `1h`, `close_anchor`.
+  - All dynamic core: both Asian handicap and total goals dynamic core columns.
+- Asian handicap validation:
+  - Rows `5330`; train `3317`; validation `853`; skipped `1160`.
+  - Close-market reference: accuracy `0.5287`, log loss `0.6971`, brier `0.4978`.
+  - Static all-market model: accuracy `0.5334`, log loss `0.6993`, brier `0.4990`.
+  - Asian handicap dynamic core: accuracy `0.5346`, log loss `0.6991`, brier `0.5001`.
+  - All dynamic core: accuracy `0.5346`, log loss `0.6991`, brier `0.5001`.
+- Total goals validation:
+  - Rows `5330`; train `3476`; validation `891`; skipped `963`.
+  - Close-market reference: accuracy `0.5174`, log loss `0.6927`, brier `0.4996`.
+  - Static all-market model: accuracy `0.4994`, log loss `0.6991`, brier `0.5059`.
+  - Total-goals dynamic core: accuracy `0.4938`, log loss `0.6991`, brier `0.5059`.
+  - All dynamic core: accuracy `0.4938`, log loss `0.6993`, brier `0.5061`.
+- Initial read: dynamic core features are not yet a clear win. Asian handicap has only a tiny accuracy lift with no log-loss improvement; total goals gets worse. Next modeling step should probably compare a less linear model or more targeted movement features before integrating this into recommendation logic.
+
 ## Useful Commands
 
 Run local odds audit:

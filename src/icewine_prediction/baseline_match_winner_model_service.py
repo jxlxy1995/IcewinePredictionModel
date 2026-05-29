@@ -62,6 +62,44 @@ ALL_MARKET_FEATURES = MARKET_FEATURES + (
     "total_goals_under_implied_probability",
     "total_goals_overround",
 )
+DYNAMIC_CORE_ANCHOR_LABELS = ("6h", "3h", "1h", "close_anchor")
+
+
+def binary_market_dynamic_core_features(
+    market_type: str,
+    side_a: str,
+    side_b: str,
+) -> tuple[str, ...]:
+    features: list[str] = []
+    for anchor in DYNAMIC_CORE_ANCHOR_LABELS:
+        features.extend(
+            [
+                f"{market_type}_{anchor}_line",
+                f"{market_type}_{anchor}_{side_a}_implied_probability",
+                f"{market_type}_{anchor}_{side_b}_implied_probability",
+                f"{market_type}_{anchor}_overround",
+                f"{market_type}_{anchor}_to_close_line_movement",
+                f"{market_type}_{anchor}_to_close_{side_a}_probability_movement",
+                f"{market_type}_{anchor}_to_close_{side_b}_probability_movement",
+            ]
+        )
+    features.append(f"{market_type}_snapshot_count")
+    return tuple(features)
+
+
+ASIAN_HANDICAP_DYNAMIC_CORE_FEATURES = binary_market_dynamic_core_features(
+    "asian_handicap",
+    "home",
+    "away",
+)
+TOTAL_GOALS_DYNAMIC_CORE_FEATURES = binary_market_dynamic_core_features(
+    "total_goals",
+    "over",
+    "under",
+)
+ALL_DYNAMIC_CORE_FEATURES = (
+    ASIAN_HANDICAP_DYNAMIC_CORE_FEATURES + TOTAL_GOALS_DYNAMIC_CORE_FEATURES
+)
 MODEL_FEATURE_SETS = {
     "team_form_only": TEAM_FORM_FEATURES,
     "team_form_plus_market": TEAM_FORM_FEATURES + MARKET_FEATURES,

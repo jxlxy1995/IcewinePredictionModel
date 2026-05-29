@@ -277,11 +277,12 @@ Baseline match-winner model v1 completed:
   - `team_form_only`: 20 rolling same-league team-history features.
   - `team_form_plus_market`: team-history features plus match-winner close implied probabilities/overround, 24 features.
 - Validation rows: `1068` from the feature-set v1 time split.
-- Close-market match-winner reference from previous baseline report: accuracy `0.5032`, log loss `1.0055`, brier `0.6015`.
+- Close-market match-winner reference is now recomputed on the same validation split: evaluated `1068`, accuracy `0.5009`, log loss `1.3146`, brier `0.6071`.
+- Validation close-market predicted result distribution: home win `737`, draw `2`, away win `329`.
 - Results:
   - `team_form_only`: accuracy `0.3811`, log loss `1.1378`, brier `0.6582`.
   - `team_form_plus_market`: accuracy `0.4579`, log loss `1.3126`, brier `0.6275`.
-- Initial read: both v1 logistic models trail the close-market reference; adding market probabilities improves accuracy/Brier versus team-only but worsens log loss, so calibration/feature design needs work before any recommendation use.
+- Initial read: `team_form_plus_market` is roughly tied with same-split close market on log loss, trails it on accuracy/Brier, and predicts many more draws; `team_form_only` has better log loss but poor classification accuracy and Brier. Calibration and probability distribution diagnostics are the next modeling priority.
 - Focused verification:
   - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_baseline_match_winner_model_service.py -q` -> `2 passed`
   - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_baseline_match_winner_model_service.py tests/test_samples_cli.py tests/test_baseline_feature_set_service.py -q` -> `29 passed`

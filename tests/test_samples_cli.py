@@ -28,6 +28,7 @@ from icewine_prediction.baseline_feature_set_service import (
 )
 from icewine_prediction.baseline_match_winner_model_service import (
     BaselineMatchWinnerModelReport,
+    CloseMarketMatchWinnerReference,
     MatchWinnerModelEvaluation,
 )
 from icewine_prediction.close_market_baseline_service import (
@@ -750,6 +751,13 @@ def _baseline_match_winner_model_report() -> BaselineMatchWinnerModelReport:
         row_count=10,
         train_rows=8,
         validation_rows=2,
+        close_market_reference=CloseMarketMatchWinnerReference(
+            evaluated_rows=2,
+            accuracy=Decimal("0.5000"),
+            log_loss=Decimal("1.1000"),
+            brier_score=Decimal("0.6000"),
+            predicted_result_counts={"home_win": 1, "away_win": 1},
+        ),
         model_reports={
             "team_form_only": MatchWinnerModelEvaluation(
                 name="team_form_only",

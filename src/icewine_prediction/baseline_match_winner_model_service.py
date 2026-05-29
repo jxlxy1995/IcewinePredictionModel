@@ -46,11 +46,6 @@ MODEL_FEATURE_SETS = {
     "team_form_only": TEAM_FORM_FEATURES,
     "team_form_plus_market": TEAM_FORM_FEATURES + MARKET_FEATURES,
 }
-DEFAULT_CLOSE_MARKET_MATCH_WINNER_BASELINE = {
-    "accuracy": Decimal("0.5032"),
-    "log_loss": Decimal("1.0055"),
-    "brier_score": Decimal("0.6015"),
-}
 
 
 @dataclass(frozen=True)
@@ -67,11 +62,21 @@ class MatchWinnerModelEvaluation:
 
 
 @dataclass(frozen=True)
+class CloseMarketMatchWinnerReference:
+    evaluated_rows: int
+    accuracy: Decimal
+    log_loss: Decimal
+    brier_score: Decimal
+    predicted_result_counts: dict[str, int]
+
+
+@dataclass(frozen=True)
 class BaselineMatchWinnerModelReport:
     csv_path: Path
     row_count: int
     train_rows: int
     validation_rows: int
+    close_market_reference: CloseMarketMatchWinnerReference
     model_reports: dict[str, MatchWinnerModelEvaluation]
 
 
@@ -92,6 +97,7 @@ def build_baseline_match_winner_model_report(csv_path: Path) -> BaselineMatchWin
         row_count=len(rows),
         train_rows=len(train_rows),
         validation_rows=len(validation_rows),
+        close_market_reference=_evaluate_close_market_reference(validation_rows),
         model_reports=model_reports,
     )
 
@@ -114,13 +120,14 @@ def format_baseline_match_winner_model_report(
         "",
         "## Close-Market Reference",
         "",
-        "| Model | Accuracy | Log loss | Brier |",
-        "| --- | ---: | ---: | ---: |",
+        "| Model | Evaluated | Accuracy | Log loss | Brier |",
+        "| --- | ---: | ---: | ---: | ---: |",
         (
             "| close_market_match_winner | "
-            f"{DEFAULT_CLOSE_MARKET_MATCH_WINNER_BASELINE['accuracy']} | "
-            f"{DEFAULT_CLOSE_MARKET_MATCH_WINNER_BASELINE['log_loss']} | "
-            f"{DEFAULT_CLOSE_MARKET_MATCH_WINNER_BASELINE['brier_score']} |"
+            f"{report.close_market_reference.evaluated_rows} | "
+            f"{report.close_market_reference.accuracy} | "
+            f"{report.close_market_reference.log_loss} | "
+            f"{report.close_market_reference.brier_score} |"
         ),
         "",
         "## Model Metrics",
@@ -135,6 +142,19 @@ def format_baseline_match_winner_model_report(
             f"{model_report.log_loss} | {model_report.brier_score} |"
         )
     lines.extend(["", "## Predicted Result Distribution", ""])
+    lines.extend(
+        [
+            "### close_market_match_winner",
+            "",
+            "| Result | Count |",
+            "| --- | ---: |",
+        ]
+    )
+    lines.extend(
+        f"| {result} | {report.close_market_reference.predicted_result_counts.get(result, 0)} |"
+        for result in RESULT_LABELS
+    )
+    lines.append("")
     for model_report in report.model_reports.values():
         lines.extend(
             [
@@ -204,6 +224,56 @@ def _fit_and_evaluate(
         brier_score=_decimal_metric(_multiclass_brier_score(validation_y, aligned_probabilities)),
         predicted_result_counts=predicted_counts,
     )
+
+
+def _evaluate_close_market_reference(
+    validation_rows: list[dict[str, str]],
+) -> CloseMarketMatchWinnerReference:
+    evaluated = [
+        (row, probabilities)
+        for row in validation_rows
+        if (probabilities := _market_probabilities(row)) is not None
+    ]
+    if not evaluated:
+        return CloseMarketMatchWinnerReference(
+            evaluated_rows=0,
+            accuracy=Decimal("0.0000"),
+            log_loss=Decimal("0.0000"),
+            brier_score=Decimal("0.0000"),
+            predicted_result_counts={},
+        )
+    actual = [row["target_match_result"] for row, _ in evaluated]
+    probabilities = [probability_row for _, probability_row in evaluated]
+    predicted = [_predicted_result(probability_row) for probability_row in probabilities]
+    predicted_counts: dict[str, int] = {}
+    for result in predicted:
+        predicted_counts[result] = predicted_counts.get(result, 0) + 1
+    return CloseMarketMatchWinnerReference(
+        evaluated_rows=len(evaluated),
+        accuracy=_decimal_metric(accuracy_score(actual, predicted)),
+        log_loss=_decimal_metric(log_loss(actual, probabilities, labels=list(RESULT_LABELS))),
+        brier_score=_decimal_metric(_multiclass_brier_score(actual, probabilities)),
+        predicted_result_counts=predicted_counts,
+    )
+
+
+def _market_probabilities(row: dict[str, str]) -> list[float] | None:
+    values = [
+        row.get("match_winner_home_implied_probability", ""),
+        row.get("match_winner_draw_implied_probability", ""),
+        row.get("match_winner_away_implied_probability", ""),
+    ]
+    if any(value == "" for value in values):
+        return None
+    probabilities = [float(value) for value in values]
+    total = sum(probabilities)
+    if total <= 0:
+        return None
+    return [probability / total for probability in probabilities]
+
+
+def _predicted_result(probabilities: list[float]) -> str:
+    return RESULT_LABELS[max(range(len(probabilities)), key=lambda index: probabilities[index])]
 
 
 def _matrix(rows: list[dict[str, str]], features: tuple[str, ...]) -> list[list[float]]:

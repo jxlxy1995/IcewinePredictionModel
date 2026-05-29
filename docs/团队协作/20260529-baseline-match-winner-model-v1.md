@@ -12,9 +12,9 @@
 
 ## Close-Market Reference
 
-| Model | Accuracy | Log loss | Brier |
-| --- | ---: | ---: | ---: |
-| close_market_match_winner | 0.5032 | 1.0055 | 0.6015 |
+| Model | Evaluated | Accuracy | Log loss | Brier |
+| --- | ---: | ---: | ---: | ---: |
+| close_market_match_winner | 1068 | 0.5009 | 1.3146 | 0.6071 |
 
 ## Model Metrics
 
@@ -24,6 +24,14 @@
 | team_form_plus_market | LogisticRegression | 24 | 0.4579 | 1.3126 | 0.6275 |
 
 ## Predicted Result Distribution
+
+### close_market_match_winner
+
+| Result | Count |
+| --- | ---: |
+| home_win | 737 |
+| draw | 2 |
+| away_win | 329 |
 
 ### team_form_only
 

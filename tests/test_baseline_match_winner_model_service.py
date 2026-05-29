@@ -13,6 +13,15 @@ def test_build_baseline_match_winner_model_report_trains_two_logistic_models(tmp
     assert report.row_count == 9
     assert report.train_rows == 6
     assert report.validation_rows == 3
+    assert report.close_market_reference.evaluated_rows == 3
+    assert report.close_market_reference.accuracy == 1
+    assert report.close_market_reference.log_loss > 0
+    assert report.close_market_reference.brier_score > 0
+    assert report.close_market_reference.predicted_result_counts == {
+        "home_win": 1,
+        "draw": 1,
+        "away_win": 1,
+    }
     assert set(report.model_reports) == {"team_form_only", "team_form_plus_market"}
     for model_report in report.model_reports.values():
         assert model_report.model_name == "LogisticRegression"
@@ -36,7 +45,8 @@ def test_format_baseline_match_winner_model_report_includes_metrics(tmp_path):
     assert "team_form_only" in text
     assert "team_form_plus_market" in text
     assert "close_market_match_winner" in text
-    assert "1.0055" in text
+    assert "| close_market_match_winner | 3 | 1.0000 |" in text
+    assert "### close_market_match_winner" in text
     assert "| Rows | 9 |" in text
     assert "| Train rows | 6 |" in text
     assert "| Validation rows | 3 |" in text

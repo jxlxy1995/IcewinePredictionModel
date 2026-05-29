@@ -51,6 +51,16 @@ def test_default_display_names_include_mainstream_league_chinese_names():
     assert service.display_league("Primera División") == "智利甲"
 
 
+def test_default_display_names_include_candidate_league_chinese_names():
+    service = DisplayNameService()
+
+    assert service.display_league("Premier Division (Ireland)") == "爱超"
+    assert service.display_league("Ykkösliiga (Finland)") == "芬甲"
+    assert service.display_league("1. Division (Norway)") == "挪甲"
+    assert service.display_league("1. Division (Denmark)") == "丹麦甲"
+    assert service.display_league("Liga 1 (Indonesia)") == "印尼超"
+
+
 def test_save_team_display_names_merges_existing_yaml(tmp_path):
     config_path = tmp_path / "display_names.yaml"
     config_path.write_text(

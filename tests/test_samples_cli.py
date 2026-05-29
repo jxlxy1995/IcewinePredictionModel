@@ -26,6 +26,10 @@ from icewine_prediction.baseline_feature_set_service import (
     BaselineFeatureSet,
     BaselineFeatureSetReport,
 )
+from icewine_prediction.baseline_match_winner_model_service import (
+    BaselineMatchWinnerModelReport,
+    MatchWinnerModelEvaluation,
+)
 from icewine_prediction.close_market_baseline_service import (
     CloseMarketBaselineMarketReport,
     CloseMarketBaselineReport,
@@ -121,6 +125,15 @@ def test_samples_group_exposes_baseline_feature_set_help():
 
     assert result.exit_code == 0
     assert "baseline-feature-set" in result.stdout
+
+
+def test_samples_group_exposes_baseline_match_winner_model_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-match-winner-model" in result.stdout
 
 
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
@@ -314,6 +327,45 @@ def test_samples_baseline_feature_set_command_writes_csv_and_report(monkeypatch)
     assert captured["validation_ratio"] == "0.25"
     assert "baseline feature set written" in result.stdout
     assert "rows 4 train 3 validation 1" in result.stdout
+
+
+def test_samples_baseline_match_winner_model_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path):
+        captured["csv_path"] = str(csv_path)
+        return _baseline_match_winner_model_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_match_winner_model_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_match_winner_model_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-match-winner-model",
+            "--csv-path",
+            "local_data/training/features.csv",
+            "--report-path",
+            "docs/团队协作/match-winner.md",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\features.csv")
+    assert captured["report_path"].endswith("docs\\团队协作\\match-winner.md")
+    assert "baseline match winner model written" in result.stdout
+    assert "team_form_only log-loss 1.0000" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -689,6 +741,28 @@ def _baseline_feature_set() -> BaselineFeatureSet:
             by_league={"Premier League": {"rows": 4, "train": 3, "validation": 1}},
             zero_history_rows=2,
         ),
+    )
+
+
+def _baseline_match_winner_model_report() -> BaselineMatchWinnerModelReport:
+    return BaselineMatchWinnerModelReport(
+        csv_path="local_data/training/features.csv",
+        row_count=10,
+        train_rows=8,
+        validation_rows=2,
+        model_reports={
+            "team_form_only": MatchWinnerModelEvaluation(
+                name="team_form_only",
+                model_name="LogisticRegression",
+                feature_count=20,
+                train_rows=8,
+                validation_rows=2,
+                accuracy=Decimal("0.5000"),
+                log_loss=Decimal("1.0000"),
+                brier_score=Decimal("0.6000"),
+                predicted_result_counts={"home_win": 1, "draw": 1},
+            )
+        },
     )
 
 

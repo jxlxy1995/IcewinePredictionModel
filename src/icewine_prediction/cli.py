@@ -29,6 +29,11 @@ from icewine_prediction.baseline_feature_set_service import (
     write_baseline_feature_set_csv,
     write_baseline_feature_set_report,
 )
+from icewine_prediction.baseline_match_winner_model_service import (
+    BaselineMatchWinnerModelReport,
+    build_baseline_match_winner_model_report,
+    write_baseline_match_winner_model_report,
+)
 from icewine_prediction.close_market_baseline_service import (
     build_close_market_baseline_report_from_session,
     format_close_market_baseline_report,
@@ -654,6 +659,23 @@ def format_baseline_feature_set_command_result(
             ),
         ]
     )
+
+
+def format_baseline_match_winner_model_command_result(
+    *,
+    report_path: str,
+    report: BaselineMatchWinnerModelReport,
+) -> str:
+    lines = [
+        "baseline match winner model written",
+        f"report: {report_path}",
+        f"rows {report.row_count} train {report.train_rows} validation {report.validation_rows}",
+    ]
+    lines.extend(
+        f"{name} log-loss {model_report.log_loss} accuracy {model_report.accuracy}"
+        for name, model_report in report.model_reports.items()
+    )
+    return "\n".join(lines)
 
 
 def format_baseline_result_evaluation(evaluation: BaselineResultEvaluation) -> str:
@@ -1542,6 +1564,27 @@ def samples_baseline_feature_set(
             output_path=output_path,
             report_path=report_path,
             feature_set=feature_set,
+        )
+    )
+
+
+@samples_app.command("baseline-match-winner-model")
+def samples_baseline_match_winner_model(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_features_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/团队协作/20260529-baseline-match-winner-model-v1.md",
+        "--report-path",
+    ),
+):
+    report = build_baseline_match_winner_model_report(Path(csv_path))
+    write_baseline_match_winner_model_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_match_winner_model_command_result(
+            report_path=report_path,
+            report=report,
         )
     )
 

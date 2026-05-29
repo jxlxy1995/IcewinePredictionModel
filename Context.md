@@ -266,6 +266,26 @@ Baseline feature set v1 completed:
   - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_baseline_feature_set_service.py -q` -> `4 passed`
   - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_samples_cli.py -q` -> `21 passed`
 
+Baseline match-winner model v1 completed:
+
+- CLI command: `icewine samples baseline-match-winner-model`.
+- Service: `src/icewine_prediction/baseline_match_winner_model_service.py`.
+- Report: `docs/团队协作/20260529-baseline-match-winner-model-v1.md`.
+- Input: `local_data/training/baseline_features_main_leagues_20260529.csv`.
+- Model type: scikit-learn `LogisticRegression` with median imputation, standard scaling, balanced class weights, `max_iter=1000`, `random_state=42`.
+- Two model variants:
+  - `team_form_only`: 20 rolling same-league team-history features.
+  - `team_form_plus_market`: team-history features plus match-winner close implied probabilities/overround, 24 features.
+- Validation rows: `1068` from the feature-set v1 time split.
+- Close-market match-winner reference from previous baseline report: accuracy `0.5032`, log loss `1.0055`, brier `0.6015`.
+- Results:
+  - `team_form_only`: accuracy `0.3811`, log loss `1.1378`, brier `0.6582`.
+  - `team_form_plus_market`: accuracy `0.4579`, log loss `1.3126`, brier `0.6275`.
+- Initial read: both v1 logistic models trail the close-market reference; adding market probabilities improves accuracy/Brier versus team-only but worsens log loss, so calibration/feature design needs work before any recommendation use.
+- Focused verification:
+  - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_baseline_match_winner_model_service.py -q` -> `2 passed`
+  - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_baseline_match_winner_model_service.py tests/test_samples_cli.py tests/test_baseline_feature_set_service.py -q` -> `29 passed`
+
 ## Useful Commands
 
 Run local odds audit:

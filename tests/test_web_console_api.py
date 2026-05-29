@@ -324,6 +324,9 @@ def test_web_console_api_returns_team_display_name_workspace(tmp_path):
             session_factory=session_factory,
             log_dir=tmp_path,
             display_name_service=display_name_service,
+            display_translation_status_service=DisplayTranslationStatusService(
+                tmp_path / "display_translation_status.yaml"
+            ),
         )
     )
 

@@ -95,6 +95,7 @@ teams:
   1. FC Nürnberg: 纽伦堡
   1899 Hoffenheim: 霍芬海姆
   A. Italiano: 奥达科斯
+  AC Horsens: 霍森斯
   AC Milan: AC米兰
   AC Oulu: 奥卢
   AD Ceuta FC: 休达
@@ -106,8 +107,10 @@ teams:
   AS Roma: 罗马
   AVS: 阿维什镇
   AZ Alkmaar: 阿尔克马尔
+  Aalborg: 奥尔堡
   Aalesund: 奥勒松
   Aarhus: 奥胡斯
+  Aarhus Fremad: 奥胡斯费马
   Aberdeen: 阿伯丁
   Adelaide United: 阿德莱德联
   Ajax: 阿贾克斯
@@ -145,6 +148,7 @@ teams:
   Antalyaspor: 安塔利亚
   Antwerp: 安特卫普
   Arbroath: 阿布罗斯
+  Arema FC: 阿雷马
   Argentinos JRS: 阿根廷青年人
   Arges Pitesti: 阿格斯
   Aris Thessalonikis: 阿里斯
@@ -153,12 +157,14 @@ teams:
   Arouca: 阿罗卡
   Arsenal: 阿森纳
   Asan Mugunghwa: 忠南牙山
+  Asane: 阿萨纳
   Asteras Tripolis: 特里波利斯
   Aston Villa: 阿斯顿维拉
   Atalanta: 亚特兰大
   Athletic Club: 毕尔巴鄂竞技
   Atlanta United FC: 亚特兰大联
   Atletico Madrid: 马德里竞技
+  Atletico Paranaense: 巴拉纳竞技
   Atletico Tucuman: 图库曼竞技
   Atletico-MG: 米内罗竞技
   Atromitos: 阿特罗米托斯
@@ -168,9 +174,11 @@ teams:
   Auxerre: 欧塞尔
   Avellino: 阿维利诺
   Avispa Fukuoka: 福冈黄蜂
+  B 93: B93哥本哈根
   BK Hacken: 赫根
   BSC Young Boys: 年轻人
   Bahia: 巴伊亚
+  Bali United: 巴厘联
   Baltika: 巴蒂卡
   Banfield: 班菲尔德
   Barcelona: 巴塞罗那
@@ -187,11 +195,13 @@ teams:
   Belgrano Cordoba: 贝尔格拉诺
   Benfica: 本菲卡
   Beşiktaş: 贝西克塔斯
+  Bhayangkara FC: 巴杨卡拉泗水联
   Birmingham: 伯明翰
   Blackburn: 布莱克本
   Blackpool: 布莱克浦
   Boca Juniors: 博卡青年
   Bodo/Glimt: 博德闪耀
+  Bohemians: 波西米亚人
   Bologna: 博洛尼亚
   Bolton: 博尔顿
   Borussia Dortmund: 多特蒙德
@@ -207,6 +217,7 @@ teams:
   Brisbane Roar: 布里斯班狮吼
   Bristol City: 布里斯托尔城
   Brondby: 布隆德比
+  Bryne: 布莱尼
   Bucheon FC 1995: 富川FC
   Burgos: 布尔戈斯
   Burnley: 伯恩利
@@ -232,6 +243,7 @@ teams:
   Cerezo Osaka: 大阪樱花
   Cesena: 切塞纳
   Changchun Yatai: 长春亚泰
+  Chapecoense-sc: 沙佩科恩斯
   Charleroi: 沙勒罗瓦
   Charlotte: 夏洛特FC
   Charlton: 查尔顿
@@ -249,9 +261,11 @@ teams:
   Colorado Rapids: 科罗拉多急流
   Columbus Crew: 哥伦布机员
   Como: 科莫
+  Concepción: 康塞普西翁
   Coquimbo Unido: 科其姆波
   Cordoba: 科尔多瓦
   Corinthians: 科林蒂安
+  Coritiba: 科里蒂巴
   Coventry: 考文垂
   Cracovia Krakow: 克拉科维亚
   Cremonese: 克雷莫纳
@@ -275,12 +289,16 @@ teams:
   Deportivo La Coruna: 拉科鲁尼亚
   Deportivo Riestra: 利斯特雷
   Derby: 德比郡
+  Derry City: 德里城
+  Dewa United: 德瓦
   Dinamo Bucuresti: 布加勒斯特迪纳摩
   Dinamo Makhachkala: 莫斯科迪纳摩
   Djurgardens IF: 尤尔加登
   Doncaster: 汤卡斯特
   Dordrecht: 多德勒支
   Drita: 德利塔
+  Drogheda United: 德罗赫达联
+  Dundalk: 邓多克
   Dundee: 邓迪FC
   Dundee Utd: 邓迪联
   Dunfermline: 邓弗姆林
@@ -288,17 +306,21 @@ teams:
   Dynamo: 马哈奇卡拉迪纳摩
   Dynamo Dresden: 德累斯顿
   Dynamo Kyiv: 基辅迪纳摩
+  EIF: EIF埃克纳斯
+  Egersund: 埃格尔森德
   Eibar: 埃瓦尔
   Eintracht Braunschweig: 布伦瑞克
   Eintracht Frankfurt: 法兰克福
   Elche: 埃尔切
   Emmen: 埃门
   Empoli: 恩波利
+  Esbjerg: 埃斯比约
   Espanyol: 西班牙人
   Estac Troyes: 特鲁瓦
   Estoril: 埃斯托里尔
   Estrela: 阿马多拉之星
   Estudiantes L.P.: 拉普拉塔大学生
+  Estudiantes de Rio Cuarto: 里奥夸尔托学生队
   Everton: 埃弗顿
   Everton de Vina: 埃弗顿VM
   Excelsior: SBV精英
@@ -366,6 +388,7 @@ teams:
   GO Ahead Eagles: 前进之鹰
   Gais: 哥德堡盖斯
   Galatasaray: 加拉塔萨雷
+  Galway United: 戈尔韦联
   Gamba Osaka: 大阪钢巴
   Gangwon FC: 江原FC
   Gaziantep FK: 加济安泰普
@@ -375,7 +398,9 @@ teams:
   Gençlerbirliği S.K.: 根克勒比利吉
   Getafe: 赫塔菲
   Gimcheon Sangmu FC: 金泉尚武
+  Gimhae City: 金海
   Gimnasia L.P.: 拉普拉塔体操
+  Gimnasia M.: 门多萨体操击剑
   Gimpo Citizen: 金浦市民
   Girona: 赫罗纳
   Gnistan: 格尼斯坦
@@ -392,6 +417,7 @@ teams:
   Gwangju FC: 光州FC
   Gyeongnam FC: 庆南FC
   Göztepe: 哥兹塔比
+  HB Koge: HB克厄
   HJK Helsinki: 赫尔辛基
   Haka: 哈卡
   Halmstad: 哈姆斯塔德
@@ -402,6 +428,7 @@ teams:
   Hamrun Spartans: 阿姆伦斯巴达
   Hangzhou Greentown: 浙江队
   Hannover 96: 汉诺威96
+  Haugesund: 海于格松
   Heart Of Midlothian: 哈茨
   Heerenveen: 海伦芬
   Hellas Verona: 维罗纳
@@ -411,6 +438,8 @@ teams:
   Heracles: 赫拉克勒斯
   Hertha BSC: 柏林赫塔
   Hibernian: 希伯尼安
+  Hillerød: 希勒罗德
+  Hobro: 霍布罗
   Holstein Kiel: 荷尔斯泰因
   Houston Dynamo: 休斯顿迪纳摩
   Huachipato: 瓦奇巴托
@@ -418,6 +447,7 @@ teams:
   Huesca: 韦斯卡
   Hull City: 赫尔城
   Huracan: 飓风队
+  Hvidovre: 哈维德夫
   Hwaseong: 华城FC
   IF Brommapojkarna: 布洛马波卡纳
   IF Elfsborg: 埃尔夫斯堡
@@ -435,10 +465,12 @@ teams:
   Inter Turku: 图尔库国际
   Internacional: 巴西国际
   Ipswich: 伊普斯维奇
+  JEF United Chiba: 千叶市原
+  JIPPO: 基柏
   Jagiellonia: 雅盖隆
   Jeju United FC: 济州SKFC
   Jeonbuk Motors: 全北现代
-  Jeonnam Dragons: 龙仁FC
+  Jeonnam Dragons: 全南天龙
   Jong AZ: 阿尔克马尔青年队
   Jong Ajax: 阿贾克斯青年队
   Jong PSV U21: 埃因霍温青年队
@@ -446,6 +478,7 @@ teams:
   Juve Stabia: 史泰比亚
   Juventude: 尤文图德
   Juventus: 尤文图斯
+  JäPS: 查普斯
   KFUM Oslo: KFUM奥斯陆
   KV Mechelen: 梅赫伦
   KVC Westerlo: 韦斯特洛
@@ -459,7 +492,10 @@ teams:
   Kayserispor: 开塞利体育
   Kifisia: 基菲萨
   Kilmarnock: 基尔马诺克
+  Klubi-04: 克鲁比04
   Kocaelispor: 高尔卡利
+  Kolding IF: 科灵
+  Kongsvinger: 康斯文格
   Konyaspor: 科尼亚
   Kooteepee: KTP科特卡
   Korona Kielce: 凯尔采科罗纳
@@ -467,6 +503,7 @@ teams:
   Krylia Sovetov: 苏维埃之翼
   KuPS: 古比斯
   Kyoto Sanga: 京都不死鸟
+  KäPa: 卡尼亚卡帕
   Lahti: 拉蒂赫
   Landskrona BoIS: 兰斯科罗纳
   Lanus: 拉努斯
@@ -496,6 +533,7 @@ teams:
   Liverpool: 利物浦
   Livingston: 利文斯顿
   Liège: RFC列日
+  Ljungskile SK: 卢恩斯基尔
   Lokomotiv: 莫火车头
   Lommel United: 洛默尔
   Lorient: 洛里昂
@@ -503,13 +541,17 @@ teams:
   Los Angeles Galaxy: 洛杉矶银河
   Ludogorets: 卢多格雷茨
   Luton: 卢顿
+  Lyn: 利恩
+  Lyngby: 林比
   Lyon: 里昂
+  MP: MP米可力
   MVV: 马斯特里赫特
   Macarthur: 麦克阿瑟FC
   Machida Zelvia: 町田泽维亚
   Malaga: 马拉加
   Mallorca: 马略卡
   Malmo FF: 马尔默
+  Malut United: 马路特联
   Manchester City: 曼城
   Manchester United: 曼联
   Mansfield Town: 曼斯菲尔德
@@ -521,11 +563,13 @@ teams:
   Melbourne Victory: 墨尔本胜利
   Metaloglobus: 梅塔洛格布斯
   Metz: 梅斯
+  Middelfart: 米德法特
   Middlesbrough: 米德尔斯堡
   Millwall: 米尔沃尔
   Minnesota United FC: 明尼苏达联
   Mirandes: 米兰德斯
   Mirassol: 米拉索
+  Mito Hollyhock: 水户蜀葵
   Mjallby AIF: 米亚尔比
   Modena: 摩德纳
   Molde: 莫尔德
@@ -533,6 +577,7 @@ teams:
   Montpellier: 蒙彼利埃
   Monza: 蒙扎
   Moreirense: 莫雷拉人
+  Moss: 摩斯
   Motherwell: 马瑟韦尔
   Motor Lublin: 摩托路宾
   NAC Breda: 布雷达
@@ -559,6 +604,7 @@ teams:
   Nottingham Forest: 诺丁汉森林
   Nublense: 努布伦斯
   O'Higgins: 奥伊金斯
+  ODD Ballklubb: 奥德
   OFI: OFI克里特
   OH Leuven: 旧海弗莱鲁汶
   Oddevold: 奥迪沃特
@@ -576,9 +622,14 @@ teams:
   PAOK: 塞萨洛尼基
   PAU: 波城
   PEC Zwolle: 兹沃勒
+  PK-35: PK35万塔
+  PSBS Biak Numfor: 巴克伦佛
+  PSIM Yogyakarta: 永亚卡达
+  PSM Makassar: PSM望加锡
   PSV Eindhoven: 埃因霍温
   Padova: 帕多瓦
   Pafos: 帕福斯FC
+  Paju Citizen: 坡州前线
   Palermo: 巴勒莫
   Palestino: 帕莱斯蒂诺
   Palmeiras: 帕尔梅拉斯
@@ -590,6 +641,14 @@ teams:
   Parma: 帕尔马
   Partick: 帕尔蒂克
   Patro Eisden: 艾斯登
+  Persebaya Surabaya: 帕尔斯巴亚
+  Persepam Madura Utd: 马都拉联
+  Persib Bandung: 万隆
+  Persija: 佩西加雅加达
+  Persijap: 杰帕拉
+  Persik Kediri: 佩斯克谏义里
+  Persis Solo: 伯希索罗
+  Persita: 培斯塔坦格朗
   Perth Glory: 珀斯光荣
   Pescara: 佩斯卡拉
   Peterborough: 彼得堡联
@@ -607,6 +666,7 @@ teams:
   Portsmouth: 朴茨茅斯
   Preston: 普雷斯顿
   Preußen Münster: 普鲁士明斯特
+  Pusamania Borneo: 婆罗洲FC
   QPR: 女王公园
   Qarabag: 卡拉巴克
   Qingdao Jonoon: 青岛海牛
@@ -621,8 +681,10 @@ teams:
   Raków Częstochowa: 琴斯托霍瓦
   Randers FC: 兰讷斯
   Rangers: 流浪者
+  Ranheim: 兰黑姆
   Rapid: 布加勒斯特快速
   Rapid Vienna: 维也纳快速
+  Raufoss: 诺霍斯
   Rayo Vallecano: 巴列卡诺
   Reading: 雷丁
   Real Betis: 皇家贝蒂斯
@@ -633,6 +695,7 @@ teams:
   Red Bull Salzburg: 萨尔茨堡红牛
   Reggiana: 雷吉亚纳
   Reims: 兰斯
+  Remo: 雷莫
   Rennes: 雷恩
   Ried: 里德
   Rio Ave: 里奥阿维
@@ -653,6 +716,7 @@ teams:
   SCR Altach: 阿尔塔奇
   SHANGHAI SIPG: 上海海港
   SJK: 塞纳乔其
+  SJK Akatemia: SJK学院
   ST Mirren: 圣米伦
   SV Darmstadt 98: 达姆斯塔特
   SV Elversberg: 艾禾斯堡
@@ -664,6 +728,7 @@ teams:
   San Lorenzo: 圣索洛伦
   San Martin S.J.: 圣胡安圣马丁
   Sandefjord: 桑德菲杰
+  Sandnes ULF: 桑德尼斯
   Sandviken: 桑德维根斯
   Sanfrecce Hiroshima: 广岛三箭
   Santa Clara: 圣克拉拉
@@ -673,21 +738,27 @@ teams:
   Sarpsborg 08 FF: 萨普斯堡
   Sassuolo: 萨索洛
   Seattle Sounders: 西雅图海湾人
+  Semen Padang: 塞曼巴东
   Seongnam FC: 城南FC
   Seoul E-Land FC: 首尔衣恋
   Servette FC: 塞尔维特
   Sevilla: 塞维利亚
+  Shamrock Rovers: 沙姆洛克
   Shandong Luneng: 山东泰山
   Shanghai Shenhua: 上海申花
   Sheffield Utd: 谢菲联
   Sheffield Wednesday: 谢周三
+  Shelbourne: 舒尔本
+  Shenyang Urban: 辽宁铁人
   Shimizu S-pulse: 清水心跳
   Shkendija: 斯肯迪亚
   Shonan Bellmare: 湘南丽海
-  Sichuan Jiuniu: 四川九牛
+  Sichuan Jiuniu: 深圳新鹏城
   Silkeborg: 锡尔克堡
   Sirius: 天狼星
   Slavia Praha: 布拉格斯拉维亚
+  Sligo Rovers: 斯莱戈流浪者
+  Sogndal: 松达尔
   Sonderjyske: 桑德捷斯基
   Southampton: 南安普顿
   SpVgg Greuther Fürth: 菲尔特
@@ -698,8 +769,10 @@ teams:
   Sporting CP: 葡萄牙体育
   Sporting Gijon: 希洪竞技
   Sporting Kansas City: 堪萨斯城竞技
+  St Patrick's Athl.: 圣帕特里克竞技
   St. Louis City: 圣路易斯城
   St. Truiden: 圣图尔登
+  Stabaek: 斯塔贝克
   Stade Brestois 29: 布雷斯特
   Standard Liege: 标准列日
   Start: 斯达
@@ -707,6 +780,8 @@ teams:
   Stockport County: 斯托克港
   Stoke City: 斯托克城
   Strasbourg: 斯特拉斯堡
+  Strommen: 斯托曼
+  Stromsgodset: 斯托姆加斯特
   Sturm Graz: 格拉茨风暴
   Sudtirol: 南蒂罗尔
   Sunderland: 桑德兰
@@ -741,7 +816,9 @@ teams:
   Union Santa Fe: 圣塔菲联
   Union St. Gilloise: 圣吉罗斯
   Unirea Slobozia: 斯洛博齐亚
+  United Nordic: 北欧联FC
   Universidad de Chile: 智利大学
+  Universidad de Concepcion: 康塞普西翁大学
   Universitatea Cluj: 克卢日大学
   Universitatea Craiova: 克拉约瓦大学
   Ural: 乌拉尔
@@ -749,6 +826,7 @@ teams:
   Uta Arad: UTA阿拉德
   Utrecht: 乌德勒支
   Utsikten: 尤特斯科腾
+  V-varen Nagasaki: 长崎成功丸
   VPS: VPS瓦萨
   VVV Venlo: 芬洛
   Valencia: 瓦伦西亚
@@ -774,6 +852,7 @@ teams:
   Volos NFC: 沃格斯NPS
   WSG Wattens: WSG蒂罗尔
   Waalwijk: 瓦尔韦克
+  Waterford: 沃特福德联
   Watford: 沃特福德
   Wellington Phoenix: 惠灵顿凤凰
   Werder Bremen: 云达不莱梅
@@ -791,8 +870,10 @@ teams:
   Wycombe: 韦康比流浪者
   Yokohama F. Marinos: 横滨水手
   Yokohama FC: 横滨FC
+  Yongin City: 龙仁FC
   Yunnan Yukun: 云南玉昆
   Zaglebie Lubin: 卢宾
   Zaragoza: 萨拉戈萨
   Zenit: 泽尼特
   Zulte Waregem: 瓦勒海姆
+  hodd: 贺特

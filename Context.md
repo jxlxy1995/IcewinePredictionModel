@@ -96,6 +96,34 @@ Leagues still completely unrunned or intentionally pending:
 
 ## Likely Next Work
 
+2026-05-29 later update:
+
+- Candidate odds backfill for the five new leagues is effectively complete for the current finished-match window.
+- Current candidate league status:
+  - Ireland Premier Division `357`: success `84`, unavailable `6`, empty `1`.
+  - Finland Ykkosliiga `1087`: success `29`, unavailable `11`.
+  - Norway 1. Division `104`: success `61`, unavailable `10`.
+  - Denmark 1. Division `120`: success `69`, unavailable `9`.
+  - Indonesia Liga 1 `274`: success `117`, empty `11`, unavailable `25`.
+- Remaining candidate failures are no longer alias backlog. They are OddsPapi 404/unavailable, empty usable main-line snapshots, or fixture candidates that clearly do not match the API-Football target match.
+- Added Denmark 1. Division OddsPapi team aliases:
+  - `Hillerød -> Hillerod Fodbold`
+  - `B 93 -> B93 Copenhagen`
+  - `HB Koge -> HB Koege`
+- The user completed another pass of Chinese team display names in `config/display_names.yaml`.
+- UEFA competitions: refreshed API-Football results only for 2025 season; no OddsPapi odds backfill.
+  - UEFA Champions League `2`: total `281`, finished `280`, one future/not-finished final on `2026-05-31`.
+  - UEFA Europa League `3`: total/finished `271`.
+  - UEFA Europa Conference League `848`: total/finished `409`.
+- Current direction: do not backfill UEFA odds yet. Keep UEFA results as auxiliary future context, not as the main training sample.
+
+Recommended next step:
+
+1. Freeze and commit display names plus Denmark alias repair.
+2. Promote or explicitly keep-disabled the five candidate leagues after deciding whether their coverage is good enough for model training.
+3. Build a training dataset/audit report that separates main enabled leagues, candidate leagues, and UEFA auxiliary results.
+4. Run a first model-training baseline using only settled matches with complete three-market OddsPapi snapshots.
+
 The user is considering adding more leagues to expand sample size:
 
 - 爱超, Ireland

@@ -165,6 +165,18 @@ aliases:
     alias_name: AGF Aarhus
   - entity_type: team
     source_name: oddspapi
+    canonical_name: Hillerød
+    alias_name: Hillerod Fodbold
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: B 93
+    alias_name: B93 Copenhagen
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: HB Koge
+    alias_name: HB Koege
+  - entity_type: team
+    source_name: oddspapi
     canonical_name: Rennes
     alias_name: Stade Rennais FC
   - entity_type: team

@@ -504,6 +504,32 @@ Baseline recommendation sandbox v1 completed:
     - Negative: Serie A `16` bets ROI `-0.4973`; J1 League `18` bets ROI `-0.3497`; Belgian Jupiler Pro League `12` bets ROI `-0.3582`.
 - Initial read: the sandbox keeps the Asian handicap signal alive, especially on `away_cover`, but also shows clear direction and league sensitivity. Do not automate recommendations yet. Next useful step is to add walk-forward sandbox output or threshold comparison for candidate details, so we can see whether the `away_cover` bias and league effects persist across time folds.
 
+Baseline walk-forward recommendation sandbox v1 completed:
+
+- CLI command: `icewine samples baseline-walk-forward-sandbox`.
+- Service: `src/icewine_prediction/baseline_walk_forward_sandbox_service.py`.
+- Input: `local_data/training/baseline_dynamic_features_main_leagues_20260529.csv`.
+- Report: `docs/模型实验/20260529-baseline-walk-forward-sandbox-v1.md`.
+- Scope:
+  - Asian handicap only.
+  - Uses raw HGB `team_form_plus_all_markets`.
+  - Rolling chronological folds with train ratio `0.60`, validation ratio `0.10`, `5` folds.
+  - Filters candidate picks by `edge >= 0.10`, showing top `20` candidates per fold.
+  - Observation sandbox only; does not create recommendation records or change source samples.
+- Result:
+  - Total candidates: `1266`; total profit `77.3850`; ROI `0.0611`.
+  - Positive ROI folds: `4/5`.
+  - Fold ROI:
+    - Fold 1: `256` bets, ROI `0.0203`.
+    - Fold 2: `242` bets, ROI `0.1177`.
+    - Fold 3: `246` bets, ROI `-0.0050`.
+    - Fold 4: `265` bets, ROI `0.0451`.
+    - Fold 5: `257` bets, ROI `0.1284`.
+  - Side stability:
+    - `away_cover`: `610` bets, positive ROI in `5/5` folds, profit `52.3050`, ROI `0.0857`.
+    - `home_cover`: `656` bets, positive ROI in `2/5` folds, profit `25.0800`, ROI `0.0382`.
+- Initial read: this is the strongest evidence so far that the current Asian handicap signal is concentrated on the model-favored `away_cover` side. It is still not production-ready because probabilities remain poorly calibrated and league effects are uneven, but next work should prioritize an `away_cover`-focused threshold/league stability report before building any automated recommendation action.
+
 ## Useful Commands
 
 Run local odds audit:

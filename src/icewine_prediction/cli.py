@@ -50,6 +50,11 @@ from icewine_prediction.baseline_recommendation_sandbox_service import (
     build_baseline_recommendation_sandbox_report,
     write_baseline_recommendation_sandbox_report,
 )
+from icewine_prediction.baseline_walk_forward_sandbox_service import (
+    BaselineWalkForwardSandboxReport,
+    build_baseline_walk_forward_sandbox_report,
+    write_baseline_walk_forward_sandbox_report,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     BaselineAsianHandicapModelReport,
     build_baseline_asian_handicap_model_report,
@@ -839,6 +844,29 @@ def format_baseline_recommendation_sandbox_command_result(
         lines.append(
             f"side {summary.name} bets {summary.candidate_count} "
             f"roi {summary.roi}"
+        )
+    return "\n".join(lines)
+
+
+def format_baseline_walk_forward_sandbox_command_result(
+    *,
+    report_path: str,
+    report: BaselineWalkForwardSandboxReport,
+) -> str:
+    lines = [
+        "baseline walk-forward recommendation sandbox written",
+        f"report: {report_path}",
+        (
+            f"{report.market_type} {report.model_name} "
+            f"folds {report.fold_count} candidates {report.total_candidates} "
+            f"positive {report.positive_roi_folds}/{report.fold_count}"
+        ),
+    ]
+    for summary in report.side_summaries:
+        lines.append(
+            f"side {summary.name} bets {summary.candidate_count} "
+            f"positive {summary.positive_roi_folds} roi "
+            f"{summary.roi if summary.roi is not None else '-'}"
         )
     return "\n".join(lines)
 
@@ -1980,6 +2008,39 @@ def samples_baseline_recommendation_sandbox(
     write_baseline_recommendation_sandbox_report(report, Path(report_path))
     typer.echo(
         format_baseline_recommendation_sandbox_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-walk-forward-sandbox")
+def samples_baseline_walk_forward_sandbox(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/模型实验/20260529-baseline-walk-forward-sandbox-v1.md",
+        "--report-path",
+    ),
+    edge_threshold: str = typer.Option("0.10", "--edge-threshold"),
+    train_ratio: str = typer.Option("0.60", "--train-ratio"),
+    validation_ratio: str = typer.Option("0.10", "--validation-ratio"),
+    fold_count: int = typer.Option(5, "--fold-count"),
+    top_n_per_fold: int = typer.Option(20, "--top-n-per-fold"),
+):
+    report = build_baseline_walk_forward_sandbox_report(
+        Path(csv_path),
+        edge_threshold=edge_threshold,
+        train_ratio=train_ratio,
+        validation_ratio=validation_ratio,
+        fold_count=fold_count,
+        top_n_per_fold=top_n_per_fold,
+    )
+    write_baseline_walk_forward_sandbox_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_walk_forward_sandbox_command_result(
             report_path=report_path,
             report=report,
         )

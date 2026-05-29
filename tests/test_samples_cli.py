@@ -48,6 +48,11 @@ from icewine_prediction.baseline_recommendation_sandbox_service import (
     SandboxCandidate,
     SandboxGroupSummary,
 )
+from icewine_prediction.baseline_walk_forward_sandbox_service import (
+    BaselineWalkForwardSandboxReport,
+    WalkForwardSandboxFoldReport,
+    WalkForwardSandboxSideSummary,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     AsianHandicapModelEvaluation,
     BaselineAsianHandicapModelReport,
@@ -250,6 +255,15 @@ def test_samples_group_exposes_baseline_recommendation_sandbox_help():
 
     assert result.exit_code == 0
     assert "baseline-recommendation-sandbox" in result.stdout
+
+
+def test_samples_group_exposes_baseline_walk_forward_sandbox_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-walk-forward-sandbox" in result.stdout
 
 
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
@@ -842,6 +856,73 @@ def test_samples_baseline_recommendation_sandbox_command_writes_report(monkeypat
     assert captured["top_n"] == 20
     assert "baseline recommendation sandbox written" in result.stdout
     assert "asian_handicap raw_hgb_team_form_plus_all_markets candidates 2 displayed 1" in result.stdout
+
+
+def test_samples_baseline_walk_forward_sandbox_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(
+        csv_path,
+        *,
+        edge_threshold,
+        train_ratio,
+        validation_ratio,
+        fold_count,
+        top_n_per_fold,
+    ):
+        captured["csv_path"] = str(csv_path)
+        captured["edge_threshold"] = edge_threshold
+        captured["train_ratio"] = train_ratio
+        captured["validation_ratio"] = validation_ratio
+        captured["fold_count"] = fold_count
+        captured["top_n_per_fold"] = top_n_per_fold
+        return _baseline_walk_forward_sandbox_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_walk_forward_sandbox_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_walk_forward_sandbox_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-walk-forward-sandbox",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/妯″瀷瀹為獙/walk-forward-sandbox.md",
+            "--edge-threshold",
+            "0.10",
+            "--train-ratio",
+            "0.50",
+            "--validation-ratio",
+            "0.20",
+            "--fold-count",
+            "3",
+            "--top-n-per-fold",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\妯″瀷瀹為獙\\walk-forward-sandbox.md")
+    assert captured["edge_threshold"] == "0.10"
+    assert captured["train_ratio"] == "0.50"
+    assert captured["validation_ratio"] == "0.20"
+    assert captured["fold_count"] == 3
+    assert captured["top_n_per_fold"] == 5
+    assert "baseline walk-forward recommendation sandbox written" in result.stdout
+    assert "asian_handicap raw_hgb_team_form_plus_all_markets folds 2 candidates 4 positive 1/2" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -1606,6 +1687,69 @@ def _baseline_recommendation_sandbox_report() -> BaselineRecommendationSandboxRe
                 wins=1,
                 profit=Decimal("-0.1000"),
                 roi=Decimal("-0.0500"),
+            )
+        ],
+    )
+
+
+def _baseline_walk_forward_sandbox_report() -> BaselineWalkForwardSandboxReport:
+    candidate = SandboxCandidate(
+        match_id="1",
+        kickoff_time="2026-05-20T20:00:00",
+        league_name="Premier League",
+        home_team_name="Arsenal",
+        away_team_name="Chelsea",
+        market_type="asian_handicap",
+        line=Decimal("-0.2500"),
+        side="away_cover",
+        odds=Decimal("1.9000"),
+        model_probability=Decimal("0.6200"),
+        market_probability=Decimal("0.5000"),
+        edge=Decimal("0.1200"),
+        actual_side="away_cover",
+        profit=Decimal("0.9000"),
+    )
+    side_summary = SandboxGroupSummary(
+        name="away_cover",
+        candidate_count=2,
+        wins=1,
+        profit=Decimal("-0.1000"),
+        roi=Decimal("-0.0500"),
+    )
+    return BaselineWalkForwardSandboxReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=10,
+        fold_count=2,
+        train_ratio=Decimal("0.5000"),
+        validation_ratio=Decimal("0.2000"),
+        edge_threshold=Decimal("0.1000"),
+        top_n_per_fold=1,
+        market_type="asian_handicap",
+        model_name="raw_hgb_team_form_plus_all_markets",
+        total_candidates=4,
+        total_profit=Decimal("0.2000"),
+        roi=Decimal("0.0500"),
+        positive_roi_folds=1,
+        fold_reports=[
+            WalkForwardSandboxFoldReport(
+                fold_index=1,
+                train_rows=8,
+                validation_rows=2,
+                candidate_count=2,
+                profit=Decimal("0.2000"),
+                roi=Decimal("0.1000"),
+                positive_roi=True,
+                side_summaries=[side_summary],
+                displayed_candidates=[candidate],
+            )
+        ],
+        side_summaries=[
+            WalkForwardSandboxSideSummary(
+                name="away_cover",
+                candidate_count=4,
+                positive_roi_folds=1,
+                profit=Decimal("0.2000"),
+                roi=Decimal("0.0500"),
             )
         ],
     )

@@ -18,6 +18,10 @@ from icewine_prediction.baseline_training_dataset_service import (
 from icewine_prediction.baseline_training_dataset_qa_service import (
     BaselineTrainingDatasetQaReport,
 )
+from icewine_prediction.baseline_training_dataset_market_baseline_service import (
+    BaselineTrainingDatasetMarketBaselineReport,
+    MarketBaselineReport,
+)
 from icewine_prediction.close_market_baseline_service import (
     CloseMarketBaselineMarketReport,
     CloseMarketBaselineReport,
@@ -95,6 +99,15 @@ def test_samples_group_exposes_baseline_dataset_qa_help():
 
     assert result.exit_code == 0
     assert "baseline-dataset-qa" in result.stdout
+
+
+def test_samples_group_exposes_baseline_market_baseline_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-market-baseline" in result.stdout
 
 
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
@@ -205,6 +218,45 @@ def test_samples_baseline_dataset_qa_command_writes_report(monkeypatch):
     assert "baseline dataset QA written" in result.stdout
     assert "rows 1" in result.stdout
     assert "thin-history 0" in result.stdout
+
+
+def test_samples_baseline_market_baseline_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path):
+        captured["csv_path"] = str(csv_path)
+        return _baseline_market_report()
+
+    def fake_write(report, output_path):
+        captured["output_path"] = str(output_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_training_dataset_market_baseline_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_training_dataset_market_baseline_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-market-baseline",
+            "--csv-path",
+            "local_data/training/baseline.csv",
+            "--report-path",
+            "docs/团队协作/market-baseline.md",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\baseline.csv")
+    assert captured["output_path"].endswith("docs\\团队协作\\market-baseline.md")
+    assert "close-market baseline written" in result.stdout
+    assert "evaluated 3/3" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -529,6 +581,32 @@ def _baseline_qa_report() -> BaselineTrainingDatasetQaReport:
             "asian_handicap_snapshot_count": (40, 40),
             "total_goals_snapshot_count": (40, 40),
             "match_winner_snapshot_count": (40, 40),
+        },
+    )
+
+
+def _baseline_market_report() -> BaselineTrainingDatasetMarketBaselineReport:
+    return BaselineTrainingDatasetMarketBaselineReport(
+        csv_path="local_data/training/baseline.csv",
+        row_count=1,
+        total_market_samples=3,
+        total_evaluated_market_samples=3,
+        total_skipped_market_samples=0,
+        market_reports={
+            "match_winner": MarketBaselineReport(
+                market_type="match_winner",
+                feature_count=1,
+                evaluated_count=1,
+                skipped_count=0,
+                average_log_loss=Decimal("0.7000"),
+                average_brier_score=Decimal("0.3000"),
+                accuracy=Decimal("1.0000"),
+                average_overround=Decimal("1.0400"),
+                flat_bet_count=1,
+                flat_bet_profit_units=Decimal("1.0000"),
+                flat_bet_roi=Decimal("1.0000"),
+                predicted_side_counts={"home": 1},
+            )
         },
     )
 

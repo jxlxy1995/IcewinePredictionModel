@@ -18,6 +18,11 @@ from icewine_prediction.baseline_training_dataset_qa_service import (
     build_baseline_training_dataset_qa_report,
     write_baseline_training_dataset_qa_report,
 )
+from icewine_prediction.baseline_training_dataset_market_baseline_service import (
+    BaselineTrainingDatasetMarketBaselineReport,
+    build_baseline_training_dataset_market_baseline_report,
+    write_baseline_training_dataset_market_baseline_report,
+)
 from icewine_prediction.close_market_baseline_service import (
     build_close_market_baseline_report_from_session,
     format_close_market_baseline_report,
@@ -603,6 +608,23 @@ def format_baseline_training_dataset_qa_command_result(
                 f" invalid-cells "
                 f"{sum(report.empty_required_cells.values()) + sum(report.invalid_odds_cells.values()) + sum(report.invalid_probability_cells.values()) + sum(report.invalid_overround_cells.values())}"
                 f" thin-history {report.thin_history_count}"
+            ),
+        ]
+    )
+
+
+def format_baseline_market_baseline_command_result(
+    *,
+    report_path: str,
+    report: BaselineTrainingDatasetMarketBaselineReport,
+) -> str:
+    return "\n".join(
+        [
+            "close-market baseline written",
+            f"report: {report_path}",
+            (
+                f"evaluated {report.total_evaluated_market_samples}/"
+                f"{report.total_market_samples}"
             ),
         ]
     )
@@ -1440,6 +1462,27 @@ def samples_baseline_dataset_qa(
     write_baseline_training_dataset_qa_report(report, Path(report_path))
     typer.echo(
         format_baseline_training_dataset_qa_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-market-baseline")
+def samples_baseline_market_baseline(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/团队协作/20260529-close-market-baseline-evaluation.md",
+        "--report-path",
+    ),
+):
+    report = build_baseline_training_dataset_market_baseline_report(Path(csv_path))
+    write_baseline_training_dataset_market_baseline_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_market_baseline_command_result(
             report_path=report_path,
             report=report,
         )

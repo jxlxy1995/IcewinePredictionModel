@@ -221,6 +221,17 @@ Baseline training dataset QA completed:
 - Low sample leagues under 30 rows: Ykkosliiga `29`.
 - Recommended next step: close-market baseline evaluation on this CSV.
 
+Close-market baseline evaluation completed:
+
+- Command: `icewine samples baseline-market-baseline`.
+- Report: `docs/团队协作/20260529-close-market-baseline-evaluation.md`.
+- Evaluated market samples: `15326` of `15990`; skipped `664` mostly due binary-market push settlement.
+- Asian handicap: evaluated `4928`, skipped `402`, accuracy `0.5244`, log loss `0.6921`, brier `0.4412`, avg overround `1.0273`, max-probability flat ROI `-0.0188`.
+- Total goals: evaluated `5068`, skipped `262`, accuracy `0.5199`, log loss `0.6924`, brier `0.4474`, avg overround `1.0320`, max-probability flat ROI `-0.0220`.
+- Match winner: evaluated `5330`, skipped `0`, accuracy `0.5032`, log loss `1.0055`, brier `0.6015`, avg overround `1.0390`, max-probability flat ROI `-0.0357`.
+- This looks like a sane market baseline: all simple max-probability flat-bet ROIs are negative and broadly track market overround.
+- Recommended next step: build first model feature set and compare validation metrics against this close-market baseline.
+
 ## Useful Commands
 
 Run local odds audit:

@@ -437,6 +437,29 @@ HistGradientBoosting model comparison v1 completed:
   - HGB dynamic variants improved over LogisticRegression but did not beat HGB static all-markets on accuracy.
 - Initial read: tree model learns useful direction signal, especially for total goals, but probabilities are poorly calibrated/too confident. Dynamic core features still are not clearly helpful. Next useful step is a probability calibration or edge-threshold backtest rather than adding this directly to recommendation logic.
 
+Baseline edge-threshold backtest v1 completed:
+
+- CLI command: `icewine samples baseline-edge-backtest`.
+- Service: `src/icewine_prediction/baseline_edge_backtest_service.py`.
+- Input: `local_data/training/baseline_dynamic_features_main_leagues_20260529.csv`.
+- Report: `docs/模型实验/20260529-baseline-edge-backtest-v1.md`.
+- Scope:
+  - Asian handicap and total goals only.
+  - Uses `HistGradientBoostingClassifier` with `team_form_plus_all_markets` features, because this was the best HGB accuracy variant in the previous comparison.
+  - Compares raw HGB probabilities with sigmoid-calibrated HGB probabilities.
+  - For each validation match, selects the side with the largest `model_probability - normalized_market_probability`, then evaluates thresholds `0.00`, `0.02`, `0.04`, `0.06`, `0.08`, `0.10`.
+- Asian handicap:
+  - Raw HGB all-threshold bets: `853`, accuracy `0.5522`, profit `60.3310`, ROI `0.0707`.
+  - Raw HGB remains positive across thresholds through `0.10`, but log loss is poor (`0.7781`), so probability scale is not trustworthy.
+  - Calibrated HGB all-threshold bets: `853`, accuracy `0.4853`, profit `-27.3720`, ROI `-0.0321`.
+  - Calibrated HGB is positive only from threshold `0.02` upward, with very small samples at higher thresholds (`17` bets at `0.06`, `2` at `0.08`).
+- Total goals:
+  - Raw HGB all-threshold bets: `891`, accuracy `0.5320`, profit `23.3520`, ROI `0.0262`.
+  - Raw HGB weakens as threshold rises and is nearly flat by `0.10`.
+  - Calibrated HGB all-threshold bets: `891`, accuracy `0.4815`, profit `-39.0830`, ROI `-0.0439`.
+  - Calibrated HGB is positive only at threshold `0.04`, with just `37` bets.
+- Initial read: raw HGB shows positive ROI in this single validation split, especially Asian handicap, but calibration flips full-sample ROI negative. This suggests a real direction signal may exist, but probability calibration and edge threshold selection are not stable enough yet. Next useful step is walk-forward or repeated time-split validation before using any edge threshold in recommendation logic.
+
 ## Useful Commands
 
 Run local odds audit:

@@ -35,6 +35,11 @@ from icewine_prediction.baseline_dynamic_feature_set_service import (
     write_baseline_dynamic_feature_set_csv,
     write_baseline_dynamic_feature_set_report,
 )
+from icewine_prediction.baseline_edge_backtest_service import (
+    BaselineEdgeBacktestReport,
+    build_baseline_edge_backtest_report,
+    write_baseline_edge_backtest_report,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     BaselineAsianHandicapModelReport,
     build_baseline_asian_handicap_model_report,
@@ -762,6 +767,26 @@ def format_baseline_total_goals_model_command_result(
         f"{name} log-loss {model_report.log_loss} accuracy {model_report.accuracy}"
         for name, model_report in report.model_reports.items()
     )
+    return "\n".join(lines)
+
+
+def format_baseline_edge_backtest_command_result(
+    *,
+    report_path: str,
+    report: BaselineEdgeBacktestReport,
+) -> str:
+    lines = [
+        "baseline edge backtest written",
+        f"report: {report_path}",
+        f"rows {report.row_count}",
+    ]
+    for market_name, market_report in report.market_reports.items():
+        for model_name, model_report in market_report.model_reports.items():
+            first_bucket = model_report.threshold_buckets[0]
+            lines.append(
+                f"{market_name} {model_name} bets {first_bucket.bet_count} "
+                f"roi {first_bucket.roi if first_bucket.roi is not None else '-'}"
+            )
     return "\n".join(lines)
 
 
@@ -1820,6 +1845,29 @@ def samples_baseline_total_goals_model(
     write_baseline_total_goals_model_report(report, Path(report_path))
     typer.echo(
         format_baseline_total_goals_model_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-edge-backtest")
+def samples_baseline_edge_backtest(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/模型实验/20260529-baseline-edge-backtest-v1.md",
+        "--report-path",
+    ),
+    thresholds: str = typer.Option("0.00,0.02,0.04,0.06,0.08,0.10", "--thresholds"),
+):
+    threshold_values = tuple(value.strip() for value in thresholds.split(",") if value.strip())
+    report = build_baseline_edge_backtest_report(Path(csv_path), thresholds=threshold_values)
+    write_baseline_edge_backtest_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_edge_backtest_command_result(
             report_path=report_path,
             report=report,
         )

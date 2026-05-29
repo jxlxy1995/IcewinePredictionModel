@@ -30,6 +30,12 @@ from icewine_prediction.baseline_dynamic_feature_set_service import (
     BaselineDynamicFeatureSet,
     BaselineDynamicFeatureSetReport,
 )
+from icewine_prediction.baseline_edge_backtest_service import (
+    BaselineEdgeBacktestReport,
+    EdgeMarketBacktest,
+    EdgeModelBacktest,
+    EdgeThresholdBucket,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     AsianHandicapModelEvaluation,
     BaselineAsianHandicapModelReport,
@@ -205,6 +211,15 @@ def test_samples_group_exposes_baseline_market_diagnostics_help():
 
     assert result.exit_code == 0
     assert "baseline-market-diagnostics" in result.stdout
+
+
+def test_samples_group_exposes_baseline_edge_backtest_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-edge-backtest" in result.stdout
 
 
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
@@ -652,6 +667,49 @@ def test_samples_baseline_market_diagnostics_command_writes_report(monkeypatch):
     assert "baseline market diagnostics written" in result.stdout
     assert "asian_handicap accuracy 0.6000 rows 10" in result.stdout
     assert "total_goals accuracy 0.5000 rows 8" in result.stdout
+
+
+def test_samples_baseline_edge_backtest_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path, *, thresholds):
+        captured["csv_path"] = str(csv_path)
+        captured["thresholds"] = thresholds
+        return _baseline_edge_backtest_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_edge_backtest_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_edge_backtest_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-edge-backtest",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/模型实验/edge.md",
+            "--thresholds",
+            "0.00,0.05",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\模型实验\\edge.md")
+    assert captured["thresholds"] == ("0.00", "0.05")
+    assert "baseline edge backtest written" in result.stdout
+    assert "asian_handicap calibrated_hgb_team_form_plus_all_markets bets 2 roi 0.1000" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -1271,6 +1329,42 @@ def _baseline_market_diagnostics_report() -> BaselineMarketDiagnosticsReport:
                 by_market_confidence=[],
                 by_actual_side=[],
             ),
+        },
+    )
+
+
+def _baseline_edge_backtest_report() -> BaselineEdgeBacktestReport:
+    bucket = EdgeThresholdBucket(
+        threshold=Decimal("0.0000"),
+        bet_count=2,
+        accuracy=Decimal("0.5000"),
+        profit=Decimal("0.2000"),
+        roi=Decimal("0.1000"),
+    )
+    model = EdgeModelBacktest(
+        name="calibrated_hgb_team_form_plus_all_markets",
+        estimator_name="HistGradientBoostingClassifier",
+        calibration_method="sigmoid",
+        feature_count=32,
+        train_rows=8,
+        validation_rows=2,
+        accuracy=Decimal("0.5000"),
+        log_loss=Decimal("0.7000"),
+        brier_score=Decimal("0.5000"),
+        threshold_buckets=[bucket],
+    )
+    return BaselineEdgeBacktestReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=10,
+        thresholds=(Decimal("0.0000"),),
+        market_reports={
+            "asian_handicap": EdgeMarketBacktest(
+                market_type="asian_handicap",
+                train_rows=8,
+                validation_rows=2,
+                skipped_rows=0,
+                model_reports={model.name: model},
+            )
         },
     )
 

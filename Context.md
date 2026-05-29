@@ -199,6 +199,16 @@ Main-league training data audit completed:
 - Low coverage under 80%: Ykkosliiga `72.5%`, Liga 1 Indonesia `76.5%`, Eerste Divisie `76.8%`.
 - Recommended next step: build the baseline training dataset from complete three-market main-league matches.
 
+Baseline training dataset v1 completed:
+
+- Generator command: `icewine samples baseline-dataset`.
+- Local CSV output: `local_data/training/baseline_main_leagues_20260529.csv` (gitignored local data).
+- Report: `docs/团队协作/20260529-baseline-training-dataset.md`.
+- Scope matches the main-league audit: enabled main leagues, UEFA excluded, finished/scored, `kickoff_time >= 2026-01-15` using the DB wall-time boundary.
+- Rows: `5330` complete three-market matches from `5981` eligible main-league matches; coverage `0.8912`.
+- CSV has `42` columns and includes match metadata, scores, result labels, close-line odds/probabilities/overrounds for `asian_handicap`, `total_goals`, and `match_winner`.
+- Boundary note: a Saudi match at DB kickoff `2026-01-14 22:45:00` is intentionally excluded to stay aligned with the audit's literal DB timestamp window.
+
 ## Useful Commands
 
 Run local odds audit:

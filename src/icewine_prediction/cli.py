@@ -1,11 +1,18 @@
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import typer
 from sqlalchemy import text
 
 from icewine_prediction.alias_service import add_external_alias, list_external_aliases
+from icewine_prediction.baseline_training_dataset_service import (
+    BaselineTrainingDataset,
+    build_baseline_training_dataset,
+    write_baseline_training_dataset_csv,
+    write_baseline_training_dataset_report,
+)
 from icewine_prediction.close_market_baseline_service import (
     build_close_market_baseline_report_from_session,
     format_close_market_baseline_report,
@@ -554,6 +561,25 @@ def format_training_sample_report(report: TrainingSampleReport) -> str:
             f"\u6309\u8054\u8d5b {'; '.join(league_lines)}",
             f"\u6309\u8d5b\u5b63 {_format_counter(report.by_season)}",
             f"\u6309\u6743\u91cd {_format_counter(report.by_weight)}",
+        ]
+    )
+
+
+def format_baseline_training_dataset_command_result(
+    *,
+    dataset_path: str,
+    report_path: str,
+    dataset: BaselineTrainingDataset,
+) -> str:
+    return "\n".join(
+        [
+            "baseline dataset written",
+            f"dataset: {dataset_path}",
+            f"report: {report_path}",
+            (
+                f"rows {dataset.audit.complete_match_count}/{dataset.audit.eligible_match_count}"
+                f" coverage {dataset.audit.coverage_ratio}"
+            ),
         ]
     )
 
@@ -1331,6 +1357,44 @@ def samples_historical_odds_close_baseline(
             bookmaker=bookmaker,
         )
         typer.echo(format_close_market_baseline_report(report))
+
+
+@samples_app.command("baseline-dataset")
+def samples_baseline_dataset(
+    output_path: str = typer.Option(
+        "local_data/training/baseline_main_leagues_20260529.csv",
+        "--output-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/团队协作/20260529-baseline-training-dataset.md",
+        "--report-path",
+    ),
+    eligible_start: str = typer.Option(
+        "2026-01-15",
+        "--eligible-start",
+    ),
+    source_name: str = typer.Option("oddspapi", "--source-name"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        dataset = build_baseline_training_dataset(
+            session,
+            eligible_start=_parse_beijing_datetime(eligible_start),
+            source_name=source_name,
+            bookmaker=bookmaker,
+        )
+    write_baseline_training_dataset_csv(dataset, Path(output_path))
+    write_baseline_training_dataset_report(dataset.audit, Path(report_path))
+    typer.echo(
+        format_baseline_training_dataset_command_result(
+            dataset_path=output_path,
+            report_path=report_path,
+            dataset=dataset,
+        )
+    )
 
 
 @models_app.command("train-baseline")

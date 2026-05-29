@@ -6,9 +6,14 @@ from typer.testing import CliRunner
 
 from icewine_prediction.cli import (
     app,
+    format_baseline_training_dataset_command_result,
     format_historical_odds_market_feature_line,
     format_historical_market_training_sample_line,
     format_training_sample_line,
+)
+from icewine_prediction.baseline_training_dataset_service import (
+    BaselineTrainingDataset,
+    BaselineTrainingDatasetAudit,
 )
 from icewine_prediction.close_market_baseline_service import (
     CloseMarketBaselineMarketReport,
@@ -69,6 +74,81 @@ def test_samples_group_exposes_historical_odds_close_baseline_help():
 
     assert result.exit_code == 0
     assert "historical-odds-close-baseline" in result.stdout
+
+
+def test_samples_group_exposes_baseline_dataset_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-dataset" in result.stdout
+
+
+def test_format_baseline_training_dataset_command_result_summarizes_outputs():
+    text = format_baseline_training_dataset_command_result(
+        dataset_path="local_data/training/baseline.csv",
+        report_path="docs/团队协作/baseline.md",
+        dataset=_baseline_dataset(),
+    )
+
+    assert "baseline dataset written" in text
+    assert "local_data/training/baseline.csv" in text
+    assert "docs/团队协作/baseline.md" in text
+    assert "rows 1/2" in text
+    assert "coverage 0.5000" in text
+
+
+def test_samples_baseline_dataset_command_writes_dataset_and_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(session, *, eligible_start, source_name, bookmaker):
+        captured["eligible_start"] = eligible_start
+        captured["source_name"] = source_name
+        captured["bookmaker"] = bookmaker
+        return _baseline_dataset()
+
+    def fake_write_csv(dataset, output_path):
+        captured["dataset_path"] = str(output_path)
+
+    def fake_write_report(audit, output_path):
+        captured["report_path"] = str(output_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_training_dataset",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_training_dataset_csv",
+        fake_write_csv,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_training_dataset_report",
+        fake_write_report,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-dataset",
+            "--output-path",
+            "local_data/training/test.csv",
+            "--report-path",
+            "docs/团队协作/test.md",
+            "--eligible-start",
+            "2026-01-15",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["source_name"] == "oddspapi"
+    assert captured["bookmaker"] == "pinnacle"
+    assert captured["eligible_start"].strftime("%Y-%m-%d %H:%M") == "2026-01-15 00:00"
+    assert captured["dataset_path"].endswith("local_data\\training\\test.csv")
+    assert captured["report_path"].endswith("docs\\团队协作\\test.md")
+    assert "rows 1/2" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -336,6 +416,32 @@ def _historical_market_feature() -> HistoricalOddsMarketFeature:
         snapshot_count=60,
         missing_anchor_labels=(),
         quality_tags=(),
+    )
+
+
+def _baseline_dataset() -> BaselineTrainingDataset:
+    return BaselineTrainingDataset(
+        rows=[{"match_id": "1"}],
+        audit=BaselineTrainingDatasetAudit(
+            eligible_start=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
+            source_name="oddspapi",
+            bookmaker="pinnacle",
+            eligible_match_count=2,
+            complete_match_count=1,
+            coverage_ratio=Decimal("0.5000"),
+            market_sample_counts={
+                "asian_handicap": 1,
+                "total_goals": 1,
+                "match_winner": 1,
+            },
+            missing_market_counts={
+                "asian_handicap": 1,
+                "total_goals": 1,
+                "match_winner": 1,
+            },
+            by_league={"Premier League": 1},
+            by_season={2026: 1},
+        ),
     )
 
 

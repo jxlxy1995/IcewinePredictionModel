@@ -53,6 +53,11 @@ from icewine_prediction.close_market_baseline_service import (
 )
 from icewine_prediction.display_service import DisplayNameService, DisplayNames
 from icewine_prediction.historical_odds_feature_service import HistoricalOddsMarketFeature
+from icewine_prediction.historical_odds_anchor_coverage_service import (
+    AnchorCoverage,
+    HistoricalOddsAnchorCoverageReport,
+    MarketAnchorCoverageReport,
+)
 from icewine_prediction.historical_training_sample_service import (
     HistoricalMarketTrainingSample,
     HistoricalOddsAnchorFeature,
@@ -88,6 +93,15 @@ def test_samples_group_exposes_historical_odds_report_help():
 
     assert result.exit_code == 0
     assert "historical-odds-report" in result.stdout
+
+
+def test_samples_group_exposes_historical_odds_anchor_coverage_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "historical-odds-anchor-coverage" in result.stdout
 
 
 def test_samples_group_exposes_historical_odds_features_preview_help():
@@ -327,6 +341,53 @@ def test_samples_baseline_market_baseline_command_writes_report(monkeypatch):
     assert captured["output_path"].endswith("docs\\团队协作\\market-baseline.md")
     assert "close-market baseline written" in result.stdout
     assert "evaluated 3/3" in result.stdout
+
+
+def test_samples_historical_odds_anchor_coverage_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(session, *, season, eligible_start, bookmaker):
+        captured["season"] = season
+        captured["eligible_start"] = eligible_start
+        captured["bookmaker"] = bookmaker
+        return _historical_odds_anchor_coverage_report()
+
+    def fake_write(report, output_path):
+        captured["output_path"] = str(output_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_historical_odds_anchor_coverage_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_historical_odds_anchor_coverage_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "historical-odds-anchor-coverage",
+            "--season",
+            "2026",
+            "--eligible-start",
+            "2026-01-15",
+            "--bookmaker",
+            "pinnacle",
+            "--report-path",
+            "docs/团队协作/anchor.md",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["season"] == 2026
+    assert captured["bookmaker"] == "pinnacle"
+    assert captured["eligible_start"].strftime("%Y-%m-%d") == "2026-01-15"
+    assert captured["output_path"].endswith("docs\\团队协作\\anchor.md")
+    assert "historical odds anchor coverage written" in result.stdout
+    assert "asian_handicap samples 10 complete-core 8" in result.stdout
 
 
 def test_samples_baseline_feature_set_command_writes_csv_and_report(monkeypatch):
@@ -821,6 +882,35 @@ def _baseline_dataset() -> BaselineTrainingDataset:
             by_league={"Premier League": 1},
             by_season={2026: 1},
         ),
+    )
+
+
+def _historical_odds_anchor_coverage_report() -> HistoricalOddsAnchorCoverageReport:
+    return HistoricalOddsAnchorCoverageReport(
+        season=2026,
+        eligible_start=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
+        bookmaker="pinnacle",
+        anchor_labels=("24h", "12h", "6h", "3h", "1h", "close"),
+        eligible_match_count=12,
+        market_reports={
+            "asian_handicap": MarketAnchorCoverageReport(
+                market_type="asian_handicap",
+                eligible_match_count=12,
+                sample_count=10,
+                sample_coverage_ratio=Decimal("0.8333"),
+                complete_core_anchor_sample_count=8,
+                complete_core_anchor_coverage_ratio=Decimal("0.6667"),
+                average_snapshot_count=Decimal("42.00"),
+                anchor_reports={
+                    "24h": AnchorCoverage(
+                        label="24h",
+                        sample_count=8,
+                        coverage_ratio=Decimal("0.6667"),
+                        sample_internal_coverage_ratio=Decimal("0.8000"),
+                    )
+                },
+            )
+        },
     )
 
 

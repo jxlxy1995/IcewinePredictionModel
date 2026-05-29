@@ -85,6 +85,11 @@ from icewine_prediction.historical_odds_feature_service import (
     HistoricalOddsMarketFeature,
     list_historical_odds_market_features,
 )
+from icewine_prediction.historical_odds_anchor_coverage_service import (
+    HistoricalOddsAnchorCoverageReport,
+    build_historical_odds_anchor_coverage_report,
+    write_historical_odds_anchor_coverage_report,
+)
 from icewine_prediction.historical_training_sample_service import (
     DEFAULT_ANCHORS,
     HistoricalMarketTrainingSample,
@@ -747,6 +752,26 @@ def format_baseline_market_diagnostics_command_result(
         (
             f"{name} accuracy {market_report.overall.accuracy} "
             f"rows {market_report.eligible_rows}"
+        )
+        for name, market_report in report.market_reports.items()
+    )
+    return "\n".join(lines)
+
+
+def format_historical_odds_anchor_coverage_command_result(
+    *,
+    report_path: str,
+    report: HistoricalOddsAnchorCoverageReport,
+) -> str:
+    lines = [
+        "historical odds anchor coverage written",
+        f"report: {report_path}",
+        f"eligible matches {report.eligible_match_count}",
+    ]
+    lines.extend(
+        (
+            f"{name} samples {market_report.sample_count} "
+            f"complete-core {market_report.complete_core_anchor_sample_count}"
         )
         for name, market_report in report.market_reports.items()
     )
@@ -1483,6 +1508,38 @@ def samples_historical_odds_report(
             bookmaker=bookmaker,
         )
         typer.echo(format_historical_odds_sample_quality_report(report))
+
+
+@samples_app.command("historical-odds-anchor-coverage")
+def samples_historical_odds_anchor_coverage(
+    season: int | None = typer.Option(None, "--season"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+    eligible_start: str = typer.Option(
+        DEFAULT_HISTORICAL_ODDS_ELIGIBLE_START.strftime("%Y-%m-%d"),
+        "--eligible-start",
+    ),
+    report_path: str = typer.Option(
+        "docs/团队协作/20260529-historical-odds-anchor-coverage-v1.md",
+        "--report-path",
+    ),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_historical_odds_anchor_coverage_report(
+            session,
+            season=season,
+            eligible_start=_parse_beijing_datetime(eligible_start),
+            bookmaker=bookmaker,
+        )
+        write_historical_odds_anchor_coverage_report(report, Path(report_path))
+        typer.echo(
+            format_historical_odds_anchor_coverage_command_result(
+                report_path=report_path,
+                report=report,
+            )
+        )
 
 
 @samples_app.command("historical-odds-features-preview")

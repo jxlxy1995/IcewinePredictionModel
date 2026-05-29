@@ -355,6 +355,26 @@ Baseline market diagnostics v1 completed:
   - By line, larger sample-size segments are mostly close to coinflip: `2.50` accuracy `0.5060`, `2.75` accuracy `0.5188`, `3.00` accuracy `0.5469`, `2.25` accuracy `0.5221`; `3.50` is better at `0.6061` over `66` rows.
 - Initial read: diagnostics reinforce that current close-market labels are thin-edge and balanced. The next useful modeling step is likely adding richer pre-match dynamics/features, not simply slicing by market confidence.
 
+Historical odds anchor coverage v1 completed:
+
+- CLI command: `icewine samples historical-odds-anchor-coverage`.
+- Service: `src/icewine_prediction/historical_odds_anchor_coverage_service.py`.
+- Report: `docs/团队协作/20260529-historical-odds-anchor-coverage-v1.md`.
+- Scope: all finished/scored matches after `2026-01-15` Beijing time, no season filter, bookmaker `pinnacle`, core markets `asian_handicap` and `total_goals`.
+- Eligible matches: `6377`.
+- Both Asian handicap and total goals:
+  - Samples: `5330`; sample coverage vs eligible matches `0.8358`.
+  - Complete core-anchor samples (`24h`, `12h`, `6h`, `3h`, `1h`, `close`): `5109`; eligible coverage `0.8012`.
+  - Average snapshots: Asian handicap `48.84`, total goals `48.81`.
+  - Anchor coverage inside the `5330` available samples:
+    - `24h`: `5109`, sample coverage `0.9585`.
+    - `12h`: `5175`, sample coverage `0.9709`.
+    - `6h`: `5330`, sample coverage `1.0000`.
+    - `3h`: `5330`, sample coverage `1.0000`.
+    - `1h`: `5330`, sample coverage `1.0000`.
+    - `close`: `5330`, sample coverage `1.0000`.
+- Initial read: dynamic market features are viable. A v1 feature set can safely use `6h`, `3h`, `1h`, and `close`; `24h`/`12h` are also strong enough if missing values are imputed or if a complete-core subset is used for comparison.
+
 ## Useful Commands
 
 Run local odds audit:

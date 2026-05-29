@@ -36,6 +36,13 @@ from icewine_prediction.baseline_edge_backtest_service import (
     EdgeModelBacktest,
     EdgeThresholdBucket,
 )
+from icewine_prediction.baseline_walk_forward_edge_service import (
+    BaselineWalkForwardEdgeReport,
+    WalkForwardFoldBacktest,
+    WalkForwardMarketBacktest,
+    WalkForwardModelBacktest,
+    WalkForwardThresholdSummary,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     AsianHandicapModelEvaluation,
     BaselineAsianHandicapModelReport,
@@ -220,6 +227,15 @@ def test_samples_group_exposes_baseline_edge_backtest_help():
 
     assert result.exit_code == 0
     assert "baseline-edge-backtest" in result.stdout
+
+
+def test_samples_group_exposes_baseline_walk_forward_edge_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-walk-forward-edge" in result.stdout
 
 
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
@@ -710,6 +726,61 @@ def test_samples_baseline_edge_backtest_command_writes_report(monkeypatch):
     assert captured["thresholds"] == ("0.00", "0.05")
     assert "baseline edge backtest written" in result.stdout
     assert "asian_handicap calibrated_hgb_team_form_plus_all_markets bets 2 roi 0.1000" in result.stdout
+
+
+def test_samples_baseline_walk_forward_edge_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path, *, thresholds, train_ratio, validation_ratio, fold_count):
+        captured["csv_path"] = str(csv_path)
+        captured["thresholds"] = thresholds
+        captured["train_ratio"] = train_ratio
+        captured["validation_ratio"] = validation_ratio
+        captured["fold_count"] = fold_count
+        return _baseline_walk_forward_edge_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_walk_forward_edge_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_walk_forward_edge_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-walk-forward-edge",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/模型实验/walk-forward.md",
+            "--thresholds",
+            "0.00,0.05",
+            "--train-ratio",
+            "0.50",
+            "--validation-ratio",
+            "0.20",
+            "--fold-count",
+            "3",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\模型实验\\walk-forward.md")
+    assert captured["thresholds"] == ("0.00", "0.05")
+    assert captured["train_ratio"] == "0.50"
+    assert captured["validation_ratio"] == "0.20"
+    assert captured["fold_count"] == 3
+    assert "baseline walk-forward edge backtest written" in result.stdout
+    assert "asian_handicap raw_hgb_team_form_plus_all_markets threshold 0.0000 positive 1/2" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -1363,6 +1434,63 @@ def _baseline_edge_backtest_report() -> BaselineEdgeBacktestReport:
                 train_rows=8,
                 validation_rows=2,
                 skipped_rows=0,
+                model_reports={model.name: model},
+            )
+        },
+    )
+
+
+def _baseline_walk_forward_edge_report() -> BaselineWalkForwardEdgeReport:
+    bucket = EdgeThresholdBucket(
+        threshold=Decimal("0.0000"),
+        bet_count=2,
+        accuracy=Decimal("0.5000"),
+        profit=Decimal("0.2000"),
+        roi=Decimal("0.1000"),
+    )
+    edge_model = EdgeModelBacktest(
+        name="raw_hgb_team_form_plus_all_markets",
+        estimator_name="HistGradientBoostingClassifier",
+        calibration_method="none",
+        feature_count=32,
+        train_rows=8,
+        validation_rows=2,
+        accuracy=Decimal("0.5000"),
+        log_loss=Decimal("0.7000"),
+        brier_score=Decimal("0.5000"),
+        threshold_buckets=[bucket],
+    )
+    model = WalkForwardModelBacktest(
+        name="raw_hgb_team_form_plus_all_markets",
+        threshold_summaries=[
+            WalkForwardThresholdSummary(
+                threshold=Decimal("0.0000"),
+                fold_count=2,
+                total_bets=4,
+                positive_roi_folds=1,
+                average_roi=Decimal("0.0500"),
+                worst_roi=Decimal("-0.0500"),
+            )
+        ],
+        fold_reports=[
+            WalkForwardFoldBacktest(
+                fold_index=1,
+                train_rows=8,
+                validation_rows=2,
+                model_report=edge_model,
+            )
+        ],
+    )
+    return BaselineWalkForwardEdgeReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=10,
+        fold_count=2,
+        train_ratio=Decimal("0.5000"),
+        validation_ratio=Decimal("0.2000"),
+        thresholds=(Decimal("0.0000"),),
+        market_reports={
+            "asian_handicap": WalkForwardMarketBacktest(
+                market_type="asian_handicap",
                 model_reports={model.name: model},
             )
         },

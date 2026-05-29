@@ -460,6 +460,28 @@ Baseline edge-threshold backtest v1 completed:
   - Calibrated HGB is positive only at threshold `0.04`, with just `37` bets.
 - Initial read: raw HGB shows positive ROI in this single validation split, especially Asian handicap, but calibration flips full-sample ROI negative. This suggests a real direction signal may exist, but probability calibration and edge threshold selection are not stable enough yet. Next useful step is walk-forward or repeated time-split validation before using any edge threshold in recommendation logic.
 
+Baseline walk-forward edge backtest v1 completed:
+
+- CLI command: `icewine samples baseline-walk-forward-edge`.
+- Service: `src/icewine_prediction/baseline_walk_forward_edge_service.py`.
+- Input: `local_data/training/baseline_dynamic_features_main_leagues_20260529.csv`.
+- Report: `docs/模型实验/20260529-baseline-walk-forward-edge-v1.md`.
+- Scope:
+  - Asian handicap and total goals only.
+  - Uses rolling chronological folds with train ratio `0.60`, validation ratio `0.10`, and `5` folds.
+  - Per fold, compares raw HGB and sigmoid-calibrated HGB using `team_form_plus_all_markets` features.
+  - Edge thresholds: `0.00`, `0.02`, `0.04`, `0.06`, `0.08`, `0.10`.
+- Asian handicap:
+  - Raw HGB threshold `0.00`: `2077` bets, positive ROI in `3/5` folds, average ROI `0.0402`, worst ROI `-0.0546`.
+  - Raw HGB threshold `0.10`: `1266` bets, positive ROI in `4/5` folds, average ROI `0.0613`, worst ROI `-0.0050`.
+  - Calibrated HGB threshold `0.00`: positive ROI in `1/5` folds, average ROI `-0.0260`.
+  - Calibrated HGB high thresholds can show positive average ROI, but sample size collapses (`77` bets at `0.06`, `20` at `0.08`, `2` at `0.10`), so this is not reliable yet.
+- Total goals:
+  - Raw HGB threshold `0.00`: `2221` bets, positive ROI in `2/5` folds, average ROI `-0.0008`, worst ROI `-0.0424`.
+  - Raw HGB remains roughly break-even to mildly negative across most thresholds.
+  - Calibrated HGB threshold `0.00`: positive ROI in `0/5` folds, average ROI `-0.0607`.
+- Initial read: this supports the concern that the single validation split was optimistic. Asian handicap raw HGB still has a possible signal, especially at stronger edge thresholds, but it is not stable enough for recommendation automation. Total goals has no clear edge yet. Next useful step is to build a recommendation sandbox/report that logs candidate picks without acting on them, or to improve probability calibration before any production recommendation threshold.
+
 ## Useful Commands
 
 Run local odds audit:

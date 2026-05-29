@@ -40,6 +40,11 @@ from icewine_prediction.baseline_edge_backtest_service import (
     build_baseline_edge_backtest_report,
     write_baseline_edge_backtest_report,
 )
+from icewine_prediction.baseline_walk_forward_edge_service import (
+    BaselineWalkForwardEdgeReport,
+    build_baseline_walk_forward_edge_report,
+    write_baseline_walk_forward_edge_report,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     BaselineAsianHandicapModelReport,
     build_baseline_asian_handicap_model_report,
@@ -786,6 +791,27 @@ def format_baseline_edge_backtest_command_result(
             lines.append(
                 f"{market_name} {model_name} bets {first_bucket.bet_count} "
                 f"roi {first_bucket.roi if first_bucket.roi is not None else '-'}"
+            )
+    return "\n".join(lines)
+
+
+def format_baseline_walk_forward_edge_command_result(
+    *,
+    report_path: str,
+    report: BaselineWalkForwardEdgeReport,
+) -> str:
+    lines = [
+        "baseline walk-forward edge backtest written",
+        f"report: {report_path}",
+        f"rows {report.row_count} folds {report.fold_count}",
+    ]
+    for market_name, market_report in report.market_reports.items():
+        for model_name, model_report in market_report.model_reports.items():
+            first_summary = model_report.threshold_summaries[0]
+            lines.append(
+                f"{market_name} {model_name} threshold {first_summary.threshold} "
+                f"positive {first_summary.positive_roi_folds}/{first_summary.fold_count} "
+                f"avg-roi {first_summary.average_roi if first_summary.average_roi is not None else '-'}"
             )
     return "\n".join(lines)
 
@@ -1868,6 +1894,38 @@ def samples_baseline_edge_backtest(
     write_baseline_edge_backtest_report(report, Path(report_path))
     typer.echo(
         format_baseline_edge_backtest_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-walk-forward-edge")
+def samples_baseline_walk_forward_edge(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/模型实验/20260529-baseline-walk-forward-edge-v1.md",
+        "--report-path",
+    ),
+    thresholds: str = typer.Option("0.00,0.02,0.04,0.06,0.08,0.10", "--thresholds"),
+    train_ratio: str = typer.Option("0.60", "--train-ratio"),
+    validation_ratio: str = typer.Option("0.10", "--validation-ratio"),
+    fold_count: int = typer.Option(5, "--fold-count"),
+):
+    threshold_values = tuple(value.strip() for value in thresholds.split(",") if value.strip())
+    report = build_baseline_walk_forward_edge_report(
+        Path(csv_path),
+        thresholds=threshold_values,
+        train_ratio=train_ratio,
+        validation_ratio=validation_ratio,
+        fold_count=fold_count,
+    )
+    write_baseline_walk_forward_edge_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_walk_forward_edge_command_result(
             report_path=report_path,
             report=report,
         )

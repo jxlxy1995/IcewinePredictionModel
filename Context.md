@@ -295,6 +295,25 @@ Baseline match-winner model v1 completed:
   - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_baseline_match_winner_model_service.py tests/test_samples_cli.py tests/test_baseline_feature_set_service.py -q` -> `29 passed`
   - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_samples_cli.py tests/test_baseline_match_winner_model_service.py -q` -> `25 passed`
 
+Baseline Asian handicap model v1 completed:
+
+- Feature set v1 now carries Asian handicap target/result and odds fields:
+  - `target_asian_handicap_home_result`
+  - `target_asian_handicap_away_result`
+  - `asian_handicap_home_odds`
+  - `asian_handicap_away_odds`
+- CLI command: `icewine samples baseline-asian-handicap-model`.
+- Service: `src/icewine_prediction/baseline_asian_handicap_model_service.py`.
+- Report: `docs/团队协作/20260529-baseline-asian-handicap-model-v1.md`.
+- Input: `local_data/training/baseline_features_main_leagues_20260529.csv`.
+- Scope: binary Asian handicap direction only; rows with push/half-win/half-loss or non-clear settlement are skipped for v1.
+- Rows: `5330`; train rows `3317`; validation rows `853`; skipped rows `1160`.
+- Same-split close-market reference: evaluated `853`, accuracy `0.5287`, log loss `0.6971`, brier `0.4978`.
+- Results:
+  - `team_form_plus_match_winner_market`: accuracy `0.5064`, log loss `0.6965`, brier `0.4996`.
+  - `team_form_plus_all_markets`: accuracy `0.5334`, log loss `0.6993`, brier `0.4990`.
+- Initial read: full-market features improve directional accuracy versus close market, but log loss/Brier do not clearly beat market. All confidence is concentrated around 0.50-0.60, which confirms Asian handicap v1 is a thin-edge, near-coinflip task.
+
 ## Useful Commands
 
 Run local odds audit:

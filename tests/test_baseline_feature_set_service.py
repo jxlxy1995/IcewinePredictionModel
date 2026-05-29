@@ -53,6 +53,10 @@ def test_build_baseline_feature_set_uses_only_prior_team_history(tmp_path):
     assert rows[0]["split"] == "train"
     assert rows[0]["home_prior_matches"] == "0"
     assert rows[0]["away_prior_matches"] == "0"
+    assert rows[0]["target_asian_handicap_home_result"] == "win"
+    assert rows[0]["target_asian_handicap_away_result"] == "loss"
+    assert rows[0]["asian_handicap_home_odds"] == "1.900"
+    assert rows[0]["asian_handicap_away_odds"] == "2.000"
     assert rows[1]["home_prior_matches"] == "1"
     assert rows[1]["home_prior_points_per_match"] == "0.0000"
     assert rows[1]["away_prior_points_per_match"] == "3.0000"
@@ -157,7 +161,11 @@ def _header() -> str:
             "away_score",
             "match_result",
             "total_goals",
+            "asian_handicap_home_result",
+            "asian_handicap_away_result",
             "asian_handicap_close_line",
+            "asian_handicap_home_odds",
+            "asian_handicap_away_odds",
             "asian_handicap_home_implied_probability",
             "asian_handicap_away_implied_probability",
             "asian_handicap_overround",
@@ -198,7 +206,11 @@ def _row(
             away_score,
             result,
             str(int(home_score) + int(away_score)),
+            "win",
+            "loss",
             "-0.25",
+            "1.900",
+            "2.000",
             "0.5200",
             "0.5000",
             "1.0200",

@@ -26,6 +26,11 @@ from icewine_prediction.baseline_feature_set_service import (
     BaselineFeatureSet,
     BaselineFeatureSetReport,
 )
+from icewine_prediction.baseline_asian_handicap_model_service import (
+    AsianHandicapModelEvaluation,
+    BaselineAsianHandicapModelReport,
+    CloseMarketAsianHandicapReference,
+)
 from icewine_prediction.baseline_match_winner_model_service import (
     BaselineMatchWinnerModelReport,
     CalibrationBucket,
@@ -136,6 +141,15 @@ def test_samples_group_exposes_baseline_match_winner_model_help():
 
     assert result.exit_code == 0
     assert "baseline-match-winner-model" in result.stdout
+
+
+def test_samples_group_exposes_baseline_asian_handicap_model_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-asian-handicap-model" in result.stdout
 
 
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
@@ -368,6 +382,45 @@ def test_samples_baseline_match_winner_model_command_writes_report(monkeypatch):
     assert captured["report_path"].endswith("docs\\团队协作\\match-winner.md")
     assert "baseline match winner model written" in result.stdout
     assert "team_form_only log-loss 1.0000" in result.stdout
+
+
+def test_samples_baseline_asian_handicap_model_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path):
+        captured["csv_path"] = str(csv_path)
+        return _baseline_asian_handicap_model_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_asian_handicap_model_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_asian_handicap_model_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-asian-handicap-model",
+            "--csv-path",
+            "local_data/training/features.csv",
+            "--report-path",
+            "docs/团队协作/asian-handicap.md",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\features.csv")
+    assert captured["report_path"].endswith("docs\\团队协作\\asian-handicap.md")
+    assert "baseline asian handicap model written" in result.stdout
+    assert "team_form_plus_all_markets log-loss 0.7000" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -797,6 +850,52 @@ def _baseline_match_winner_model_report() -> BaselineMatchWinnerModelReport:
                 log_loss=Decimal("1.0500"),
                 brier_score=Decimal("0.6100"),
                 predicted_result_counts={"home_win": 1, "away_win": 1},
+                calibration_bins=[
+                    CalibrationBucket(
+                        bucket="0.40-0.50",
+                        sample_count=2,
+                        average_confidence=Decimal("0.4500"),
+                        accuracy=Decimal("0.5000"),
+                    )
+                ],
+            )
+        },
+    )
+
+
+def _baseline_asian_handicap_model_report() -> BaselineAsianHandicapModelReport:
+    return BaselineAsianHandicapModelReport(
+        csv_path="local_data/training/features.csv",
+        row_count=10,
+        train_rows=8,
+        validation_rows=2,
+        skipped_rows=1,
+        close_market_reference=CloseMarketAsianHandicapReference(
+            evaluated_rows=2,
+            accuracy=Decimal("0.5000"),
+            log_loss=Decimal("0.7000"),
+            brier_score=Decimal("0.5000"),
+            predicted_side_counts={"home_cover": 1, "away_cover": 1},
+            calibration_bins=[
+                CalibrationBucket(
+                    bucket="0.40-0.50",
+                    sample_count=2,
+                    average_confidence=Decimal("0.4500"),
+                    accuracy=Decimal("0.5000"),
+                )
+            ],
+        ),
+        model_reports={
+            "team_form_plus_all_markets": AsianHandicapModelEvaluation(
+                name="team_form_plus_all_markets",
+                model_name="LogisticRegression",
+                feature_count=32,
+                train_rows=8,
+                validation_rows=2,
+                accuracy=Decimal("0.5000"),
+                log_loss=Decimal("0.7000"),
+                brier_score=Decimal("0.5000"),
+                predicted_side_counts={"home_cover": 1, "away_cover": 1},
                 calibration_bins=[
                     CalibrationBucket(
                         bucket="0.40-0.50",

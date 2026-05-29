@@ -416,6 +416,27 @@ Dynamic market model comparison v1 completed:
   - All dynamic core: accuracy `0.4938`, log loss `0.6993`, brier `0.5061`.
 - Initial read: dynamic core features are not yet a clear win. Asian handicap has only a tiny accuracy lift with no log-loss improvement; total goals gets worse. Next modeling step should probably compare a less linear model or more targeted movement features before integrating this into recommendation logic.
 
+HistGradientBoosting model comparison v1 completed:
+
+- Input: `local_data/training/baseline_dynamic_features_main_leagues_20260529.csv`.
+- Reports:
+  - `docs/团队协作/20260529-baseline-asian-handicap-hgb-comparison-v1.md`.
+  - `docs/团队协作/20260529-baseline-total-goals-hgb-comparison-v1.md`.
+- Code behavior:
+  - Static feature CSV still only runs the existing LogisticRegression variants.
+  - Dynamic feature CSV now also runs `HistGradientBoostingClassifier` variants for the same feature groups.
+- Asian handicap validation:
+  - Close-market reference: accuracy `0.5287`, log loss `0.6971`, brier `0.4978`.
+  - Best LogisticRegression accuracy: `0.5346` with dynamic core, log loss `0.6991`.
+  - Best HGB accuracy: `0.5487` on `hgb_team_form_plus_all_markets`, log loss `0.7781`, brier `0.5166`.
+  - HGB dynamic variants did not beat HGB static all-markets on accuracy.
+- Total goals validation:
+  - Close-market reference: accuracy `0.5174`, log loss `0.6927`, brier `0.4996`.
+  - Best LogisticRegression accuracy: `0.4994` on static all-markets, log loss `0.6991`.
+  - Best HGB accuracy: `0.5354` on `hgb_team_form_plus_all_markets`, log loss `0.7416`, brier `0.5399`.
+  - HGB dynamic variants improved over LogisticRegression but did not beat HGB static all-markets on accuracy.
+- Initial read: tree model learns useful direction signal, especially for total goals, but probabilities are poorly calibrated/too confident. Dynamic core features still are not clearly helpful. Next useful step is a probability calibration or edge-threshold backtest rather than adding this directly to recommendation logic.
+
 ## Useful Commands
 
 Run local odds audit:

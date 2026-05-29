@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, log_loss
@@ -75,11 +76,31 @@ def build_baseline_total_goals_model_report(csv_path: Path) -> BaselineTotalGoal
     validation_rows = [row for row in eligible_rows if row.get("split") == "validation"]
     if not train_rows or not validation_rows:
         raise ValueError("total goals model requires both train and validation rows")
+    has_dynamic_features = _has_dynamic_features(rows)
     model_feature_sets = _model_feature_sets(rows)
     model_reports = {
-        name: _fit_and_evaluate(name, features, train_rows, validation_rows)
+        name: _fit_and_evaluate(
+            name,
+            features,
+            train_rows,
+            validation_rows,
+            estimator_name="LogisticRegression",
+        )
         for name, features in model_feature_sets.items()
     }
+    if has_dynamic_features:
+        model_reports.update(
+            {
+                f"hgb_{name}": _fit_and_evaluate(
+                    f"hgb_{name}",
+                    features,
+                    train_rows,
+                    validation_rows,
+                    estimator_name="HistGradientBoostingClassifier",
+                )
+                for name, features in model_feature_sets.items()
+            }
+        )
     return BaselineTotalGoalsModelReport(
         csv_path=csv_path,
         row_count=len(rows),
@@ -107,6 +128,11 @@ def _model_feature_sets(rows: list[dict[str, str]]) -> dict[str, tuple[str, ...]
 
 def _has_features(available_features: set[str], required_features: tuple[str, ...]) -> bool:
     return all(feature in available_features for feature in required_features)
+
+
+def _has_dynamic_features(rows: list[dict[str, str]]) -> bool:
+    available_features = set(rows[0]) if rows else set()
+    return _has_features(available_features, TOTAL_GOALS_DYNAMIC_CORE_FEATURES)
 
 
 def format_baseline_total_goals_model_report(report: BaselineTotalGoalsModelReport) -> str:
@@ -179,25 +205,14 @@ def _fit_and_evaluate(
     features: tuple[str, ...],
     train_rows: list[dict[str, str]],
     validation_rows: list[dict[str, str]],
+    *,
+    estimator_name: str,
 ) -> TotalGoalsModelEvaluation:
     train_x = _matrix(train_rows, features)
     validation_x = _matrix(validation_rows, features)
     train_y = [_target_label(row) for row in train_rows]
     validation_y = [_target_label(row) for row in validation_rows]
-    model = Pipeline(
-        [
-            ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
-            (
-                "classifier",
-                LogisticRegression(
-                    class_weight="balanced",
-                    max_iter=1000,
-                    random_state=42,
-                ),
-            ),
-        ]
-    )
+    model = _model_pipeline(estimator_name)
     model.fit(train_x, train_y)
     predicted = list(model.predict(validation_x))
     probabilities = model.predict_proba(validation_x)
@@ -205,7 +220,7 @@ def _fit_and_evaluate(
     aligned_probabilities = _align_probabilities(probabilities, classes)
     return TotalGoalsModelEvaluation(
         name=name,
-        model_name="LogisticRegression",
+        model_name=estimator_name,
         feature_count=len(features),
         train_rows=len(train_rows),
         validation_rows=len(validation_rows),
@@ -215,6 +230,39 @@ def _fit_and_evaluate(
         predicted_side_counts=_count_labels(predicted),
         calibration_bins=_build_calibration_bins(validation_y, predicted, aligned_probabilities),
     )
+
+
+def _model_pipeline(estimator_name: str) -> Pipeline:
+    if estimator_name == "LogisticRegression":
+        return Pipeline(
+            [
+                ("imputer", SimpleImputer(strategy="median")),
+                ("scaler", StandardScaler()),
+                (
+                    "classifier",
+                    LogisticRegression(
+                        class_weight="balanced",
+                        max_iter=1000,
+                        random_state=42,
+                    ),
+                ),
+            ]
+        )
+    if estimator_name == "HistGradientBoostingClassifier":
+        return Pipeline(
+            [
+                ("imputer", SimpleImputer(strategy="median")),
+                (
+                    "classifier",
+                    HistGradientBoostingClassifier(
+                        l2_regularization=0.05,
+                        max_iter=100,
+                        random_state=42,
+                    ),
+                ),
+            ]
+        )
+    raise ValueError(f"unsupported estimator: {estimator_name}")
 
 
 def _evaluate_close_market_reference(

@@ -41,7 +41,15 @@ def test_build_baseline_asian_handicap_model_report_adds_dynamic_models_when_ava
         "team_form_plus_all_markets",
         "team_form_plus_all_markets_plus_asian_handicap_dynamic_core",
         "team_form_plus_all_markets_plus_all_dynamic_core",
+        "hgb_team_form_plus_match_winner_market",
+        "hgb_team_form_plus_all_markets",
+        "hgb_team_form_plus_all_markets_plus_asian_handicap_dynamic_core",
+        "hgb_team_form_plus_all_markets_plus_all_dynamic_core",
     }
+    assert (
+        report.model_reports["hgb_team_form_plus_all_markets"].model_name
+        == "HistGradientBoostingClassifier"
+    )
     assert (
         report.model_reports[
             "team_form_plus_all_markets_plus_asian_handicap_dynamic_core"
@@ -54,6 +62,14 @@ def test_build_baseline_asian_handicap_model_report_adds_dynamic_models_when_ava
         ].feature_count
         > report.model_reports[
             "team_form_plus_all_markets_plus_asian_handicap_dynamic_core"
+        ].feature_count
+    )
+    assert (
+        report.model_reports[
+            "hgb_team_form_plus_all_markets_plus_all_dynamic_core"
+        ].feature_count
+        == report.model_reports[
+            "team_form_plus_all_markets_plus_all_dynamic_core"
         ].feature_count
     )
 

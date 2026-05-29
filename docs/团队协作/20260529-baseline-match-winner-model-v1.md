@@ -22,6 +22,7 @@
 | --- | --- | ---: | ---: | ---: | ---: |
 | team_form_only | LogisticRegression | 20 | 0.3811 | 1.1378 | 0.6582 |
 | team_form_plus_market | LogisticRegression | 24 | 0.4579 | 1.3126 | 0.6275 |
+| team_form_plus_all_markets | LogisticRegression | 32 | 0.4466 | 1.3155 | 0.6285 |
 
 ## Predicted Result Distribution
 
@@ -48,6 +49,14 @@
 | home_win | 437 |
 | draw | 255 |
 | away_win | 376 |
+
+### team_form_plus_all_markets
+
+| Result | Count |
+| --- | ---: |
+| home_win | 421 |
+| draw | 248 |
+| away_win | 399 |
 
 ## Calibration Buckets
 
@@ -80,4 +89,15 @@
 | 0.60-0.70 | 97 | 0.6449 | 0.6907 |
 | 0.70-0.80 | 31 | 0.7312 | 0.7742 |
 | 0.80-0.90 | 2 | 0.8021 | 1.0000 |
+
+### team_form_plus_all_markets
+
+| Bucket | Samples | Avg confidence | Accuracy |
+| --- | ---: | ---: | ---: |
+| 0.30-0.40 | 316 | 0.3755 | 0.3513 |
+| 0.40-0.50 | 420 | 0.4405 | 0.3810 |
+| 0.50-0.60 | 198 | 0.5433 | 0.5707 |
+| 0.60-0.70 | 98 | 0.6435 | 0.6633 |
+| 0.70-0.80 | 31 | 0.7408 | 0.7419 |
+| 0.80-0.90 | 5 | 0.8045 | 1.0000 |
 

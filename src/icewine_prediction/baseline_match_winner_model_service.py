@@ -52,9 +52,20 @@ MARKET_FEATURES = (
     "match_winner_away_implied_probability",
     "match_winner_overround",
 )
+ALL_MARKET_FEATURES = MARKET_FEATURES + (
+    "asian_handicap_close_line",
+    "asian_handicap_home_implied_probability",
+    "asian_handicap_away_implied_probability",
+    "asian_handicap_overround",
+    "total_goals_close_line",
+    "total_goals_over_implied_probability",
+    "total_goals_under_implied_probability",
+    "total_goals_overround",
+)
 MODEL_FEATURE_SETS = {
     "team_form_only": TEAM_FORM_FEATURES,
     "team_form_plus_market": TEAM_FORM_FEATURES + MARKET_FEATURES,
+    "team_form_plus_all_markets": TEAM_FORM_FEATURES + ALL_MARKET_FEATURES,
 }
 
 

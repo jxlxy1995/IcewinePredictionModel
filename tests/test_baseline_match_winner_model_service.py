@@ -25,7 +25,15 @@ def test_build_baseline_match_winner_model_report_trains_two_logistic_models(tmp
     assert report.close_market_reference.calibration_bins[0].bucket == "0.30-0.40"
     assert report.close_market_reference.calibration_bins[0].sample_count == 1
     assert report.close_market_reference.calibration_bins[0].accuracy == 1
-    assert set(report.model_reports) == {"team_form_only", "team_form_plus_market"}
+    assert set(report.model_reports) == {
+        "team_form_only",
+        "team_form_plus_market",
+        "team_form_plus_all_markets",
+    }
+    assert (
+        report.model_reports["team_form_plus_all_markets"].feature_count
+        > report.model_reports["team_form_plus_market"].feature_count
+    )
     for model_report in report.model_reports.values():
         assert model_report.model_name == "LogisticRegression"
         assert model_report.feature_count > 0
@@ -49,6 +57,7 @@ def test_format_baseline_match_winner_model_report_includes_metrics(tmp_path):
     assert "LogisticRegression" in text
     assert "team_form_only" in text
     assert "team_form_plus_market" in text
+    assert "team_form_plus_all_markets" in text
     assert "close_market_match_winner" in text
     assert "| close_market_match_winner | 3 | 1.0000 |" in text
     assert "### close_market_match_winner" in text
@@ -92,6 +101,14 @@ def _feature_csv() -> str:
                 "match_winner_draw_implied_probability",
                 "match_winner_away_implied_probability",
                 "match_winner_overround",
+                "asian_handicap_close_line",
+                "asian_handicap_home_implied_probability",
+                "asian_handicap_away_implied_probability",
+                "asian_handicap_overround",
+                "total_goals_close_line",
+                "total_goals_over_implied_probability",
+                "total_goals_under_implied_probability",
+                "total_goals_overround",
             ]
         )
     ]
@@ -139,6 +156,14 @@ def _feature_csv() -> str:
                     draw_prob,
                     away_prob,
                     "1.0400",
+                    "-0.25",
+                    "0.5200",
+                    "0.5000",
+                    "1.0200",
+                    "2.50",
+                    "0.5100",
+                    "0.5100",
+                    "1.0200",
                 ]
             )
         )

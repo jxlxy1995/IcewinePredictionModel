@@ -786,6 +786,25 @@ def _baseline_match_winner_model_report() -> BaselineMatchWinnerModelReport:
                         accuracy=Decimal("0.5000"),
                     )
                 ],
+            ),
+            "team_form_plus_all_markets": MatchWinnerModelEvaluation(
+                name="team_form_plus_all_markets",
+                model_name="LogisticRegression",
+                feature_count=32,
+                train_rows=8,
+                validation_rows=2,
+                accuracy=Decimal("0.5000"),
+                log_loss=Decimal("1.0500"),
+                brier_score=Decimal("0.6100"),
+                predicted_result_counts={"home_win": 1, "away_win": 1},
+                calibration_bins=[
+                    CalibrationBucket(
+                        bucket="0.40-0.50",
+                        sample_count=2,
+                        average_confidence=Decimal("0.4500"),
+                        accuracy=Decimal("0.5000"),
+                    )
+                ],
             )
         },
     )

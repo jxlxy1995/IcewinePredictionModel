@@ -53,6 +53,11 @@ from icewine_prediction.baseline_walk_forward_sandbox_service import (
     WalkForwardSandboxFoldReport,
     WalkForwardSandboxSideSummary,
 )
+from icewine_prediction.baseline_away_cover_stability_service import (
+    AwayCoverStabilitySummary,
+    AwayCoverThresholdSummary,
+    BaselineAwayCoverStabilityReport,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     AsianHandicapModelEvaluation,
     BaselineAsianHandicapModelReport,
@@ -264,6 +269,15 @@ def test_samples_group_exposes_baseline_walk_forward_sandbox_help():
 
     assert result.exit_code == 0
     assert "baseline-walk-forward-sandbox" in result.stdout
+
+
+def test_samples_group_exposes_baseline_away_cover_stability_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-away-cover-stability" in result.stdout
 
 
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
@@ -923,6 +937,61 @@ def test_samples_baseline_walk_forward_sandbox_command_writes_report(monkeypatch
     assert captured["top_n_per_fold"] == 5
     assert "baseline walk-forward recommendation sandbox written" in result.stdout
     assert "asian_handicap raw_hgb_team_form_plus_all_markets folds 2 candidates 4 positive 1/2" in result.stdout
+
+
+def test_samples_baseline_away_cover_stability_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path, *, thresholds, train_ratio, validation_ratio, fold_count):
+        captured["csv_path"] = str(csv_path)
+        captured["thresholds"] = thresholds
+        captured["train_ratio"] = train_ratio
+        captured["validation_ratio"] = validation_ratio
+        captured["fold_count"] = fold_count
+        return _baseline_away_cover_stability_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_away_cover_stability_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_away_cover_stability_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-away-cover-stability",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/妯″瀷瀹為獙/away-cover-stability.md",
+            "--thresholds",
+            "0.08,0.10",
+            "--train-ratio",
+            "0.50",
+            "--validation-ratio",
+            "0.20",
+            "--fold-count",
+            "3",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\妯″瀷瀹為獙\\away-cover-stability.md")
+    assert captured["thresholds"] == ("0.08", "0.10")
+    assert captured["train_ratio"] == "0.50"
+    assert captured["validation_ratio"] == "0.20"
+    assert captured["fold_count"] == 3
+    assert "baseline away-cover stability written" in result.stdout
+    assert "asian_handicap raw_hgb_team_form_plus_all_markets away_cover thresholds 2" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -1750,6 +1819,58 @@ def _baseline_walk_forward_sandbox_report() -> BaselineWalkForwardSandboxReport:
                 positive_roi_folds=1,
                 profit=Decimal("0.2000"),
                 roi=Decimal("0.0500"),
+            )
+        ],
+    )
+
+
+def _baseline_away_cover_stability_report() -> BaselineAwayCoverStabilityReport:
+    return BaselineAwayCoverStabilityReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=10,
+        fold_count=2,
+        train_ratio=Decimal("0.5000"),
+        validation_ratio=Decimal("0.2000"),
+        thresholds=(Decimal("0.0800"), Decimal("0.1000")),
+        market_type="asian_handicap",
+        model_name="raw_hgb_team_form_plus_all_markets",
+        side="away_cover",
+        threshold_summaries=[
+            AwayCoverThresholdSummary(
+                threshold=Decimal("0.0800"),
+                candidate_count=5,
+                positive_roi_folds=2,
+                profit=Decimal("0.5000"),
+                roi=Decimal("0.1000"),
+                worst_fold_roi=Decimal("0.0500"),
+            ),
+            AwayCoverThresholdSummary(
+                threshold=Decimal("0.1000"),
+                candidate_count=4,
+                positive_roi_folds=2,
+                profit=Decimal("0.4000"),
+                roi=Decimal("0.1000"),
+                worst_fold_roi=Decimal("0.0500"),
+            )
+        ],
+        league_summaries=[
+            AwayCoverStabilitySummary(
+                name="Premier League",
+                candidate_count=4,
+                positive_roi_folds=2,
+                profit=Decimal("0.4000"),
+                roi=Decimal("0.1000"),
+                worst_fold_roi=Decimal("0.0500"),
+            )
+        ],
+        line_bucket_summaries=[
+            AwayCoverStabilitySummary(
+                name="away_underdog",
+                candidate_count=4,
+                positive_roi_folds=2,
+                profit=Decimal("0.4000"),
+                roi=Decimal("0.1000"),
+                worst_fold_roi=Decimal("0.0500"),
             )
         ],
     )

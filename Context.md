@@ -530,6 +530,31 @@ Baseline walk-forward recommendation sandbox v1 completed:
     - `home_cover`: `656` bets, positive ROI in `2/5` folds, profit `25.0800`, ROI `0.0382`.
 - Initial read: this is the strongest evidence so far that the current Asian handicap signal is concentrated on the model-favored `away_cover` side. It is still not production-ready because probabilities remain poorly calibrated and league effects are uneven, but next work should prioritize an `away_cover`-focused threshold/league stability report before building any automated recommendation action.
 
+Baseline away-cover stability v1 completed:
+
+- CLI command: `icewine samples baseline-away-cover-stability`.
+- Service: `src/icewine_prediction/baseline_away_cover_stability_service.py`.
+- Input: `local_data/training/baseline_dynamic_features_main_leagues_20260529.csv`.
+- Report: `docs/模型实验/20260529-baseline-away-cover-stability-v1.md`.
+- Scope:
+  - Asian handicap only.
+  - Uses raw HGB `team_form_plus_all_markets`.
+  - Only model-selected `away_cover` candidates are evaluated.
+  - Rolling chronological folds with train ratio `0.60`, validation ratio `0.10`, `5` folds.
+  - Thresholds: `0.08`, `0.10`, `0.12`, `0.15`, `0.20`.
+- Threshold result:
+  - `0.08`: `689` bets, positive ROI `4/5` folds, ROI `0.0606`, worst fold ROI `-0.0322`.
+  - `0.10`: `610` bets, positive ROI `5/5` folds, ROI `0.0857`, worst fold ROI `0.0061`.
+  - `0.12`: `535` bets, positive ROI `4/5` folds, ROI `0.0970`, worst fold ROI `-0.0143`.
+  - `0.15`: `436` bets, positive ROI `3/5` folds, ROI `0.0820`, worst fold ROI `-0.1167`.
+  - `0.20`: `293` bets, positive ROI `2/5` folds, ROI `0.0664`, worst fold ROI `-0.1051`.
+- Line bucket result at primary threshold `0.10`:
+  - `away_favorite`: `346` bets, ROI `0.0503`, positive ROI `2/5` folds.
+  - `away_underdog`: `181` bets, ROI `0.1143`, positive ROI `4/5` folds.
+  - `pickem`: `83` bets, ROI `0.1711`, positive ROI `3/5` folds.
+- League result at threshold `0.10` is still noisy. Some leagues look strong, but many have low sample counts or a worst fold ROI of `-1.0000`, so do not hard whitelist/blacklist leagues yet.
+- Initial read: `edge >= 0.10` is the best current away-cover threshold because it is the only tested threshold with positive ROI in all `5/5` folds and a positive worst fold. The more practical signal appears stronger in `away_underdog` and `pickem` than in `away_favorite`, but sample/fold stability is not yet enough for automation. Next useful step is a paper recommendation queue for future/upcoming matches using `away_cover`, `edge >= 0.10`, and a conservative tag that highlights line bucket and league risk.
+
 ## Useful Commands
 
 Run local odds audit:

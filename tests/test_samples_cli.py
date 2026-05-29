@@ -22,6 +22,10 @@ from icewine_prediction.baseline_training_dataset_market_baseline_service import
     BaselineTrainingDatasetMarketBaselineReport,
     MarketBaselineReport,
 )
+from icewine_prediction.baseline_feature_set_service import (
+    BaselineFeatureSet,
+    BaselineFeatureSetReport,
+)
 from icewine_prediction.close_market_baseline_service import (
     CloseMarketBaselineMarketReport,
     CloseMarketBaselineReport,
@@ -108,6 +112,15 @@ def test_samples_group_exposes_baseline_market_baseline_help():
 
     assert result.exit_code == 0
     assert "baseline-market-baseline" in result.stdout
+
+
+def test_samples_group_exposes_baseline_feature_set_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-feature-set" in result.stdout
 
 
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
@@ -257,6 +270,50 @@ def test_samples_baseline_market_baseline_command_writes_report(monkeypatch):
     assert captured["output_path"].endswith("docs\\团队协作\\market-baseline.md")
     assert "close-market baseline written" in result.stdout
     assert "evaluated 3/3" in result.stdout
+
+
+def test_samples_baseline_feature_set_command_writes_csv_and_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path, *, validation_ratio):
+        captured["csv_path"] = str(csv_path)
+        captured["validation_ratio"] = validation_ratio
+        return _baseline_feature_set()
+
+    def fake_write_csv(feature_set, output_path):
+        captured["output_path"] = str(output_path)
+
+    def fake_write_report(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr("icewine_prediction.cli.build_baseline_feature_set", fake_build)
+    monkeypatch.setattr("icewine_prediction.cli.write_baseline_feature_set_csv", fake_write_csv)
+    monkeypatch.setattr("icewine_prediction.cli.write_baseline_feature_set_report", fake_write_report)
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-feature-set",
+            "--csv-path",
+            "local_data/training/baseline.csv",
+            "--output-path",
+            "local_data/training/features.csv",
+            "--report-path",
+            "docs/团队协作/features.md",
+            "--validation-ratio",
+            "0.25",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\baseline.csv")
+    assert captured["output_path"].endswith("local_data\\training\\features.csv")
+    assert captured["report_path"].endswith("docs\\团队协作\\features.md")
+    assert captured["validation_ratio"] == "0.25"
+    assert "baseline feature set written" in result.stdout
+    assert "rows 4 train 3 validation 1" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -608,6 +665,30 @@ def _baseline_market_report() -> BaselineTrainingDatasetMarketBaselineReport:
                 predicted_side_counts={"home": 1},
             )
         },
+    )
+
+
+def _baseline_feature_set() -> BaselineFeatureSet:
+    return BaselineFeatureSet(
+        rows=[
+            {"match_id": "1", "split": "train"},
+            {"match_id": "2", "split": "train"},
+            {"match_id": "3", "split": "train"},
+            {"match_id": "4", "split": "validation"},
+        ],
+        report=BaselineFeatureSetReport(
+            csv_path="local_data/training/baseline.csv",
+            row_count=4,
+            train_rows=3,
+            validation_rows=1,
+            validation_ratio=Decimal("0.2500"),
+            train_start="2026-01-20T20:00:00",
+            train_end="2026-02-03T20:00:00",
+            validation_start="2026-02-10T20:00:00",
+            validation_end="2026-02-10T20:00:00",
+            by_league={"Premier League": {"rows": 4, "train": 3, "validation": 1}},
+            zero_history_rows=2,
+        ),
     )
 
 

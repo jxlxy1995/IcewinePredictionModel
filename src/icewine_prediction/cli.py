@@ -23,6 +23,12 @@ from icewine_prediction.baseline_training_dataset_market_baseline_service import
     build_baseline_training_dataset_market_baseline_report,
     write_baseline_training_dataset_market_baseline_report,
 )
+from icewine_prediction.baseline_feature_set_service import (
+    BaselineFeatureSet,
+    build_baseline_feature_set,
+    write_baseline_feature_set_csv,
+    write_baseline_feature_set_report,
+)
 from icewine_prediction.close_market_baseline_service import (
     build_close_market_baseline_report_from_session,
     format_close_market_baseline_report,
@@ -625,6 +631,26 @@ def format_baseline_market_baseline_command_result(
             (
                 f"evaluated {report.total_evaluated_market_samples}/"
                 f"{report.total_market_samples}"
+            ),
+        ]
+    )
+
+
+def format_baseline_feature_set_command_result(
+    *,
+    output_path: str,
+    report_path: str,
+    feature_set: BaselineFeatureSet,
+) -> str:
+    return "\n".join(
+        [
+            "baseline feature set written",
+            f"features: {output_path}",
+            f"report: {report_path}",
+            (
+                f"rows {feature_set.report.row_count}"
+                f" train {feature_set.report.train_rows}"
+                f" validation {feature_set.report.validation_rows}"
             ),
         ]
     )
@@ -1485,6 +1511,37 @@ def samples_baseline_market_baseline(
         format_baseline_market_baseline_command_result(
             report_path=report_path,
             report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-feature-set")
+def samples_baseline_feature_set(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    output_path: str = typer.Option(
+        "local_data/training/baseline_features_main_leagues_20260529.csv",
+        "--output-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/团队协作/20260529-baseline-feature-set-v1.md",
+        "--report-path",
+    ),
+    validation_ratio: str = typer.Option("0.20", "--validation-ratio"),
+):
+    feature_set = build_baseline_feature_set(
+        Path(csv_path),
+        validation_ratio=validation_ratio,
+    )
+    write_baseline_feature_set_csv(feature_set, Path(output_path))
+    write_baseline_feature_set_report(feature_set.report, Path(report_path))
+    typer.echo(
+        format_baseline_feature_set_command_result(
+            output_path=output_path,
+            report_path=report_path,
+            feature_set=feature_set,
         )
     )
 

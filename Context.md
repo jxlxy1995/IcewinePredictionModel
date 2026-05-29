@@ -249,6 +249,23 @@ Web training workspace v1 completed:
   - `npm run build` from `web` -> passed
 - `npm install` was run in `web` to restore local frontend dev dependencies; npm reported 5 moderate vulnerabilities, but no package manifest/lockfile diff was produced.
 
+Baseline feature set v1 completed:
+
+- CLI command: `icewine samples baseline-feature-set`.
+- Service: `src/icewine_prediction/baseline_feature_set_service.py`.
+- Local feature CSV output: `local_data/training/baseline_features_main_leagues_20260529.csv` (local data, not committed).
+- Report: `docs/团队协作/20260529-baseline-feature-set-v1.md`.
+- Input: `local_data/training/baseline_main_leagues_20260529.csv`.
+- Rows: `5330`; train rows `4262`; validation rows `1068`.
+- Split: time-ordered, validation ratio target `0.2000`, with identical kickoff times kept in the same split.
+- Train window: `2026-01-17T14:00:00` to `2026-05-03T07:15:00`.
+- Validation window: `2026-05-03T07:30:00` to `2026-05-28T00:00:00`.
+- Zero-history rows: `421`.
+- Feature rows use only prior same-league team history before each kickoff: rolling matches, points/match, W/D/L rates, goals for/against, venue-specific prior points, rest days, close lines, and close implied probabilities/overrounds.
+- Focused verification:
+  - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_baseline_feature_set_service.py -q` -> `4 passed`
+  - `C:\ProgramData\anaconda3\python.exe -m pytest tests/test_samples_cli.py -q` -> `21 passed`
+
 ## Useful Commands
 
 Run local odds audit:

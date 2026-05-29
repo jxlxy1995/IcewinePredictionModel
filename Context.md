@@ -482,6 +482,28 @@ Baseline walk-forward edge backtest v1 completed:
   - Calibrated HGB threshold `0.00`: positive ROI in `0/5` folds, average ROI `-0.0607`.
 - Initial read: this supports the concern that the single validation split was optimistic. Asian handicap raw HGB still has a possible signal, especially at stronger edge thresholds, but it is not stable enough for recommendation automation. Total goals has no clear edge yet. Next useful step is to build a recommendation sandbox/report that logs candidate picks without acting on them, or to improve probability calibration before any production recommendation threshold.
 
+Baseline recommendation sandbox v1 completed:
+
+- CLI command: `icewine samples baseline-recommendation-sandbox`.
+- Service: `src/icewine_prediction/baseline_recommendation_sandbox_service.py`.
+- Input: `local_data/training/baseline_dynamic_features_main_leagues_20260529.csv`.
+- Report: `docs/模型实验/20260529-baseline-recommendation-sandbox-v1.md`.
+- Scope:
+  - Asian handicap only.
+  - Uses raw HGB `team_form_plus_all_markets` on the existing train/validation split.
+  - Filters candidate picks by `edge >= 0.10`.
+  - This is an observation sandbox only. It writes a markdown report and does not create recommendation records or change source samples.
+- Result:
+  - Validation rows: `853`; candidates: `456`; displayed detail rows: `80`.
+  - Total profit: `19.8310`; ROI `0.0435`.
+  - Side split:
+    - `away_cover`: `245` bets, `136` wins, profit `17.8500`, ROI `0.0729`.
+    - `home_cover`: `211` bets, `110` wins, profit `1.9810`, ROI `0.0094`.
+  - League distribution is broad, but league ROI is highly uneven. Examples:
+    - Positive: Norway 1. Division `16` bets ROI `0.4133`; La Liga `16` bets ROI `0.3649`; Sweden Superettan `17` bets ROI `0.2552`; MLS `28` bets ROI `0.1186`.
+    - Negative: Serie A `16` bets ROI `-0.4973`; J1 League `18` bets ROI `-0.3497`; Belgian Jupiler Pro League `12` bets ROI `-0.3582`.
+- Initial read: the sandbox keeps the Asian handicap signal alive, especially on `away_cover`, but also shows clear direction and league sensitivity. Do not automate recommendations yet. Next useful step is to add walk-forward sandbox output or threshold comparison for candidate details, so we can see whether the `away_cover` bias and league effects persist across time folds.
+
 ## Useful Commands
 
 Run local odds audit:

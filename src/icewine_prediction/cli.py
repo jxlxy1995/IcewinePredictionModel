@@ -45,6 +45,11 @@ from icewine_prediction.baseline_walk_forward_edge_service import (
     build_baseline_walk_forward_edge_report,
     write_baseline_walk_forward_edge_report,
 )
+from icewine_prediction.baseline_recommendation_sandbox_service import (
+    BaselineRecommendationSandboxReport,
+    build_baseline_recommendation_sandbox_report,
+    write_baseline_recommendation_sandbox_report,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     BaselineAsianHandicapModelReport,
     build_baseline_asian_handicap_model_report,
@@ -813,6 +818,28 @@ def format_baseline_walk_forward_edge_command_result(
                 f"positive {first_summary.positive_roi_folds}/{first_summary.fold_count} "
                 f"avg-roi {first_summary.average_roi if first_summary.average_roi is not None else '-'}"
             )
+    return "\n".join(lines)
+
+
+def format_baseline_recommendation_sandbox_command_result(
+    *,
+    report_path: str,
+    report: BaselineRecommendationSandboxReport,
+) -> str:
+    lines = [
+        "baseline recommendation sandbox written",
+        f"report: {report_path}",
+        (
+            f"{report.market_type} {report.model_name} "
+            f"candidates {report.total_candidates} "
+            f"displayed {len(report.displayed_candidates)}"
+        ),
+    ]
+    for summary in report.side_summaries:
+        lines.append(
+            f"side {summary.name} bets {summary.candidate_count} "
+            f"roi {summary.roi}"
+        )
     return "\n".join(lines)
 
 
@@ -1926,6 +1953,33 @@ def samples_baseline_walk_forward_edge(
     write_baseline_walk_forward_edge_report(report, Path(report_path))
     typer.echo(
         format_baseline_walk_forward_edge_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-recommendation-sandbox")
+def samples_baseline_recommendation_sandbox(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/模型实验/20260529-baseline-recommendation-sandbox-v1.md",
+        "--report-path",
+    ),
+    edge_threshold: str = typer.Option("0.10", "--edge-threshold"),
+    top_n: int = typer.Option(80, "--top-n"),
+):
+    report = build_baseline_recommendation_sandbox_report(
+        Path(csv_path),
+        edge_threshold=edge_threshold,
+        top_n=top_n,
+    )
+    write_baseline_recommendation_sandbox_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_recommendation_sandbox_command_result(
             report_path=report_path,
             report=report,
         )

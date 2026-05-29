@@ -66,6 +66,22 @@ Leagues still completely unrunned or intentionally pending:
    - 丹麦甲 `120`, season `2025`: `created=192`
    - 印尼超 `274`, season `2025`: `created=306`
 9. After syncing, these five candidate leagues were set to `is_enabled=0` in the local DB so they remain candidates and do not affect enabled-league coverage until deliberately promoted.
+10. Added OddsPapi tournament mappings for candidate leagues in `9f51cd0`:
+   - `357 -> 192` 爱超
+   - `1087 -> 55` 芬甲/Ykkösliiga
+   - `104 -> 22` 挪甲
+   - `120 -> 47` 丹麦甲
+   - `274 -> 1015` 印尼超
+11. Ran a small OddsPapi historical-odds sample backfill, 3 matches per candidate league. Final result after alias retry:
+   - 挪甲: `3/3` success
+   - 芬甲: `2/3` success, `1` unavailable 404 (`17572` SJK Akatemia vs Haka)
+   - 丹麦甲: `1/3` success, `1` unavailable 404 (`18040` Kolding IF vs B 93), `1` unmatched (`18041` Hillerød vs Aarhus Fremad)
+   - 印尼超: `3/3` success
+   - 爱超: `2/3` success, `1` unavailable 404 (`17471` Bohemians vs Shamrock Rovers)
+12. Added candidate alias fixes that turned 3 unmatched samples into successful backfills:
+   - `hodd -> Hoedd IL`
+   - `Strommen -> Stroemmen IF`
+   - `EIF -> Ekenas Idrottsforening`
 
 ## Likely Next Work
 
@@ -123,8 +139,8 @@ Observed alias needs before any real backfill:
 
 - 印尼超: `Pusamania Borneo -> Borneo Samarinda`, `Persepam Madura Utd -> Madura United`, `PSBS Biak Numfor -> PSBS Biak`.
 - 丹麦甲: `HB Koge -> HB Koege`, `B 93` may need manual alias/normalization check.
-- 挪甲: `Stromsgodset`, `ODD Ballklubb`, `hodd`, `Strommen`, and possibly `Sogndal`/`Sandnes ULF` need alias review.
-- 芬甲二级: `PK-35`, `EIF`, `SJK Akatemia`, `MP` need alias review.
+- 挪甲: `hodd` and `Strommen` are now fixed in config. `Stromsgodset`, `ODD Ballklubb`, and possibly `Sogndal`/`Sandnes ULF` still need alias review before large backfill.
+- 芬甲: `EIF` is now fixed in config. `SJK Akatemia`, `MP`, and possible future `KäPa` variants still need alias review before large backfill.
 
 Recommended approach:
 

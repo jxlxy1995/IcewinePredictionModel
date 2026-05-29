@@ -41,6 +41,14 @@ aliases:
     alias_name: Vaalerenga IF
   - entity_type: team
     source_name: oddspapi
+    canonical_name: hodd
+    alias_name: Hoedd IL
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Strommen
+    alias_name: Stroemmen IF
+  - entity_type: team
+    source_name: oddspapi
     canonical_name: Ham-Kam
     alias_name: HamKam
   - entity_type: team
@@ -115,6 +123,10 @@ aliases:
     source_name: oddspapi
     canonical_name: Gnistan
     alias_name: IF Gnistan
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: EIF
+    alias_name: Ekenas Idrottsforening
   - entity_type: team
     source_name: oddspapi
     canonical_name: Gençlerbirliği S.K.

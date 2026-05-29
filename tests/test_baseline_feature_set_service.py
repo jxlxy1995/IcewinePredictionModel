@@ -57,6 +57,10 @@ def test_build_baseline_feature_set_uses_only_prior_team_history(tmp_path):
     assert rows[0]["target_asian_handicap_away_result"] == "loss"
     assert rows[0]["asian_handicap_home_odds"] == "1.900"
     assert rows[0]["asian_handicap_away_odds"] == "2.000"
+    assert rows[0]["target_total_goals_over_result"] == "win"
+    assert rows[0]["target_total_goals_under_result"] == "loss"
+    assert rows[0]["total_goals_over_odds"] == "1.850"
+    assert rows[0]["total_goals_under_odds"] == "2.050"
     assert rows[1]["home_prior_matches"] == "1"
     assert rows[1]["home_prior_points_per_match"] == "0.0000"
     assert rows[1]["away_prior_points_per_match"] == "3.0000"
@@ -170,9 +174,13 @@ def _header() -> str:
             "asian_handicap_away_implied_probability",
             "asian_handicap_overround",
             "total_goals_close_line",
+            "total_goals_over_odds",
+            "total_goals_under_odds",
             "total_goals_over_implied_probability",
             "total_goals_under_implied_probability",
             "total_goals_overround",
+            "total_goals_over_result",
+            "total_goals_under_result",
             "match_winner_home_implied_probability",
             "match_winner_draw_implied_probability",
             "match_winner_away_implied_probability",
@@ -215,9 +223,13 @@ def _row(
             "0.5000",
             "1.0200",
             "2.50",
+            "1.850",
+            "2.050",
             "0.5100",
             "0.5100",
             "1.0200",
+            "win",
+            "loss",
             "0.4600",
             "0.2800",
             "0.3000",

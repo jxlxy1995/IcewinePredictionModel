@@ -314,6 +314,25 @@ Baseline Asian handicap model v1 completed:
   - `team_form_plus_all_markets`: accuracy `0.5334`, log loss `0.6993`, brier `0.4990`.
 - Initial read: full-market features improve directional accuracy versus close market, but log loss/Brier do not clearly beat market. All confidence is concentrated around 0.50-0.60, which confirms Asian handicap v1 is a thin-edge, near-coinflip task.
 
+Baseline total-goals model v1 completed:
+
+- Feature set v1 now also carries total-goals target/result and odds fields:
+  - `target_total_goals_over_result`
+  - `target_total_goals_under_result`
+  - `total_goals_over_odds`
+  - `total_goals_under_odds`
+- CLI command: `icewine samples baseline-total-goals-model`.
+- Service: `src/icewine_prediction/baseline_total_goals_model_service.py`.
+- Report: `docs/团队协作/20260529-baseline-total-goals-model-v1.md`.
+- Input: `local_data/training/baseline_features_main_leagues_20260529.csv`.
+- Scope: binary total-goals direction only; rows with push/half-win/half-loss or non-clear settlement are skipped for v1.
+- Rows: `5330`; train rows `3476`; validation rows `891`; skipped rows `963`.
+- Same-split close-market reference: evaluated `891`, accuracy `0.5174`, log loss `0.6927`, brier `0.4996`.
+- Results:
+  - `team_form_plus_match_winner_market`: accuracy `0.4871`, log loss `0.6970`, brier `0.5039`.
+  - `team_form_plus_all_markets`: accuracy `0.4994`, log loss `0.6991`, brier `0.5059`.
+- Initial read: total-goals v1 does not beat the same-split close market on accuracy, log loss, or Brier. The model leans under-heavy and confidence remains mostly 0.50-0.60, so the current feature set is not recommendation-ready for totals.
+
 ## Useful Commands
 
 Run local odds audit:

@@ -37,6 +37,11 @@ from icewine_prediction.baseline_match_winner_model_service import (
     CloseMarketMatchWinnerReference,
     MatchWinnerModelEvaluation,
 )
+from icewine_prediction.baseline_total_goals_model_service import (
+    BaselineTotalGoalsModelReport,
+    CloseMarketTotalGoalsReference,
+    TotalGoalsModelEvaluation,
+)
 from icewine_prediction.close_market_baseline_service import (
     CloseMarketBaselineMarketReport,
     CloseMarketBaselineReport,
@@ -150,6 +155,15 @@ def test_samples_group_exposes_baseline_asian_handicap_model_help():
 
     assert result.exit_code == 0
     assert "baseline-asian-handicap-model" in result.stdout
+
+
+def test_samples_group_exposes_baseline_total_goals_model_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-total-goals-model" in result.stdout
 
 
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
@@ -420,6 +434,45 @@ def test_samples_baseline_asian_handicap_model_command_writes_report(monkeypatch
     assert captured["csv_path"].endswith("local_data\\training\\features.csv")
     assert captured["report_path"].endswith("docs\\团队协作\\asian-handicap.md")
     assert "baseline asian handicap model written" in result.stdout
+    assert "team_form_plus_all_markets log-loss 0.7000" in result.stdout
+
+
+def test_samples_baseline_total_goals_model_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path):
+        captured["csv_path"] = str(csv_path)
+        return _baseline_total_goals_model_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_total_goals_model_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_total_goals_model_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-total-goals-model",
+            "--csv-path",
+            "local_data/training/features.csv",
+            "--report-path",
+            "docs/鍥㈤槦鍗忎綔/total-goals.md",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\features.csv")
+    assert captured["report_path"].endswith("docs\\鍥㈤槦鍗忎綔\\total-goals.md")
+    assert "baseline total goals model written" in result.stdout
     assert "team_form_plus_all_markets log-loss 0.7000" in result.stdout
 
 
@@ -896,6 +949,52 @@ def _baseline_asian_handicap_model_report() -> BaselineAsianHandicapModelReport:
                 log_loss=Decimal("0.7000"),
                 brier_score=Decimal("0.5000"),
                 predicted_side_counts={"home_cover": 1, "away_cover": 1},
+                calibration_bins=[
+                    CalibrationBucket(
+                        bucket="0.40-0.50",
+                        sample_count=2,
+                        average_confidence=Decimal("0.4500"),
+                        accuracy=Decimal("0.5000"),
+                    )
+                ],
+            )
+        },
+    )
+
+
+def _baseline_total_goals_model_report() -> BaselineTotalGoalsModelReport:
+    return BaselineTotalGoalsModelReport(
+        csv_path="local_data/training/features.csv",
+        row_count=10,
+        train_rows=8,
+        validation_rows=2,
+        skipped_rows=1,
+        close_market_reference=CloseMarketTotalGoalsReference(
+            evaluated_rows=2,
+            accuracy=Decimal("0.5000"),
+            log_loss=Decimal("0.7000"),
+            brier_score=Decimal("0.5000"),
+            predicted_side_counts={"over": 1, "under": 1},
+            calibration_bins=[
+                CalibrationBucket(
+                    bucket="0.40-0.50",
+                    sample_count=2,
+                    average_confidence=Decimal("0.4500"),
+                    accuracy=Decimal("0.5000"),
+                )
+            ],
+        ),
+        model_reports={
+            "team_form_plus_all_markets": TotalGoalsModelEvaluation(
+                name="team_form_plus_all_markets",
+                model_name="LogisticRegression",
+                feature_count=32,
+                train_rows=8,
+                validation_rows=2,
+                accuracy=Decimal("0.5000"),
+                log_loss=Decimal("0.7000"),
+                brier_score=Decimal("0.5000"),
+                predicted_side_counts={"over": 1, "under": 1},
                 calibration_bins=[
                     CalibrationBucket(
                         bucket="0.40-0.50",

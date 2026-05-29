@@ -39,6 +39,11 @@ from icewine_prediction.baseline_match_winner_model_service import (
     build_baseline_match_winner_model_report,
     write_baseline_match_winner_model_report,
 )
+from icewine_prediction.baseline_total_goals_model_service import (
+    BaselineTotalGoalsModelReport,
+    build_baseline_total_goals_model_report,
+    write_baseline_total_goals_model_report,
+)
 from icewine_prediction.close_market_baseline_service import (
     build_close_market_baseline_report_from_session,
     format_close_market_baseline_report,
@@ -690,6 +695,26 @@ def format_baseline_asian_handicap_model_command_result(
 ) -> str:
     lines = [
         "baseline asian handicap model written",
+        f"report: {report_path}",
+        (
+            f"rows {report.row_count} train {report.train_rows} "
+            f"validation {report.validation_rows} skipped {report.skipped_rows}"
+        ),
+    ]
+    lines.extend(
+        f"{name} log-loss {model_report.log_loss} accuracy {model_report.accuracy}"
+        for name, model_report in report.model_reports.items()
+    )
+    return "\n".join(lines)
+
+
+def format_baseline_total_goals_model_command_result(
+    *,
+    report_path: str,
+    report: BaselineTotalGoalsModelReport,
+) -> str:
+    lines = [
+        "baseline total goals model written",
         f"report: {report_path}",
         (
             f"rows {report.row_count} train {report.train_rows} "
@@ -1629,6 +1654,27 @@ def samples_baseline_asian_handicap_model(
     write_baseline_asian_handicap_model_report(report, Path(report_path))
     typer.echo(
         format_baseline_asian_handicap_model_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-total-goals-model")
+def samples_baseline_total_goals_model(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_features_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/团队协作/20260529-baseline-total-goals-model-v1.md",
+        "--report-path",
+    ),
+):
+    report = build_baseline_total_goals_model_report(Path(csv_path))
+    write_baseline_total_goals_model_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_total_goals_model_command_result(
             report_path=report_path,
             report=report,
         )

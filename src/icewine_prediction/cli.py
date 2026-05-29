@@ -63,6 +63,7 @@ from icewine_prediction.negative_binomial_model_service import (
     train_negative_binomial_total_goals_model,
 )
 from icewine_prediction.oddspapi_batch_backfill_service import (
+    build_oddspapi_sample_candidate_report,
     run_oddspapi_batch_backfill,
     run_oddspapi_batch_worker,
 )
@@ -820,6 +821,7 @@ def odds_source_oddspapi_fetch(
     timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
     max_snapshots_per_match: int = typer.Option(200, "--max-snapshots-per-match"),
     skip_match_ids: str = typer.Option("", "--skip-match-ids"),
+    match_ids: str = typer.Option("", "--match-ids"),
     league_ids: str = typer.Option("", "--league-ids"),
     from_date: str | None = typer.Option(None, "--from-date"),
     historical_odds_cooldown_seconds: float = typer.Option(
@@ -835,6 +837,7 @@ def odds_source_oddspapi_fetch(
             timeout_seconds=timeout_seconds,
             max_snapshots_per_match=max_snapshots_per_match,
             skip_match_ids=_parse_id_set(skip_match_ids),
+            match_ids=_parse_id_set(match_ids),
             league_ids=_parse_str_set(league_ids),
             from_date=date.fromisoformat(from_date) if from_date else None,
             historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
@@ -858,6 +861,7 @@ def odds_source_oddspapi_batch_backfill(
     league_ids: str = typer.Option("", "--league-ids"),
     from_date: str | None = typer.Option(None, "--from-date"),
     skip_match_ids: str = typer.Option("", "--skip-match-ids"),
+    match_ids: str = typer.Option("", "--match-ids"),
 ):
     typer.echo(
         run_oddspapi_batch_backfill(
@@ -874,6 +878,7 @@ def odds_source_oddspapi_batch_backfill(
             league_ids=_parse_str_set(league_ids),
             from_date=date.fromisoformat(from_date) if from_date else None,
             skip_match_ids=_parse_id_set(skip_match_ids),
+            match_ids=_parse_id_set(match_ids),
         )
     )
 
@@ -899,6 +904,7 @@ def odds_source_oddspapi_batch_worker(
     league_ids: str = typer.Option("", "--league-ids"),
     from_date: str | None = typer.Option(None, "--from-date"),
     skip_match_ids: str = typer.Option("", "--skip-match-ids"),
+    match_ids: str = typer.Option("", "--match-ids"),
     notify_on_complete: bool = typer.Option(False, "--notify-on-complete"),
 ):
     typer.echo(
@@ -919,6 +925,7 @@ def odds_source_oddspapi_batch_worker(
             league_ids=_parse_str_set(league_ids),
             from_date=date.fromisoformat(from_date) if from_date else None,
             skip_match_ids=_parse_id_set(skip_match_ids),
+            match_ids=_parse_id_set(match_ids),
             notify_on_complete=notify_on_complete,
             output_callback=typer.echo,
         )
@@ -946,6 +953,7 @@ def odds_source_oddspapi_worker_start(
     league_ids: str = typer.Option("", "--league-ids"),
     from_date: str | None = typer.Option(None, "--from-date"),
     skip_match_ids: str = typer.Option("", "--skip-match-ids"),
+    match_ids: str = typer.Option("", "--match-ids"),
     notify_on_complete: bool = typer.Option(False, "--notify-on-complete"),
 ):
     result = start_oddspapi_batch_worker_process(
@@ -965,9 +973,27 @@ def odds_source_oddspapi_worker_start(
         league_ids=_parse_str_set(league_ids),
         from_date=from_date,
         skip_match_ids=_parse_id_set(skip_match_ids),
+        match_ids=_parse_id_set(match_ids),
         notify_on_complete=notify_on_complete,
     )
     typer.echo(result.to_text())
+
+
+@odds_source_app.command("oddspapi-sample-candidates")
+def odds_source_oddspapi_sample_candidates(
+    season: int | None = typer.Option(None, "--season"),
+    league_ids: str = typer.Option(..., "--league-ids"),
+    from_date: str | None = typer.Option(None, "--from-date"),
+    per_league: int = typer.Option(8, "--per-league"),
+):
+    typer.echo(
+        build_oddspapi_sample_candidate_report(
+            season=season,
+            league_ids=_parse_str_set(league_ids) or set(),
+            from_date=date.fromisoformat(from_date) if from_date else None,
+            per_league=per_league,
+        )
+    )
 
 
 @odds_source_app.command("oddspapi-worker-status")

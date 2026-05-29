@@ -24,6 +24,7 @@ def test_odds_source_group_exposes_oddspapi_commands():
     assert "oddspapi-diagnose-fixtures" in result.stdout
     assert "oddspapi-audit-backfill" in result.stdout
     assert "oddspapi-suggest-aliases" in result.stdout
+    assert "oddspapi-sample-candidates" in result.stdout
 
 
 def test_oddspapi_plan_accepts_season_and_match_limit(monkeypatch):
@@ -65,13 +66,14 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
         timeout_seconds,
         max_snapshots_per_match,
         skip_match_ids=None,
+        match_ids=None,
         league_ids=None,
         from_date=None,
         historical_odds_cooldown_seconds=5,
         progress_callback=None: (
             f"fetch:{season}:{max_matches}:{request_budget}:"
             f"{timeout_seconds}:{max_snapshots_per_match}:{skip_match_ids}:"
-            f"{league_ids}:{from_date}:{historical_odds_cooldown_seconds}"
+            f"{match_ids}:{league_ids}:{from_date}:{historical_odds_cooldown_seconds}"
         ),
     )
 
@@ -336,11 +338,12 @@ def test_oddspapi_batch_backfill_accepts_controller_options(monkeypatch):
         round_timeout_seconds,
         league_ids=None,
         from_date=None,
-        skip_match_ids=None: (
+        skip_match_ids=None,
+        match_ids=None: (
             f"batch:{season}:{mode}:{chunk_size}:{request_budget_per_league}:"
             f"{timeout_seconds}:{max_snapshots_per_match}:{max_rounds_per_league}:"
             f"{stop_after_empty_matches}:{stop_after_failed_rounds}:"
-            f"{round_timeout_seconds}:{league_ids}:{from_date}:{skip_match_ids}"
+            f"{round_timeout_seconds}:{league_ids}:{from_date}:{skip_match_ids}:{match_ids}"
         ),
     )
 
@@ -407,6 +410,7 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
         league_ids=None,
         from_date=None,
         skip_match_ids=None,
+        match_ids=None,
         notify_on_complete=False,
         output_callback=None: (
             f"worker:{season}:{mode}:{chunk_size}:{request_budget_per_league}:"
@@ -414,7 +418,7 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
             f"{stop_after_empty_matches}:{stop_after_failed_rounds}:{round_timeout_seconds}:"
             f"{historical_odds_cooldown_seconds}:{hard_timeout_seconds}:"
             f"{log_dir}:{league_ids}:{from_date}:"
-            f"{skip_match_ids}:{notify_on_complete}:{output_callback is not None}"
+            f"{skip_match_ids}:{match_ids}:{notify_on_complete}:{output_callback is not None}"
         ),
     )
 
@@ -455,6 +459,8 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
             "2026-01-15",
             "--skip-match-ids",
             "8328,8600",
+            "--match-ids",
+            "9001,9002",
             "--notify-on-complete",
         ],
     )
@@ -465,6 +471,8 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
     assert "'89'" in result.stdout
     assert "'8328'" in result.stdout or "8328" in result.stdout
     assert "'8600'" in result.stdout or "8600" in result.stdout
+    assert "'9001'" in result.stdout or "9001" in result.stdout
+    assert "'9002'" in result.stdout or "9002" in result.stdout
     assert ":2026-01-15:" in result.stdout
     assert ":True:True" in result.stdout
 
@@ -489,6 +497,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
         league_ids=None,
         from_date=None,
         skip_match_ids=None,
+        match_ids=None,
         notify_on_complete=False: type(
             "FakeResult",
             (),
@@ -499,7 +508,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
                     f"{stop_after_empty_matches}:{stop_after_failed_rounds}:"
                     f"{round_timeout_seconds}:{historical_odds_cooldown_seconds}:"
                     f"{hard_timeout_seconds}:{log_dir}:{league_ids}:{from_date}:"
-                    f"{skip_match_ids}:{notify_on_complete}"
+                    f"{skip_match_ids}:{match_ids}:{notify_on_complete}"
                 )
             },
         )(),
@@ -542,6 +551,8 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
             "2026-01-15",
             "--skip-match-ids",
             "8328,8600",
+            "--match-ids",
+            "9001,9002",
             "--notify-on-complete",
         ],
     )
@@ -552,8 +563,42 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
     assert "'89'" in result.stdout
     assert "'8328'" in result.stdout or "8328" in result.stdout
     assert "'8600'" in result.stdout or "8600" in result.stdout
+    assert "'9001'" in result.stdout or "9001" in result.stdout
+    assert "'9002'" in result.stdout or "9002" in result.stdout
     assert ":2026-01-15:" in result.stdout
     assert ":True" in result.stdout
+
+
+def test_oddspapi_sample_candidates_accepts_leagues_and_limits(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_oddspapi_sample_candidate_report",
+        lambda season, league_ids, from_date, per_league: (
+            f"samples:{season}:{league_ids}:{from_date}:{per_league}"
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "odds-source",
+            "oddspapi-sample-candidates",
+            "--season",
+            "2025",
+            "--league-ids",
+            "98,292",
+            "--from-date",
+            "2026-01-15",
+            "--per-league",
+            "8",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "samples:2025:" in result.stdout
+    assert "'98'" in result.stdout
+    assert "'292'" in result.stdout
+    assert ":2026-01-15:8" in result.stdout
 
 
 def test_oddspapi_worker_status_accepts_log_dir_and_tail(monkeypatch):

@@ -287,3 +287,55 @@ aliases:
     source_name: oddspapi
     canonical_name: Sichuan Jiuniu
     alias_name: Shenzhen Peng City
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Ulsan Hyundai FC
+    alias_name: Ulsan HD FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Jeju United FC
+    alias_name: Jeju SK FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Asan Mugunghwa
+    alias_name: Chungnam Asan FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: AEK Athens FC
+    alias_name: AEK Athens
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Olympiakos Piraeus
+    alias_name: Olympiacos Piraeus
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Al-Ittihad FC
+    alias_name: Al-Ittihad Club
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Al-Qadisiyah FC
+    alias_name: Al Qadsiah
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Al-Hilal Saudi FC
+    alias_name: Al Hilal SFC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Volos NFC
+    alias_name: Volos NPS
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Al Taawon
+    alias_name: Al-Taawoun FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Al-Ettifaq
+    alias_name: Al-Ittifaq FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Panetolikos
+    alias_name: Panaitolikos Agrinio
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Larisa
+    alias_name: AE Larissa FC

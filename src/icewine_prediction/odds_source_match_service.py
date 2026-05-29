@@ -64,6 +64,10 @@ SOFT_TEAM_PREFIXES = {
     "real",
 }
 
+WEAK_OVERLAP_TOKENS = {
+    "al",
+}
+
 
 def normalize_team_name(name: str) -> str:
     ascii_name = (
@@ -153,6 +157,7 @@ def _team_name_similarity(left: str, right: str) -> Decimal:
     if not left_tokens or not right_tokens:
         return Decimal("0")
     overlap = left_tokens & right_tokens
+    overlap -= WEAK_OVERLAP_TOKENS
     if not overlap:
         return Decimal("0")
     return Decimal(len(overlap)) / Decimal(max(len(left_tokens), len(right_tokens)))

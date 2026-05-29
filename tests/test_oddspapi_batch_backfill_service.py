@@ -18,6 +18,8 @@ from icewine_prediction.oddspapi_batch_backfill_service import (
     BatchBackfillMode,
     LeagueBackfillJob,
     build_league_backfill_jobs,
+    build_sample_candidate_report_for_session,
+    format_sample_candidate_report,
     format_batch_backfill_report,
     run_oddspapi_batch_backfill_with_runner,
     run_oddspapi_batch_worker_with_runner,
@@ -33,6 +35,10 @@ def _batch_match(
     source_match_id: str,
     source_league_id: str = "169",
     season: int = 2026,
+    league_round: str | None = None,
+    kickoff_time: datetime | None = None,
+    home_name: str | None = None,
+    away_name: str | None = None,
 ) -> Match:
     league = (
         session.query(League)
@@ -47,25 +53,34 @@ def _batch_match(
             source_name="api_football",
             source_league_id=source_league_id,
         )
-    home_team = Team(canonical_name=f"Home {source_match_id}")
-    away_team = Team(canonical_name=f"Away {source_match_id}")
+    home_team = _get_or_create_test_team(session, home_name or f"Home {source_match_id}")
+    away_team = _get_or_create_test_team(session, away_name or f"Away {source_match_id}")
     session.add_all([league, home_team, away_team])
     session.flush()
     match = Match(
         league=league,
         home_team=home_team,
         away_team=away_team,
-        kickoff_time=datetime(2026, 5, 20, 19, 35, tzinfo=ZoneInfo("Asia/Shanghai")),
+        kickoff_time=kickoff_time
+        or datetime(2026, 5, 20, 19, 35, tzinfo=ZoneInfo("Asia/Shanghai")),
         season=season,
         status="finished",
         home_score=1,
         away_score=0,
+        league_round=league_round,
         source_name="api_football",
         source_match_id=source_match_id,
     )
     session.add(match)
     session.commit()
     return match
+
+
+def _get_or_create_test_team(session, canonical_name: str) -> Team:
+    team = session.query(Team).filter_by(canonical_name=canonical_name).one_or_none()
+    if team is not None:
+        return team
+    return Team(canonical_name=canonical_name)
 
 
 def test_build_league_backfill_jobs_orders_enabled_supported_leagues_by_priority():
@@ -97,6 +112,86 @@ def test_build_league_backfill_jobs_honors_requested_league_ids():
     jobs = build_league_backfill_jobs(leagues, requested_league_ids={"141", "62", "89", "41"})
 
     assert [job.league_id for job in jobs] == ["141", "62", "89", "41"]
+
+
+def test_sample_candidate_report_selects_unique_teams_and_skips_playoff_rounds(session):
+    selected_one = _batch_match(
+        session,
+        source_match_id="1",
+        source_league_id="98",
+        league_round="Regular Season - 10",
+        kickoff_time=datetime(2026, 5, 10, 18, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_name="Team A",
+        away_name="Team B",
+    )
+    _batch_match(
+        session,
+        source_match_id="2",
+        source_league_id="98",
+        league_round="Regular Season - 11",
+        kickoff_time=datetime(2026, 5, 9, 18, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_name="Team A",
+        away_name="Team C",
+    )
+    selected_two = _batch_match(
+        session,
+        source_match_id="3",
+        source_league_id="98",
+        league_round="Regular Season - 12",
+        kickoff_time=datetime(2026, 5, 8, 18, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_name="Team D",
+        away_name="Team E",
+    )
+    _batch_match(
+        session,
+        source_match_id="4",
+        source_league_id="98",
+        league_round="Quarter-finals",
+        kickoff_time=datetime(2026, 5, 7, 18, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_name="Team F",
+        away_name="Team G",
+    )
+
+    report = build_sample_candidate_report_for_session(
+        session=session,
+        league_ids={"98"},
+        season=2026,
+        from_date=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
+        per_league=8,
+    )
+
+    assert len(report.leagues) == 1
+    league_report = report.leagues[0]
+    assert league_report.league_id == "98"
+    assert [match.match_id for match in league_report.matches] == [
+        selected_one.id,
+        selected_two.id,
+    ]
+    assert league_report.eligible_match_count == 4
+    assert league_report.skipped_non_regular_count == 1
+    assert league_report.skipped_repeated_team_count == 1
+    assert report.match_ids == (selected_one.id, selected_two.id)
+
+
+def test_format_sample_candidate_report_outputs_match_ids(session):
+    match = _batch_match(
+        session,
+        source_match_id="1",
+        source_league_id="98",
+        league_round="Regular Season - 10",
+    )
+    report = build_sample_candidate_report_for_session(
+        session=session,
+        league_ids={"98"},
+        season=2026,
+        from_date=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
+        per_league=8,
+    )
+
+    output = format_sample_candidate_report(report)
+
+    assert f"match_ids={match.id}" in output
+    assert "league=Super League 98 id=98 selected=1" in output
 
 
 def test_count_candidate_matches_uses_same_filters_as_sync_selector(session):
@@ -155,6 +250,7 @@ def test_count_candidate_matches_uses_same_filters_as_sync_selector(session):
         season=2026,
         from_date=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
         skip_match_ids=None,
+        match_ids=None,
     )
 
     assert count == 3
@@ -433,6 +529,42 @@ def test_batch_backfill_passes_skip_match_ids_to_runner():
     )
 
     assert calls[0]["skip_match_ids"] == {8328, 8600}
+
+
+def test_batch_backfill_passes_match_ids_to_runner():
+    calls = []
+
+    def fake_runner(**kwargs):
+        calls.append(kwargs)
+        return OddsPapiSyncResult(
+            processed_match_count=1,
+            matched_count=1,
+            failed_match_count=0,
+            inserted_snapshot_count=151,
+            skipped_duplicate_snapshot_count=0,
+            skipped_existing_odds_count=0,
+            asian_handicap_count=50,
+            total_goals_count=50,
+            requests_used=1,
+            match_winner_count=51,
+        )
+
+    run_oddspapi_batch_backfill_with_runner(
+        jobs=(LeagueBackfillJob("98", "日职联", 60),),
+        runner=fake_runner,
+        season=2025,
+        from_date=date(2026, 1, 15),
+        mode=BatchBackfillMode.SAFE,
+        chunk_size=4,
+        request_budget_per_league=100,
+        timeout_seconds=20,
+        max_snapshots_per_match=151,
+        max_rounds_per_league=1,
+        stop_after_empty_matches=8,
+        match_ids={101, 102},
+    )
+
+    assert calls[0]["match_ids"] == {101, 102}
 
 
 def test_format_batch_backfill_report_summarizes_leagues():

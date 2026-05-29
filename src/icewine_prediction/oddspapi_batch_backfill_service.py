@@ -63,6 +63,39 @@ class BatchBackfillReport:
     league_reports: tuple[LeagueBackfillReport, ...]
 
 
+@dataclass(frozen=True)
+class SampleCandidateMatch:
+    match_id: int
+    season: int
+    kickoff_time: datetime
+    league_round: str | None
+    home_team_name: str
+    away_team_name: str
+
+
+@dataclass(frozen=True)
+class SampleCandidateLeagueReport:
+    league_id: str
+    league_name: str
+    eligible_match_count: int
+    selected_match_count: int
+    skipped_non_regular_count: int
+    skipped_repeated_team_count: int
+    matches: tuple[SampleCandidateMatch, ...]
+
+
+@dataclass(frozen=True)
+class SampleCandidateReport:
+    season: int | None
+    from_date: datetime | None
+    per_league: int
+    leagues: tuple[SampleCandidateLeagueReport, ...]
+
+    @property
+    def match_ids(self) -> tuple[int, ...]:
+        return tuple(match.match_id for league in self.leagues for match in league.matches)
+
+
 @dataclass
 class WorkerProgressContext:
     progress_path: Path
@@ -87,6 +120,7 @@ class OddsPapiSyncRunner(Protocol):
         league_ids: set[str],
         from_date: datetime | None,
         skip_match_ids: set[int] | None,
+        match_ids: set[int] | None,
         historical_odds_cooldown_seconds: float,
         progress_callback,
     ) -> OddsPapiSyncResult:
@@ -107,6 +141,7 @@ def run_oddspapi_batch_backfill(
     league_ids: set[str] | None = None,
     from_date: date | datetime | None = None,
     skip_match_ids: set[int] | None = None,
+    match_ids: set[int] | None = None,
 ) -> str:
     settings = load_project_settings()
     jobs = build_league_backfill_jobs(settings.leagues, requested_league_ids=league_ids)
@@ -125,6 +160,7 @@ def run_oddspapi_batch_backfill(
         stop_after_failed_rounds=stop_after_failed_rounds,
         round_timeout_seconds=round_timeout_seconds,
         skip_match_ids=skip_match_ids,
+        match_ids=match_ids,
     )
     return format_batch_backfill_report(report)
 
@@ -146,6 +182,7 @@ def run_oddspapi_batch_worker(
     league_ids: set[str] | None = None,
     from_date: date | datetime | None = None,
     skip_match_ids: set[int] | None = None,
+    match_ids: set[int] | None = None,
     notify_on_complete: bool = False,
     output_callback: Callable[[str], None] | None = None,
 ) -> str:
@@ -168,6 +205,7 @@ def run_oddspapi_batch_worker(
         historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
         hard_timeout_seconds=hard_timeout_seconds,
         skip_match_ids=skip_match_ids,
+        match_ids=match_ids,
         log_dir=Path(log_dir),
         notify_on_complete=notify_on_complete,
         notification_callback=notify_local_completion,
@@ -202,6 +240,176 @@ def build_league_backfill_jobs(
     return tuple(sorted(jobs, key=lambda job: (-job.priority, job.league_id)))
 
 
+def build_oddspapi_sample_candidate_report(
+    *,
+    season: int | None,
+    league_ids: set[str],
+    from_date: date | datetime | None,
+    per_league: int = 8,
+) -> str:
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_sample_candidate_report_for_session(
+            session=session,
+            league_ids=league_ids,
+            season=season,
+            from_date=_normalize_from_date(from_date),
+            per_league=per_league,
+        )
+    return format_sample_candidate_report(report)
+
+
+def build_sample_candidate_report_for_session(
+    *,
+    session,
+    league_ids: set[str],
+    season: int | None,
+    from_date: datetime | None,
+    per_league: int = 8,
+) -> SampleCandidateReport:
+    display_service = DisplayNameService()
+    reports = []
+    for league_id in sorted(league_ids, key=_sort_id):
+        league = (
+            session.query(League)
+            .filter(League.source_league_id == league_id)
+            .one_or_none()
+        )
+        if league is None:
+            reports.append(
+                SampleCandidateLeagueReport(
+                    league_id=league_id,
+                    league_name=league_id,
+                    eligible_match_count=0,
+                    selected_match_count=0,
+                    skipped_non_regular_count=0,
+                    skipped_repeated_team_count=0,
+                    matches=(),
+                )
+            )
+            continue
+        matches = _eligible_sample_matches(
+            session=session,
+            league=league,
+            season=season,
+            from_date=from_date,
+        )
+        selected = []
+        used_team_ids: set[int] = set()
+        skipped_non_regular = 0
+        skipped_repeated_team = 0
+        for match in matches:
+            if _is_non_regular_round(match.league_round):
+                skipped_non_regular += 1
+                continue
+            team_ids = {match.home_team_id, match.away_team_id}
+            if team_ids & used_team_ids:
+                skipped_repeated_team += 1
+                continue
+            selected.append(
+                SampleCandidateMatch(
+                    match_id=match.id,
+                    season=match.season,
+                    kickoff_time=match.kickoff_time,
+                    league_round=match.league_round,
+                    home_team_name=match.home_team.canonical_name,
+                    away_team_name=match.away_team.canonical_name,
+                )
+            )
+            used_team_ids.update(team_ids)
+            if len(selected) >= per_league:
+                break
+        reports.append(
+            SampleCandidateLeagueReport(
+                league_id=league_id,
+                league_name=display_service.display_league(league.name),
+                eligible_match_count=len(matches),
+                selected_match_count=len(selected),
+                skipped_non_regular_count=skipped_non_regular,
+                skipped_repeated_team_count=skipped_repeated_team,
+                matches=tuple(selected),
+            )
+        )
+    return SampleCandidateReport(
+        season=season,
+        from_date=from_date,
+        per_league=per_league,
+        leagues=tuple(reports),
+    )
+
+
+def format_sample_candidate_report(report: SampleCandidateReport) -> str:
+    match_ids = ",".join(str(match_id) for match_id in report.match_ids)
+    lines = [
+        (
+            f"sample candidates season={report.season} "
+            f"from_date={report.from_date.date() if report.from_date else '-'} "
+            f"per_league={report.per_league}"
+        ),
+        f"match_ids={match_ids or '-'}",
+    ]
+    for league in report.leagues:
+        lines.append(
+            f"league={league.league_name} id={league.league_id} "
+            f"selected={league.selected_match_count} "
+            f"eligible={league.eligible_match_count} "
+            f"skipped_non_regular={league.skipped_non_regular_count} "
+            f"skipped_repeated_team={league.skipped_repeated_team_count}"
+        )
+        for match in league.matches:
+            lines.append(
+                f"  id={match.match_id} {match.kickoff_time:%Y-%m-%d %H:%M} "
+                f"season={match.season} {match.league_round or '-'} "
+                f"{match.home_team_name} vs {match.away_team_name}"
+            )
+    return "\n".join(lines)
+
+
+def _eligible_sample_matches(
+    *,
+    session,
+    league: League,
+    season: int | None,
+    from_date: datetime | None,
+) -> list[Match]:
+    query = (
+        session.query(Match)
+        .filter(Match.league_id == league.id)
+        .filter(Match.status == "finished")
+        .filter(Match.home_score.isnot(None))
+        .filter(Match.away_score.isnot(None))
+        .order_by(Match.kickoff_time.desc(), Match.id.desc())
+    )
+    if season is not None:
+        query = query.filter(Match.season == season)
+    if from_date is not None:
+        query = query.filter(Match.kickoff_time >= from_date)
+    return query.all()
+
+
+def _is_non_regular_round(league_round: str | None) -> bool:
+    if not league_round:
+        return False
+    lowered = league_round.lower()
+    markers = (
+        "final",
+        "semi",
+        "quarter",
+        "round of 16",
+        "playoff",
+        "play-off",
+        "promotion",
+        "relegation",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def _sort_id(value: str) -> tuple[int, str]:
+    return (0, f"{int(value):08d}") if value.isdigit() else (1, value)
+
+
 def run_oddspapi_batch_backfill_with_runner(
     *,
     jobs: tuple[LeagueBackfillJob, ...],
@@ -220,6 +428,7 @@ def run_oddspapi_batch_backfill_with_runner(
     hard_timeout_seconds: float | None = 0,
     historical_odds_cooldown_seconds: float = 6,
     skip_match_ids: set[int] | None = None,
+    match_ids: set[int] | None = None,
 ) -> BatchBackfillReport:
     worker_count = min(_worker_count_for_mode(mode), max(len(jobs), 1))
     return _run_batch_backfill(
@@ -238,6 +447,7 @@ def run_oddspapi_batch_backfill_with_runner(
         round_timeout_seconds=round_timeout_seconds,
         historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
         skip_match_ids=skip_match_ids,
+        match_ids=match_ids,
         worker_count=worker_count,
         progress_callback=None,
     )
@@ -261,6 +471,7 @@ def run_oddspapi_batch_worker_with_runner(
     hard_timeout_seconds: float | None = 0,
     historical_odds_cooldown_seconds: float = 6,
     skip_match_ids: set[int] | None = None,
+    match_ids: set[int] | None = None,
     log_dir: Path,
     notify_on_complete: bool = False,
     notification_callback: Callable[[str, str], bool] | None = None,
@@ -282,6 +493,7 @@ def run_oddspapi_batch_worker_with_runner(
             season=season,
             from_date=_normalize_from_date(from_date),
             skip_match_ids=skip_match_ids,
+            match_ids=match_ids,
         ),
         totals=_MutableLeagueTotals(),
         lock=Lock(),
@@ -314,6 +526,7 @@ def run_oddspapi_batch_worker_with_runner(
             round_timeout_seconds=round_timeout_seconds,
             historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
             skip_match_ids=skip_match_ids,
+            match_ids=match_ids,
             worker_count=worker_count,
             progress_callback=logger.write,
             progress_context=progress_context,
@@ -429,6 +642,7 @@ def _run_batch_backfill(
     round_timeout_seconds: float | None,
     historical_odds_cooldown_seconds: float,
     skip_match_ids: set[int] | None,
+    match_ids: set[int] | None,
     worker_count: int,
     progress_callback: Callable[[str], None] | None,
     progress_context: WorkerProgressContext | None = None,
@@ -453,6 +667,7 @@ def _run_batch_backfill(
                 round_timeout_seconds=round_timeout_seconds,
                 historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
                 skip_match_ids=skip_match_ids,
+                match_ids=match_ids,
                 progress_callback=progress_callback,
                 progress_context=progress_context,
             )
@@ -474,6 +689,7 @@ def _count_candidate_matches_by_league(
     season: int,
     from_date: datetime | None,
     skip_match_ids: set[int] | None,
+    match_ids: set[int] | None,
 ) -> dict[str, int]:
     if not jobs:
         return {}
@@ -489,6 +705,7 @@ def _count_candidate_matches_by_league(
                 season=season,
                 from_date=from_date,
                 skip_match_ids=skip_match_ids,
+                match_ids=match_ids,
             )
         return counts
 
@@ -500,6 +717,7 @@ def _count_candidate_matches_for_league(
     season: int,
     from_date: datetime | None,
     skip_match_ids: set[int] | None,
+    match_ids: set[int] | None,
 ) -> int:
     query = (
         session.query(func.count(Match.id))
@@ -530,6 +748,8 @@ def _count_candidate_matches_for_league(
         query = query.filter(Match.kickoff_time >= from_date)
     if skip_match_ids:
         query = query.filter(~Match.id.in_(skip_match_ids))
+    if match_ids:
+        query = query.filter(Match.id.in_(match_ids))
     return int(query.scalar() or 0)
 
 
@@ -549,6 +769,7 @@ def _run_league_backfill(
     round_timeout_seconds: float | None,
     historical_odds_cooldown_seconds: float,
     skip_match_ids: set[int] | None,
+    match_ids: set[int] | None,
     progress_callback: Callable[[str], None] | None = None,
     progress_context: WorkerProgressContext | None = None,
 ) -> LeagueBackfillReport:
@@ -585,6 +806,7 @@ def _run_league_backfill(
                 league_id=job.league_id,
                 from_date=from_date,
                 skip_match_ids=skip_match_ids,
+                match_ids=match_ids,
                 historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
                 progress_callback=progress_callback,
             )
@@ -830,6 +1052,7 @@ def _run_round_with_timeout(
     league_id: str,
     from_date: datetime | None,
     skip_match_ids: set[int] | None,
+    match_ids: set[int] | None,
     historical_odds_cooldown_seconds: float,
     progress_callback: Callable[[str], None] | None,
 ) -> OddsPapiSyncResult:
@@ -844,6 +1067,7 @@ def _run_round_with_timeout(
         "league_ids": {league_id},
         "from_date": from_date,
         "skip_match_ids": skip_match_ids,
+        "match_ids": match_ids,
         "historical_odds_cooldown_seconds": historical_odds_cooldown_seconds,
         "progress_callback": progress_callback,
     }

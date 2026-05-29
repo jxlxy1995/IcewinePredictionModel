@@ -822,6 +822,22 @@ def test_api_football_league_mappings_include_new_sleep_backfill_targets():
     assert mappings["265"] == 27665
 
 
+def test_api_football_league_mappings_include_east_asia_and_mls_targets():
+    mappings = oddspapi_sync_runner.API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS
+
+    assert mappings["98"] == 196
+    assert mappings["253"] == 242
+    assert mappings["292"] == 410
+    assert mappings["293"] == 777
+
+
+def test_api_football_league_mappings_include_2025_sample_targets():
+    mappings = oddspapi_sync_runner.API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS
+
+    assert mappings["197"] == 185
+    assert mappings["307"] == 955
+
+
 def test_run_oddspapi_sync_for_session_samples_snapshots_before_storing(session):
     _match(session)
     raw_client = FakeOddsPapiClient()

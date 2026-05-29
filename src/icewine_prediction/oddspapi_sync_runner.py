@@ -56,6 +56,7 @@ API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "88": 37,
     "89": 131,
     "94": 238,
+    "98": 196,
     "106": 202,
     "113": 40,
     "114": 46,
@@ -69,13 +70,18 @@ API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "169": 649,
     "179": 36,
     "188": 136,
+    "197": 185,
     "203": 52,
     "207": 215,
     "218": 45,
     "235": 203,
     "244": 41,
+    "253": 242,
     "265": 27665,
     "283": 152,
+    "292": 410,
+    "293": 777,
+    "307": 955,
     "103": 20,
 }
 
@@ -345,6 +351,7 @@ def run_oddspapi_sync(
     timeout_seconds: int = 20,
     max_snapshots_per_match: int = 200,
     skip_match_ids: set[int] | None = None,
+    match_ids: set[int] | None = None,
     league_ids: set[str] | None = None,
     from_date: datetime | None = None,
     historical_odds_cooldown_seconds: float = 6,
@@ -371,6 +378,7 @@ def run_oddspapi_sync(
             max_matches=max_matches,
             max_snapshots_per_match=max_snapshots_per_match,
             skip_match_ids=skip_match_ids,
+            match_ids=match_ids,
             league_ids=league_ids,
             from_date=from_date,
             progress_callback=progress_callback,
@@ -385,6 +393,7 @@ def run_oddspapi_sync_result(
     timeout_seconds: int = 20,
     max_snapshots_per_match: int = 200,
     skip_match_ids: set[int] | None = None,
+    match_ids: set[int] | None = None,
     league_ids: set[str] | None = None,
     from_date: datetime | None = None,
     historical_odds_cooldown_seconds: float = 6,
@@ -411,6 +420,7 @@ def run_oddspapi_sync_result(
             max_matches=max_matches,
             max_snapshots_per_match=max_snapshots_per_match,
             skip_match_ids=skip_match_ids,
+            match_ids=match_ids,
             league_ids=league_ids,
             from_date=from_date,
             progress_callback=progress_callback,
@@ -568,6 +578,7 @@ def run_oddspapi_sync_for_session(
     max_matches: int,
     max_snapshots_per_match: int = 200,
     skip_match_ids: set[int] | None = None,
+    match_ids: set[int] | None = None,
     league_ids: set[str] | None = None,
     from_date: datetime | None = None,
     progress_callback: Callable[[str], None] | None = None,
@@ -578,6 +589,7 @@ def run_oddspapi_sync_for_session(
         max_matches=max_matches,
         league_ids=league_ids,
         from_date=from_date,
+        match_ids=match_ids,
     )
     if skip_match_ids:
         matches = [match for match in matches if match.id not in skip_match_ids]
@@ -1120,6 +1132,7 @@ def select_oddspapi_candidate_matches(
     max_matches: int,
     league_ids: set[str] | None = None,
     from_date: datetime | None = None,
+    match_ids: set[int] | None = None,
 ) -> tuple[list[Match], int]:
     league_priorities = _load_league_priority_by_source_id()
     query = (
@@ -1130,6 +1143,8 @@ def select_oddspapi_candidate_matches(
         .filter(Match.away_score.isnot(None))
         .order_by(Match.kickoff_time.desc())
     )
+    if match_ids:
+        query = query.filter(Match.id.in_(match_ids))
     if from_date is not None:
         if isinstance(from_date, date) and not isinstance(from_date, datetime):
             from_date = datetime.combine(from_date, datetime_time.min, tzinfo=ZoneInfo("Asia/Shanghai"))

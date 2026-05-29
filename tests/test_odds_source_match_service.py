@@ -94,6 +94,34 @@ def test_find_best_odds_source_match_rejects_wrong_tournament(session):
     assert result is None
 
 
+def test_find_best_odds_source_match_rejects_only_weak_shared_tokens(session):
+    match = _match(
+        session,
+        league_name="Saudi Pro League",
+        home="Al-Hazm",
+        away="Al Taawon",
+    )
+    match.league.source_league_id = "307"
+    match.kickoff_time = datetime(2026, 5, 22, 2, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    fixtures = [
+        OddsPapiFixture(
+            fixture_id="wrong-al-overlap",
+            tournament_id=955,
+            start_time=datetime(2026, 5, 21, 18, 0, tzinfo=ZoneInfo("UTC")),
+            home_team_name="Al-Ittihad Club",
+            away_team_name="Al Qadsiah",
+        )
+    ]
+
+    result = find_best_odds_source_match(
+        match,
+        fixtures,
+        api_football_to_oddspapi_tournament_ids={"307": 955},
+    )
+
+    assert result is None
+
+
 def test_find_best_odds_source_match_rejects_time_outside_window(session):
     match = _match(session)
     fixtures = [

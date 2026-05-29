@@ -114,6 +114,19 @@ def test_build_league_backfill_jobs_honors_requested_league_ids():
     assert [job.league_id for job in jobs] == ["141", "62", "89", "41"]
 
 
+def test_build_league_backfill_jobs_includes_disabled_league_when_requested():
+    leagues = [
+        LeagueSettings("Ykkösliiga", "Finland", 1087, False, 50),
+        LeagueSettings("Premier League", "England", 39, True, 100),
+    ]
+
+    jobs = build_league_backfill_jobs(leagues, requested_league_ids={"1087"})
+
+    assert jobs == (
+        LeagueBackfillJob(league_id="1087", league_name="芬甲", priority=50),
+    )
+
+
 def test_sample_candidate_report_selects_unique_teams_and_skips_playoff_rounds(session):
     selected_one = _batch_match(
         session,

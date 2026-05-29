@@ -222,7 +222,9 @@ def build_league_backfill_jobs(
     jobs = []
     for league in leagues:
         league_id = str(league.api_football_id)
-        if not league.enabled:
+        if not league.enabled and (
+            requested_league_ids is None or league_id not in requested_league_ids
+        ):
             continue
         if league_id not in API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS:
             continue

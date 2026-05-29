@@ -37,6 +37,11 @@ from icewine_prediction.baseline_match_winner_model_service import (
     CloseMarketMatchWinnerReference,
     MatchWinnerModelEvaluation,
 )
+from icewine_prediction.baseline_market_diagnostics_service import (
+    BaselineMarketDiagnosticsReport,
+    MarketDiagnostics,
+    SegmentDiagnostics,
+)
 from icewine_prediction.baseline_total_goals_model_service import (
     BaselineTotalGoalsModelReport,
     CloseMarketTotalGoalsReference,
@@ -164,6 +169,15 @@ def test_samples_group_exposes_baseline_total_goals_model_help():
 
     assert result.exit_code == 0
     assert "baseline-total-goals-model" in result.stdout
+
+
+def test_samples_group_exposes_baseline_market_diagnostics_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-market-diagnostics" in result.stdout
 
 
 def test_format_baseline_training_dataset_command_result_summarizes_outputs():
@@ -474,6 +488,46 @@ def test_samples_baseline_total_goals_model_command_writes_report(monkeypatch):
     assert captured["report_path"].endswith("docs\\鍥㈤槦鍗忎綔\\total-goals.md")
     assert "baseline total goals model written" in result.stdout
     assert "team_form_plus_all_markets log-loss 0.7000" in result.stdout
+
+
+def test_samples_baseline_market_diagnostics_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path):
+        captured["csv_path"] = str(csv_path)
+        return _baseline_market_diagnostics_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_market_diagnostics_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_market_diagnostics_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-market-diagnostics",
+            "--csv-path",
+            "local_data/training/features.csv",
+            "--report-path",
+            "docs/团队协作/diagnostics.md",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\features.csv")
+    assert captured["report_path"].endswith("docs\\团队协作\\diagnostics.md")
+    assert "baseline market diagnostics written" in result.stdout
+    assert "asian_handicap accuracy 0.6000 rows 10" in result.stdout
+    assert "total_goals accuracy 0.5000 rows 8" in result.stdout
 
 
 def test_format_training_sample_line_uses_match_result_and_weight():
@@ -1004,6 +1058,52 @@ def _baseline_total_goals_model_report() -> BaselineTotalGoalsModelReport:
                     )
                 ],
             )
+        },
+    )
+
+
+def _baseline_market_diagnostics_report() -> BaselineMarketDiagnosticsReport:
+    return BaselineMarketDiagnosticsReport(
+        csv_path="local_data/training/features.csv",
+        row_count=20,
+        validation_rows=12,
+        market_reports={
+            "asian_handicap": MarketDiagnostics(
+                market_name="asian_handicap",
+                eligible_rows=10,
+                skipped_rows=2,
+                overall=SegmentDiagnostics(
+                    segment="overall",
+                    rows=10,
+                    accuracy="0.6000",
+                    actual_counts={"home_cover": 6, "away_cover": 4},
+                    predicted_counts={"home_cover": 5, "away_cover": 5},
+                ),
+                actual_side_counts={"home_cover": 6, "away_cover": 4},
+                predicted_side_counts={"home_cover": 5, "away_cover": 5},
+                by_league=[],
+                by_line=[],
+                by_market_confidence=[],
+                by_actual_side=[],
+            ),
+            "total_goals": MarketDiagnostics(
+                market_name="total_goals",
+                eligible_rows=8,
+                skipped_rows=4,
+                overall=SegmentDiagnostics(
+                    segment="overall",
+                    rows=8,
+                    accuracy="0.5000",
+                    actual_counts={"over": 4, "under": 4},
+                    predicted_counts={"over": 3, "under": 5},
+                ),
+                actual_side_counts={"over": 4, "under": 4},
+                predicted_side_counts={"over": 3, "under": 5},
+                by_league=[],
+                by_line=[],
+                by_market_confidence=[],
+                by_actual_side=[],
+            ),
         },
     )
 

@@ -333,6 +333,28 @@ Baseline total-goals model v1 completed:
   - `team_form_plus_all_markets`: accuracy `0.4994`, log loss `0.6991`, brier `0.5059`.
 - Initial read: total-goals v1 does not beat the same-split close market on accuracy, log loss, or Brier. The model leans under-heavy and confidence remains mostly 0.50-0.60, so the current feature set is not recommendation-ready for totals.
 
+Baseline market diagnostics v1 completed:
+
+- CLI command: `icewine samples baseline-market-diagnostics`.
+- Service: `src/icewine_prediction/baseline_market_diagnostics_service.py`.
+- Report: `docs/团队协作/20260529-baseline-market-diagnostics-v1.md`.
+- Input: `local_data/training/baseline_features_main_leagues_20260529.csv`.
+- Scope: validation split only, close-market implied-probability direction, binary clear-settlement rows only.
+- Rows: `5330`; validation rows `1068`.
+- Asian handicap diagnostics:
+  - Eligible rows `853`; skipped rows `215`; close-market accuracy `0.5287`.
+  - Actual side distribution is almost balanced: away cover `427`, home cover `426`.
+  - Market predicted home cover more often than actual: predicted home cover `468`, away cover `385`.
+  - By actual side: home cover accuracy `0.5775`, away cover accuracy `0.4801`.
+  - By line, stronger sample-size segments include `-0.50` accuracy `0.5833`, `0.25` accuracy `0.6000`, `-1.00` accuracy `0.5862`; weak segments include `-0.75` accuracy `0.4667`, `-1.50` accuracy `0.3913`, `1.00` accuracy `0.1333` with only `15` rows.
+- Total-goals diagnostics:
+  - Eligible rows `891`; skipped rows `177`; close-market accuracy `0.5174`.
+  - Actual side distribution is also balanced: over `449`, under `442`.
+  - Market confidence buckets are all `0.50-0.60` for both Asian handicap and total goals, so close-market confidence does not provide useful segmentation yet.
+  - By actual side: over accuracy `0.5345`, under accuracy `0.5000`.
+  - By line, larger sample-size segments are mostly close to coinflip: `2.50` accuracy `0.5060`, `2.75` accuracy `0.5188`, `3.00` accuracy `0.5469`, `2.25` accuracy `0.5221`; `3.50` is better at `0.6061` over `66` rows.
+- Initial read: diagnostics reinforce that current close-market labels are thin-edge and balanced. The next useful modeling step is likely adding richer pre-match dynamics/features, not simply slicing by market confidence.
+
 ## Useful Commands
 
 Run local odds audit:

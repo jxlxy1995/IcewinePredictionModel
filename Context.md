@@ -59,6 +59,13 @@ Leagues still completely unrunned or intentionally pending:
 5. Removed 德丙 from `config/leagues.yaml` and adjusted `tests/test_settings.py`.
 6. Committed the 德丙 whitelist removal and relay docs in `bed3ed9`.
 7. Ran a read-only candidate-league precheck using official API-Football metadata, API-Football fixtures, and OddsPapi `tournaments`/`fixtures`. This did not write to DB and did not fetch historical odds.
+8. Synced API-Football fixture/results history for the five candidate leagues only. This pulled schedule/result data, not odds:
+   - 爱超 `357`, season `2026`: `created=180`
+   - 芬甲二级 `1087` Ykkösliiga, season `2026`: `created=135`
+   - 挪甲 `104`, season `2026`: `created=240`
+   - 丹麦甲 `120`, season `2025`: `created=192`
+   - 印尼超 `274`, season `2025`: `created=306`
+9. After syncing, these five candidate leagues were set to `is_enabled=0` in the local DB so they remain candidates and do not affect enabled-league coverage until deliberately promoted.
 
 ## Likely Next Work
 
@@ -90,6 +97,27 @@ Read-only fixture prediagnostic result:
 | 挪甲 | `71` | `8` | `4 matched`, `4 miss`, likely needs aliases |
 | 丹麦甲 | `78` | `6` | `3 matched`, `1 weak`, `1 miss`, `1 OddsPapi 404` |
 | 印尼超 | `153` | `8` | `5 matched`, `2 weak`, `1 OddsPapi 404` |
+
+Local DB snapshot after candidate history sync:
+
+| 中文 | DB source id | 2026 total | 2026 finished | DB enabled |
+| --- | ---: | ---: | ---: | ---: |
+| 爱超 | `357` | `180` | `91` | `0` |
+| 芬甲二级 | `1087` | `135` | `40` | `0` |
+| 挪甲 | `104` | `240` | `71` | `0` |
+| 丹麦甲 | `120` | `84` | `78` | `0` |
+| 印尼超 | `274` | `171` | `171` | `0` |
+
+芬甲二级人工校对样本, all `Group Stage`, not playoff/promotion/relegation-looking:
+
+- `17537` API `1504193`, `2026-04-04 00:00` BJT, PK-35 4-2 EIF
+- `17538` API `1504194`, `2026-04-06 21:00` BJT, JIPPO 0-0 JäPS
+- `17539` API `1504195`, `2026-04-06 21:00` BJT, Klubi-04 1-2 KäPa
+- `17540` API `1504196`, `2026-04-06 21:00` BJT, SJK Akatemia 1-0 MP
+- `17541` API `1504197`, `2026-04-10 23:30` BJT, JäPS 1-0 Klubi-04
+- `17542` API `1504198`, `2026-04-10 23:30` BJT, Kooteepee 1-0 MP
+- `17543` API `1504199`, `2026-04-11 00:00` BJT, KäPa 2-2 SJK Akatemia
+- `17545` API `1504201`, `2026-04-11 23:00` BJT, PK-35 0-0 Haka
 
 Observed alias needs before any real backfill:
 

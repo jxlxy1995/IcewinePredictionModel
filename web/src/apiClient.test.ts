@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadDashboardData } from "./apiClient";
+import { loadDashboardData, loadPaperRecommendationWorkspace } from "./apiClient";
 
 const apiPayloads: Record<string, unknown> = {
   "/api/dashboard/summary": {
@@ -61,13 +61,31 @@ describe("apiClient", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps local API dashboard data when an optional section falls back to mock", async () => {
+  it("loads only lightweight dashboard data on initial page load", async () => {
+    const fetchMock = vi.fn(async (rawUrl: string) => {
+      const url = rawUrl.replace(/^http:\/\/127\.0\.0\.1:\d+/, "");
+      return Response.json(apiPayloads[url]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const data = await loadDashboardData();
+
+    expect(data.source).toBe("api");
+    expect(data.summary.total_matches).toBe(3);
+    expect(data.doneDisplayTranslationKeys).toEqual(["1-2026"]);
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/training/workspace");
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/paper-recommendations/workspace");
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/match-list/workspace");
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/oddspapi/backfill-audit?season=2025");
+  });
+
+  it("keeps local dashboard data when one secondary core endpoint fails", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (rawUrl: string) => {
         const url = rawUrl.replace(/^http:\/\/127\.0\.0\.1:\d+/, "");
-        if (url === "/api/paper-recommendations/workspace") {
-          return new Response("paper endpoint failed", { status: 500 });
+        if (url === "/api/recommendation-records") {
+          return new Response("records endpoint failed", { status: 500 });
         }
         return Response.json(apiPayloads[url]);
       })
@@ -77,7 +95,17 @@ describe("apiClient", () => {
 
     expect(data.source).toBe("api");
     expect(data.summary.total_matches).toBe(3);
-    expect(data.doneDisplayTranslationKeys).toEqual(["1-2026"]);
-    expect(data.paperRecommendations.summary.total_records).toBeGreaterThan(0);
+    expect(data.recommendationRecords).toEqual([]);
+  });
+
+  it("falls back only for the requested optional workspace", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("paper endpoint failed", { status: 500 }))
+    );
+
+    const workspace = await loadPaperRecommendationWorkspace();
+
+    expect(workspace.summary.total_records).toBeGreaterThan(0);
   });
 });

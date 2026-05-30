@@ -36,38 +36,24 @@ export async function loadDashboardData(): Promise<DashboardData> {
     const [
       summary,
       leagues,
+      displayTranslationStatus
+    ] = await Promise.all([
+      getJson<DashboardSummary>("/api/dashboard/summary"),
+      getJson<LeagueCoverage[]>("/api/leagues/coverage"),
+      getJson<DisplayTranslationStatus>("/api/display/translation-status")
+    ]);
+    const [
       workers,
       unmatched,
       matchesWithOdds,
       missingTeamDisplayNames,
-      displayTranslationStatus,
-      recommendationRecords,
-      oddspapiBackfillAudit,
-      trainingWorkspace,
-      paperRecommendations,
-      matchList
+      recommendationRecords
     ] = await Promise.all([
-      getJson<DashboardSummary>("/api/dashboard/summary"),
-      getJson<LeagueCoverage[]>("/api/leagues/coverage"),
-      getJson<WorkerStatus[]>("/api/workers"),
-      getJson<UnmatchedMatch[]>("/api/unmatched"),
-      getJson<MatchWithOdds[]>("/api/matches/with-odds"),
-      getJson<TeamDisplayNameRow[]>("/api/display/missing-team-names"),
-      getJson<DisplayTranslationStatus>("/api/display/translation-status"),
-      getJson<RecommendationRecord[]>("/api/recommendation-records"),
-      getJsonOrFallback<OddspapiBackfillAudit>(
-        "/api/oddspapi/backfill-audit?season=2025",
-        mockDashboardData.oddspapiBackfillAudit
-      ),
-      getJsonOrFallback<TrainingWorkspace>(
-        "/api/training/workspace",
-        mockDashboardData.trainingWorkspace
-      ),
-      getJsonOrFallback<PaperRecommendationWorkspace>(
-        "/api/paper-recommendations/workspace",
-        mockPaperRecommendationWorkspace
-      ),
-      getJsonOrFallback<MatchListWorkspace>("/api/match-list/workspace", mockMatchListWorkspace)
+      getJsonOrFallback<WorkerStatus[]>("/api/workers", []),
+      getJsonOrFallback<UnmatchedMatch[]>("/api/unmatched", []),
+      getJsonOrFallback<MatchWithOdds[]>("/api/matches/with-odds", []),
+      getJsonOrFallback<TeamDisplayNameRow[]>("/api/display/missing-team-names", []),
+      getJsonOrFallback<RecommendationRecord[]>("/api/recommendation-records", [])
     ]);
     const oddsTrends = await loadFirstOddsTrend(matchesWithOdds);
     return {
@@ -82,10 +68,10 @@ export async function loadDashboardData(): Promise<DashboardData> {
       doneDisplayTranslationKeys: displayTranslationStatus.done_league_seasons,
       modelTraining: mockModelTrainingOverview,
       recommendationRecords,
-      oddspapiBackfillAudit,
-      trainingWorkspace,
-      paperRecommendations,
-      matchList
+      oddspapiBackfillAudit: mockDashboardData.oddspapiBackfillAudit,
+      trainingWorkspace: mockDashboardData.trainingWorkspace,
+      paperRecommendations: mockPaperRecommendationWorkspace,
+      matchList: mockMatchListWorkspace
     };
   } catch {
     return {
@@ -105,6 +91,20 @@ async function loadFirstOddsTrend(matchesWithOdds: MatchWithOdds[]): Promise<Mat
 
 export async function loadMatchOddsTrend(matchId: number): Promise<MatchOddsTrends> {
   return getJson<MatchOddsTrends>(`/api/matches/${matchId}/odds-trends`);
+}
+
+export async function loadOddspapiBackfillAudit(): Promise<OddspapiBackfillAudit> {
+  return getJsonOrFallback<OddspapiBackfillAudit>(
+    "/api/oddspapi/backfill-audit?season=2025",
+    mockDashboardData.oddspapiBackfillAudit
+  );
+}
+
+export async function loadTrainingWorkspace(): Promise<TrainingWorkspace> {
+  return getJsonOrFallback<TrainingWorkspace>(
+    "/api/training/workspace",
+    mockDashboardData.trainingWorkspace
+  );
 }
 
 export async function loadTeamDisplayNameWorkspace(

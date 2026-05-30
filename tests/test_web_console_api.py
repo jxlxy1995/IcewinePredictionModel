@@ -38,6 +38,38 @@ def test_web_console_api_returns_dashboard_summary(tmp_path):
     assert payload["historical_odds_snapshots"] == 5
 
 
+def test_web_console_api_caches_dashboard_summary_until_ttl_expires(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    _seed_console_data(session_factory)
+
+    client = TestClient(create_web_app(session_factory=session_factory, log_dir=tmp_path))
+
+    first_response = client.get("/api/dashboard/summary")
+    with session_factory() as session:
+        league = session.query(League).one()
+        home = session.query(Team).filter(Team.canonical_name == "Cardiff").one()
+        away = session.query(Team).filter(Team.canonical_name == "Swansea").one()
+        session.add(
+            Match(
+                league_id=league.id,
+                home_team_id=home.id,
+                away_team_id=away.id,
+                kickoff_time=datetime(2026, 5, 22, 22, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                season=2025,
+                status="finished",
+            )
+        )
+        session.commit()
+    second_response = client.get("/api/dashboard/summary")
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json()["total_matches"] == 2
+    assert second_response.json()["total_matches"] == 2
+
+
 def test_web_console_api_returns_league_coverage(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)
@@ -899,6 +931,55 @@ def test_web_console_api_match_list_sync_buttons_record_runs(tmp_path):
     assert calls == [("fixtures_results", 3), ("odds", 2)]
     assert fixtures_response.json()["sync_run"]["sync_type"] == "fixtures_results"
     assert odds_response.json()["sync_run"]["created_count"] == 4
+
+
+def test_web_console_api_match_list_sync_invalidates_cached_workspace(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="J1 League", country_or_region="Japan", level=1)
+        home = Team(canonical_name="Sanfrecce Hiroshima")
+        away = Team(canonical_name="Kawasaki Frontale")
+        session.add_all([league, home, away])
+        session.commit()
+
+    def fake_fixtures_results(days: int):
+        with session_factory() as session:
+            league = session.query(League).one()
+            home = session.query(Team).filter(Team.canonical_name == "Sanfrecce Hiroshima").one()
+            away = session.query(Team).filter(Team.canonical_name == "Kawasaki Frontale").one()
+            session.add(
+                Match(
+                    league=league,
+                    home_team=home,
+                    away_team=away,
+                    kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                    status="scheduled",
+                )
+            )
+            session.commit()
+        return {"created": 1, "updated": 0, "skipped": 0, "requests": 1}
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            clock=lambda: datetime(2026, 5, 30, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_list_fixtures_results_syncer=fake_fixtures_results,
+        )
+    )
+
+    first_response = client.get("/api/match-list/workspace")
+    sync_response = client.post("/api/match-list/sync/fixtures-results", json={"days": 3})
+    second_response = client.get("/api/match-list/workspace")
+
+    assert first_response.status_code == 200
+    assert first_response.json()["total_matches"] == 0
+    assert sync_response.status_code == 200
+    assert second_response.status_code == 200
+    assert second_response.json()["total_matches"] == 1
+    assert second_response.json()["matches"][0]["home_team_name"] == "Sanfrecce Hiroshima"
 
 
 def test_web_console_api_returns_training_workspace(tmp_path):

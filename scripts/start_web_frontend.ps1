@@ -9,4 +9,4 @@ if (-not (Test-Path "node_modules")) {
 }
 
 $env:VITE_API_BASE_URL = ""
-npm run dev
+npm run dev -- --host 127.0.0.1 --port 5173

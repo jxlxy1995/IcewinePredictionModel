@@ -22,7 +22,9 @@ import {
   loadMatchDetail,
   loadMatchListWorkspace,
   loadMatchOddsTrend,
+  loadOddspapiBackfillAudit,
   loadPaperRecommendationWorkspace,
+  loadTrainingWorkspace,
   markTeamDisplayNameWorkspaceDone,
   editPaperRecord,
   recordPaperCandidate,
@@ -222,6 +224,7 @@ export function DashboardPage() {
   const [fixturesSyncDays, setFixturesSyncDays] = useState(3);
   const [oddsSyncDays, setOddsSyncDays] = useState(2);
   const [selectedMatchDetail, setSelectedMatchDetail] = useState<MatchDetail | null>(null);
+  const [loadedLazyViews, setLoadedLazyViews] = useState<Set<ViewKey>>(new Set());
 
   useEffect(() => {
     let isMounted = true;
@@ -233,26 +236,62 @@ export function DashboardPage() {
       setDoneDisplayTranslationKeys(new Set(loadedData.doneDisplayTranslationKeys));
       setOddsTrends(loadedData.oddsTrends);
       setSelectedOddsMatchId(loadedData.oddsTrends.match_id);
-      const firstLeague = loadedData.leagues[0];
-      if (firstLeague?.season != null) {
-        loadTeamDisplayNameWorkspace(firstLeague.league_id, firstLeague.season)
-          .then((workspace) => {
-            if (isMounted) {
-              setTeamDisplayWorkspace(workspace);
-            }
-          })
-          .catch(() => {
-            if (isMounted) {
-              setDisplayWorkspaceError("读取球队中文名维护列表失败");
-            }
-          });
-      }
       setIsLoading(false);
     });
     return () => {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (isLoading || loadedLazyViews.has(activeView)) {
+      return;
+    }
+    setLoadedLazyViews(new Set([...loadedLazyViews, activeView]));
+    if (activeView === "matchList") {
+      setMatchListAction("refresh");
+      refreshMatchListWorkspace(setData, matchListFilters)
+        .catch(() => setMatchListError("刷新比赛列表失败"))
+        .finally(() => setMatchListAction(null));
+    }
+    if (activeView === "oddspapiAudit") {
+      loadOddspapiBackfillAudit().then((audit) => {
+        setData((current) => ({ ...current, oddspapiBackfillAudit: audit }));
+      });
+    }
+    if (activeView === "models") {
+      setTrainingAction("refresh");
+      loadTrainingWorkspace()
+        .then((workspace) => {
+          setData((current) => ({ ...current, trainingWorkspace: workspace }));
+        })
+        .catch(() => setTrainingError("读取训练工作台失败"))
+        .finally(() => setTrainingAction(null));
+    }
+    if (activeView === "paperTracking") {
+      setPaperAction("refresh");
+      refreshPaperWorkspace(setData)
+        .catch(() => setPaperError("刷新纸面跟踪失败"))
+        .finally(() => setPaperAction(null));
+    }
+    if (activeView === "displayNames") {
+      const firstLeague = data.leagues[0];
+      if (firstLeague?.season != null) {
+        loadTeamDisplayNameWorkspace(firstLeague.league_id, firstLeague.season)
+          .then(setTeamDisplayWorkspace)
+          .catch(() => setDisplayWorkspaceError("读取球队中文名维护列表失败"));
+      }
+    }
+    if (activeView === "odds") {
+      const firstMatchId = data.matchesWithOdds[0]?.match_id;
+      if (firstMatchId) {
+        setSelectedOddsMatchId(firstMatchId);
+        loadMatchOddsTrend(firstMatchId)
+          .then(setOddsTrends)
+          .catch(() => setOddsTrendError("读取首场赔率走势失败"));
+      }
+    }
+  }, [activeView, data.leagues, data.matchesWithOdds, isLoading, loadedLazyViews, matchListFilters]);
 
   const activeText = viewText[activeView];
   const statusText = useMemo(() => {

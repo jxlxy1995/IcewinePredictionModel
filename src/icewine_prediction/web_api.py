@@ -7,6 +7,7 @@ from decimal import Decimal
 import csv
 import json
 from pathlib import Path
+from time import monotonic
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -104,10 +105,17 @@ def create_web_app(
     )
 
     app = FastAPI(title="Icewine Prediction Console API")
+    response_cache = WebResponseCache(ttl_seconds=60.0)
     match_list_fixtures_results_syncer = (
         match_list_fixtures_results_syncer or _run_match_list_fixtures_results_sync
     )
     match_list_odds_syncer = match_list_odds_syncer or _run_match_list_odds_sync
+
+    def cached_response(cache_key: tuple[Any, ...], builder: Callable[[], Any]) -> Any:
+        return response_cache.get_or_set(cache_key, builder)
+
+    def clear_cache_prefix(*prefixes: str) -> None:
+        response_cache.clear_prefixes(*prefixes)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -115,8 +123,10 @@ def create_web_app(
 
     @app.get("/api/dashboard/summary")
     def dashboard_summary() -> dict[str, int]:
-        with session_factory() as session:
-            return build_dashboard_summary(session)
+        return cached_response(
+            ("dashboard-summary",),
+            lambda: _with_session(session_factory, build_dashboard_summary),
+        )
 
     @app.get("/api/display/translation-status")
     def display_translation_status() -> dict[str, Any]:
@@ -128,8 +138,16 @@ def create_web_app(
 
     @app.get("/api/leagues/coverage")
     def league_coverage() -> list[dict[str, Any]]:
-        with session_factory() as session:
-            return build_league_coverage(session, display_name_service=display_name_service)
+        return cached_response(
+            ("league-coverage",),
+            lambda: _with_session(
+                session_factory,
+                lambda session: build_league_coverage(
+                    session,
+                    display_name_service=display_name_service,
+                ),
+            ),
+        )
 
     @app.get("/api/workers")
     def workers() -> list[dict[str, Any]]:
@@ -137,28 +155,47 @@ def create_web_app(
 
     @app.get("/api/oddspapi/backfill-audit")
     def oddspapi_backfill_audit(season: int = 2025, top_errors: int = 5) -> dict[str, Any]:
-        with session_factory() as session:
-            report = build_oddspapi_backfill_audit_for_session(
-                session=session,
-                season=season,
-                log_dir=log_dir,
-                top_errors=top_errors,
-                display_service=display_name_service,
-            )
-            return build_oddspapi_backfill_audit_payload(report)
+        return cached_response(
+            ("oddspapi-backfill-audit", season, top_errors),
+            lambda: _with_session(
+                session_factory,
+                lambda session: build_oddspapi_backfill_audit_payload(
+                    build_oddspapi_backfill_audit_for_session(
+                        session=session,
+                        season=season,
+                        log_dir=log_dir,
+                        top_errors=top_errors,
+                        display_service=display_name_service,
+                    )
+                ),
+            ),
+        )
 
     @app.get("/api/unmatched")
     def unmatched() -> list[dict[str, Any]]:
-        with session_factory() as session:
-            return build_unmatched_matches(session, display_name_service=display_name_service)
+        return cached_response(
+            ("unmatched",),
+            lambda: _with_session(
+                session_factory,
+                lambda session: build_unmatched_matches(
+                    session,
+                    display_name_service=display_name_service,
+                ),
+            ),
+        )
 
     @app.get("/api/display/missing-team-names")
     def missing_team_names() -> list[dict[str, Any]]:
-        with session_factory() as session:
-            return build_missing_team_display_names(
-                session,
-                display_name_service=display_name_service,
-            )
+        return cached_response(
+            ("missing-team-names",),
+            lambda: _with_session(
+                session_factory,
+                lambda session: build_missing_team_display_names(
+                    session,
+                    display_name_service=display_name_service,
+                ),
+            ),
+        )
 
     @app.get("/api/display/team-name-workspace")
     def team_name_workspace(league_id: int, season: int) -> dict[str, Any]:
@@ -194,12 +231,29 @@ def create_web_app(
         }
         save_team_display_names(team_names, path=display_names_path)
         display_name_service.display_names = load_display_names(display_names_path)
+        clear_cache_prefix(
+            "league-coverage",
+            "missing-team-names",
+            "matches-with-odds",
+            "match-list-workspace",
+            "paper-recommendation-workspace",
+            "recommendation-records",
+            "unmatched",
+        )
         return {"saved_count": len(team_names)}
 
     @app.get("/api/matches/with-odds")
     def matches_with_odds() -> list[dict[str, Any]]:
-        with session_factory() as session:
-            return build_matches_with_odds(session, display_name_service=display_name_service)
+        return cached_response(
+            ("matches-with-odds",),
+            lambda: _with_session(
+                session_factory,
+                lambda session: build_matches_with_odds(
+                    session,
+                    display_name_service=display_name_service,
+                ),
+            ),
+        )
 
     @app.get("/api/match-list/workspace")
     def match_list_workspace(
@@ -209,18 +263,24 @@ def create_web_app(
         odds_filter: str = "all",
         search: str | None = None,
     ) -> dict[str, Any]:
-        with session_factory() as session:
-            workspace = build_match_list_workspace(
-                session,
-                now=clock(),
-                time_preset=time_preset,
-                league_name=league_name,
-                status_filter=status_filter,
-                odds_filter=odds_filter,
-                search=search,
-                display_name_service=display_name_service,
-            )
-            return build_match_list_workspace_payload(workspace)
+        return cached_response(
+            ("match-list-workspace", time_preset, league_name, status_filter, odds_filter, search),
+            lambda: _with_session(
+                session_factory,
+                lambda session: build_match_list_workspace_payload(
+                    build_match_list_workspace(
+                        session,
+                        now=clock(),
+                        time_preset=time_preset,
+                        league_name=league_name,
+                        status_filter=status_filter,
+                        odds_filter=odds_filter,
+                        search=search,
+                        display_name_service=display_name_service,
+                    )
+                ),
+            ),
+        )
 
     @app.post("/api/match-list/sync/fixtures-results")
     def sync_match_list_fixtures_results(payload: dict[str, Any]) -> dict[str, Any]:
@@ -255,6 +315,14 @@ def create_web_app(
                     error_message=str(error),
                 )
                 raise HTTPException(status_code=500, detail=str(error)) from error
+            clear_cache_prefix(
+                "dashboard-summary",
+                "league-coverage",
+                "match-list-workspace",
+                "matches-with-odds",
+                "missing-team-names",
+                "paper-recommendation-workspace",
+            )
             return {"sync_run": build_data_sync_run_payload(run)}
 
     @app.post("/api/match-list/sync/odds")
@@ -288,6 +356,14 @@ def create_web_app(
                     error_message=str(error),
                 )
                 raise HTTPException(status_code=500, detail=str(error)) from error
+            clear_cache_prefix(
+                "dashboard-summary",
+                "league-coverage",
+                "match-list-workspace",
+                "matches-with-odds",
+                "oddspapi-backfill-audit",
+                "paper-recommendation-workspace",
+            )
             return {"sync_run": build_data_sync_run_payload(run)}
 
     @app.get("/api/matches/{match_id}/odds-trends")
@@ -316,8 +392,16 @@ def create_web_app(
 
     @app.get("/api/recommendation-records")
     def recommendation_records() -> list[dict[str, Any]]:
-        with session_factory() as session:
-            return build_recommendation_records(session, display_name_service=display_name_service)
+        return cached_response(
+            ("recommendation-records",),
+            lambda: _with_session(
+                session_factory,
+                lambda session: build_recommendation_records(
+                    session,
+                    display_name_service=display_name_service,
+                ),
+            ),
+        )
 
     @app.get("/api/paper-recommendations/queue")
     def paper_recommendation_queue(
@@ -346,21 +430,21 @@ def create_web_app(
         near_start_hours: int = 6,
         edge_threshold: str = "0.10",
     ) -> dict[str, Any]:
-        with session_factory() as session:
-            queue_report = build_paper_recommendation_queue(
-                session,
-                now=clock(),
-                hours=hours,
-                near_start_hours=near_start_hours,
-                edge_threshold=edge_threshold,
-                scorer=paper_queue_scorer,
-                display_name_service=display_name_service,
-            )
-            workspace = build_paper_tracking_workspace(
-                session,
-                candidates=queue_report.rows,
-            )
-            return build_paper_tracking_workspace_payload(workspace)
+        return cached_response(
+            ("paper-recommendation-workspace", hours, near_start_hours, edge_threshold),
+            lambda: _with_session(
+                session_factory,
+                lambda session: _build_paper_recommendation_workspace_response(
+                    session,
+                    now=clock(),
+                    hours=hours,
+                    near_start_hours=near_start_hours,
+                    edge_threshold=edge_threshold,
+                    scorer=paper_queue_scorer,
+                    display_name_service=display_name_service,
+                ),
+            ),
+        )
 
     @app.post("/api/paper-recommendations/records")
     def create_paper_recommendation_record(payload: dict[str, Any]) -> dict[str, Any]:
@@ -386,6 +470,7 @@ def create_web_app(
                 )
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
+            clear_cache_prefix("paper-recommendation-workspace")
             return build_paper_record_payload(record)
 
     @app.post("/api/paper-recommendations/records/backfill")
@@ -416,6 +501,7 @@ def create_web_app(
                 )
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
+            clear_cache_prefix("paper-recommendation-workspace")
             return build_paper_record_payload(record)
 
     @app.patch("/api/paper-recommendations/records/{record_id}")
@@ -431,12 +517,14 @@ def create_web_app(
                 )
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
+            clear_cache_prefix("paper-recommendation-workspace")
             return build_paper_record_payload(record)
 
     @app.post("/api/paper-recommendations/settle")
     def settle_paper_recommendation_records() -> dict[str, int]:
         with session_factory() as session:
             result = settle_paper_records(session, settled_at=clock())
+            clear_cache_prefix("paper-recommendation-workspace")
             return asdict(result)
 
     @app.post("/api/paper-recommendations/records/{record_id}/void")
@@ -446,15 +534,19 @@ def create_web_app(
                 record = void_paper_record(session, record_id)
             except ValueError as error:
                 raise HTTPException(status_code=404, detail=str(error)) from error
+            clear_cache_prefix("paper-recommendation-workspace")
             return build_paper_record_payload(record)
 
     @app.get("/api/training/workspace")
     def training_workspace() -> dict[str, Any]:
-        return build_training_workspace_payload(
-            baseline_dataset_path=baseline_dataset_path,
-            baseline_dataset_report_path=baseline_dataset_report_path,
-            baseline_qa_report_path=baseline_qa_report_path,
-            baseline_market_report_path=baseline_market_report_path,
+        return cached_response(
+            ("training-workspace",),
+            lambda: build_training_workspace_payload(
+                baseline_dataset_path=baseline_dataset_path,
+                baseline_dataset_report_path=baseline_dataset_report_path,
+                baseline_qa_report_path=baseline_qa_report_path,
+                baseline_market_report_path=baseline_market_report_path,
+            ),
         )
 
     @app.post("/api/training/baseline-dataset")
@@ -463,6 +555,7 @@ def create_web_app(
             dataset = build_baseline_training_dataset(session)
         write_baseline_training_dataset_csv(dataset, baseline_dataset_path)
         write_baseline_training_dataset_report(dataset.audit, baseline_dataset_report_path)
+        clear_cache_prefix("training-workspace")
         return build_training_workspace_payload(
             baseline_dataset_path=baseline_dataset_path,
             baseline_dataset_report_path=baseline_dataset_report_path,
@@ -476,6 +569,7 @@ def create_web_app(
             raise HTTPException(status_code=404, detail="baseline dataset csv not found")
         report = build_baseline_training_dataset_qa_report(baseline_dataset_path)
         write_baseline_training_dataset_qa_report(report, baseline_qa_report_path)
+        clear_cache_prefix("training-workspace")
         return build_training_workspace_payload(
             baseline_dataset_path=baseline_dataset_path,
             baseline_dataset_report_path=baseline_dataset_report_path,
@@ -489,6 +583,7 @@ def create_web_app(
             raise HTTPException(status_code=404, detail="baseline dataset csv not found")
         report = build_baseline_training_dataset_market_baseline_report(baseline_dataset_path)
         write_baseline_training_dataset_market_baseline_report(report, baseline_market_report_path)
+        clear_cache_prefix("training-workspace")
         return build_training_workspace_payload(
             baseline_dataset_path=baseline_dataset_path,
             baseline_dataset_report_path=baseline_dataset_report_path,
@@ -521,6 +616,67 @@ def build_dashboard_summary(session: Session) -> dict[str, int]:
         "historical_odds_snapshots": historical_odds_snapshots,
         "unmatched_matches": unmatched_matches,
     }
+
+
+class WebResponseCache:
+    def __init__(self, *, ttl_seconds: float) -> None:
+        self.ttl_seconds = ttl_seconds
+        self._entries: dict[tuple[Any, ...], tuple[float, Any]] = {}
+
+    def get_or_set(self, key: tuple[Any, ...], builder: Callable[[], Any]) -> Any:
+        now = monotonic()
+        cached = self._entries.get(key)
+        if cached is not None:
+            cached_at, value = cached
+            if now - cached_at < self.ttl_seconds:
+                return value
+        value = builder()
+        self._entries[key] = (now, value)
+        return value
+
+    def clear_prefixes(self, *prefixes: str) -> None:
+        if not prefixes:
+            self._entries.clear()
+            return
+        self._entries = {
+            key: value
+            for key, value in self._entries.items()
+            if not key or str(key[0]) not in prefixes
+        }
+
+
+def _with_session(
+    session_factory: Callable[[], Session],
+    builder: Callable[[Session], Any],
+) -> Any:
+    with session_factory() as session:
+        return builder(session)
+
+
+def _build_paper_recommendation_workspace_response(
+    session: Session,
+    *,
+    now: datetime,
+    hours: int,
+    near_start_hours: int,
+    edge_threshold: str,
+    scorer: Callable[[dict[str, str]], PaperQueueScore | None] | None,
+    display_name_service: DisplayNameService,
+) -> dict[str, Any]:
+    queue_report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=hours,
+        near_start_hours=near_start_hours,
+        edge_threshold=edge_threshold,
+        scorer=scorer,
+        display_name_service=display_name_service,
+    )
+    workspace = build_paper_tracking_workspace(
+        session,
+        candidates=queue_report.rows,
+    )
+    return build_paper_tracking_workspace_payload(workspace)
 
 
 def build_league_coverage(

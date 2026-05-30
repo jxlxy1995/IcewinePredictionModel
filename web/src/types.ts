@@ -251,11 +251,45 @@ export type TrainingMarketBaselineStatus = {
   market_reports: Record<string, TrainingMarketBaselineMetric>;
 };
 
+export type TrainingRunStatus = "running" | "success" | "failed";
+
+export type TrainingRunStep =
+  | "queued"
+  | "baseline_dataset"
+  | "dataset_qa"
+  | "market_baseline"
+  | "feature_set"
+  | "dynamic_feature_set"
+  | "away_cover_stability"
+  | "finalize";
+
+export type TrainingRun = {
+  id: number;
+  run_type: string;
+  status: TrainingRunStatus;
+  started_at: string;
+  finished_at: string | null;
+  snapshot_tag: string;
+  current_step: TrainingRunStep | string | null;
+  error_step: TrainingRunStep | string | null;
+  error_message: string | null;
+  dataset_rows: number | null;
+  eligible_matches: number | null;
+  complete_matches: number | null;
+  coverage_ratio: string | null;
+  last_trained_match_id: number | null;
+  last_trained_match_summary: string | null;
+  last_trained_kickoff_time: string | null;
+  new_complete_matches: number | null;
+  artifact_paths: Record<string, string | null>;
+};
+
 export type TrainingWorkspace = {
   dataset: TrainingDatasetStatus;
   dataset_report: TrainingFileStatus;
   qa: TrainingQaStatus;
   market_baseline: TrainingMarketBaselineStatus;
+  latest_run: TrainingRun | null;
 };
 
 export type PaperStrategy = {

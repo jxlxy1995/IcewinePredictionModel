@@ -78,6 +78,7 @@ def test_initialize_database_adds_match_detail_columns_to_existing_sqlite_databa
         "halftime_home_score",
         "penalty_away_score",
     }.issubset(match_columns)
+    assert "training_runs" in table_names
 
 
 def test_initialize_database_rebuilds_historical_odds_unique_index_with_market_line(tmp_path: Path):

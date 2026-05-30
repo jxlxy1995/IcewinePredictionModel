@@ -7,6 +7,7 @@ from decimal import Decimal
 import csv
 import json
 from pathlib import Path
+from threading import Thread
 from time import monotonic
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -44,6 +45,7 @@ from icewine_prediction.models import (
     OddsSourceMatch,
     RecommendationRecord,
     Team,
+    TrainingRun,
 )
 from icewine_prediction.oddspapi_backfill_audit_service import (
     OddsPapiBackfillAuditReport,
@@ -69,6 +71,12 @@ from icewine_prediction.paper_recommendation_tracking_service import (
 )
 from icewine_prediction.sync_runner import run_sync_odds, run_sync_results, run_sync_upcoming
 from icewine_prediction.time_utils import now_beijing
+from icewine_prediction.training_orchestration_service import (
+    TrainingRunAlreadyRunning,
+    create_training_run,
+    get_latest_training_run,
+    run_training_full_refresh,
+)
 
 
 def create_web_app(
@@ -92,6 +100,7 @@ def create_web_app(
     paper_queue_scorer: Callable[[dict[str, str]], PaperQueueScore | None] | None = None,
     match_list_fixtures_results_syncer: Callable[[int], dict[str, Any] | str] | None = None,
     match_list_odds_syncer: Callable[[int], dict[str, Any] | str] | None = None,
+    training_full_refresh_runner: Callable[[int], None] | None = None,
     clock: Callable[[], datetime] = now_beijing,
 ) -> FastAPI:
     if session_factory is None:
@@ -110,6 +119,13 @@ def create_web_app(
         match_list_fixtures_results_syncer or _run_match_list_fixtures_results_sync
     )
     match_list_odds_syncer = match_list_odds_syncer or _run_match_list_odds_sync
+    if training_full_refresh_runner is None:
+        training_full_refresh_runner = lambda run_id: _start_training_full_refresh_thread(
+            session_factory,
+            run_id,
+            display_name_service=display_name_service,
+            clock=clock,
+        )
 
     def cached_response(cache_key: tuple[Any, ...], builder: Callable[[], Any]) -> Any:
         return response_cache.get_or_set(cache_key, builder)
@@ -541,13 +557,39 @@ def create_web_app(
     def training_workspace() -> dict[str, Any]:
         return cached_response(
             ("training-workspace",),
-            lambda: build_training_workspace_payload(
-                baseline_dataset_path=baseline_dataset_path,
-                baseline_dataset_report_path=baseline_dataset_report_path,
-                baseline_qa_report_path=baseline_qa_report_path,
-                baseline_market_report_path=baseline_market_report_path,
+            lambda: _with_session(
+                session_factory,
+                lambda session: build_training_workspace_payload(
+                    baseline_dataset_path=baseline_dataset_path,
+                    baseline_dataset_report_path=baseline_dataset_report_path,
+                    baseline_qa_report_path=baseline_qa_report_path,
+                    baseline_market_report_path=baseline_market_report_path,
+                    latest_run=get_latest_training_run(session),
+                ),
             ),
         )
+
+    @app.get("/api/training/runs/latest")
+    def latest_training_run() -> dict[str, Any] | None:
+        with session_factory() as session:
+            return build_training_run_payload(get_latest_training_run(session))
+
+    @app.post("/api/training/runs/full-refresh")
+    def start_training_full_refresh() -> dict[str, Any]:
+        with session_factory() as session:
+            try:
+                run = create_training_run(session, clock=clock)
+                session.commit()
+                run_id = run.id
+                payload = build_training_run_payload(run)
+            except TrainingRunAlreadyRunning as error:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"active_run_id": error.active_run_id},
+                ) from error
+        clear_cache_prefix("training-workspace")
+        training_full_refresh_runner(run_id)
+        return payload
 
     @app.post("/api/training/baseline-dataset")
     def run_training_baseline_dataset() -> dict[str, Any]:
@@ -1298,6 +1340,7 @@ def build_training_workspace_payload(
     baseline_dataset_report_path: Path,
     baseline_qa_report_path: Path,
     baseline_market_report_path: Path,
+    latest_run: TrainingRun | None = None,
 ) -> dict[str, Any]:
     dataset_payload = _build_training_dataset_file_payload(baseline_dataset_path)
     qa_payload: dict[str, Any] = {"exists": False, "path": str(baseline_qa_report_path)}
@@ -1352,7 +1395,68 @@ def build_training_workspace_payload(
         "dataset_report": _build_report_file_payload(baseline_dataset_report_path),
         "qa": qa_payload,
         "market_baseline": market_payload,
+        "latest_run": build_training_run_payload(latest_run),
     }
+
+
+def build_training_run_payload(run: TrainingRun | None) -> dict[str, Any] | None:
+    if run is None:
+        return None
+    artifact_paths = {
+        "dataset_path": run.dataset_path,
+        "dataset_report_path": run.dataset_report_path,
+        "qa_report_path": run.qa_report_path,
+        "market_baseline_report_path": run.market_baseline_report_path,
+        "feature_path": run.feature_path,
+        "feature_report_path": run.feature_report_path,
+        "dynamic_feature_path": run.dynamic_feature_path,
+        "dynamic_feature_report_path": run.dynamic_feature_report_path,
+        "away_cover_stability_report_path": run.away_cover_stability_report_path,
+    }
+    return {
+        "id": run.id,
+        "run_type": run.run_type,
+        "status": run.status,
+        "started_at": _format_datetime(run.started_at),
+        "finished_at": _format_datetime(run.finished_at),
+        "snapshot_tag": run.snapshot_tag,
+        "current_step": run.current_step,
+        "error_step": run.error_step,
+        "error_message": run.error_message,
+        "dataset_rows": run.dataset_rows,
+        "eligible_matches": run.eligible_matches,
+        "complete_matches": run.complete_matches,
+        "coverage_ratio": (
+            _format_decimal(run.coverage_ratio, "0.0000")
+            if run.coverage_ratio is not None
+            else None
+        ),
+        "last_trained_match_id": run.last_trained_match_id,
+        "last_trained_match_summary": run.last_trained_match_summary,
+        "last_trained_kickoff_time": _format_datetime(run.last_trained_kickoff_time),
+        "new_complete_matches": run.new_complete_matches,
+        "artifact_paths": artifact_paths,
+    }
+
+
+def _start_training_full_refresh_thread(
+    session_factory: Callable[[], Session],
+    run_id: int,
+    *,
+    display_name_service: DisplayNameService,
+    clock: Callable[[], datetime],
+) -> None:
+    thread = Thread(
+        target=run_training_full_refresh,
+        args=(session_factory, run_id),
+        kwargs={
+            "display_league": display_name_service.display_league,
+            "display_team": display_name_service.display_team,
+            "clock": clock,
+        },
+        daemon=True,
+    )
+    thread.start()
 
 
 def _run_match_list_fixtures_results_sync(days: int) -> dict[str, int]:

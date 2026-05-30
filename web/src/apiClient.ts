@@ -22,6 +22,7 @@ import type {
   RecommendationRecord,
   TeamDisplayNameRow,
   TeamDisplayNameWorkspace,
+  TrainingRun,
   TrainingWorkspace,
   UnmatchedMatch,
   WorkerStatus
@@ -170,6 +171,14 @@ export async function runTrainingWorkflowAction(
   action: "baseline-dataset" | "baseline-dataset-qa" | "market-baseline"
 ): Promise<TrainingWorkspace> {
   return await postJson<TrainingWorkspace>(`/api/training/${action}`, {});
+}
+
+export async function startTrainingFullRefresh(): Promise<TrainingRun> {
+  return await postJson<TrainingRun>("/api/training/runs/full-refresh", {});
+}
+
+export async function loadLatestTrainingRun(): Promise<TrainingRun | null> {
+  return await getJsonOrFallback<TrainingRun | null>("/api/training/runs/latest", null);
 }
 
 export async function loadPaperRecommendationWorkspace(): Promise<PaperRecommendationWorkspace> {

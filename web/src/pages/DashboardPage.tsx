@@ -25,6 +25,7 @@ import {
   loadOddspapiBackfillAudit,
   loadPaperRecommendationWorkspace,
   loadTrainingWorkspace,
+  startTrainingFullRefresh,
   markTeamDisplayNameWorkspaceDone,
   editPaperRecord,
   recordPaperCandidate,
@@ -53,10 +54,13 @@ import {
 } from "../displayNameWorkspace";
 import {
   buildModelTrainingSummaryCards,
+  buildTrainingRunCards,
   buildTrainingWorkspaceCards,
   countTrainingQualityIssues,
   formatModelTrainingStatus,
   formatMarketType,
+  formatTrainingRunStatus,
+  formatTrainingRunStep,
   listRecentModelRuns,
   listTrainingMarketRows
 } from "../modelTrainingWorkspace";
@@ -293,6 +297,26 @@ export function DashboardPage() {
     }
   }, [activeView, data.leagues, data.matchesWithOdds, isLoading, loadedLazyViews, matchListFilters]);
 
+  useEffect(() => {
+    if (activeView !== "models" || data.trainingWorkspace.latest_run?.status !== "running") {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      loadTrainingWorkspace()
+        .then((workspace) => {
+          setData((current) => ({ ...current, trainingWorkspace: workspace }));
+          if (workspace.latest_run?.status === "success") {
+            setTrainingMessage("训练与模型报告刷新已完成");
+          }
+          if (workspace.latest_run?.status === "failed") {
+            setTrainingError("训练与模型报告刷新失败");
+          }
+        })
+        .catch(() => setTrainingError("刷新训练运行状态失败"));
+    }, 3000);
+    return () => window.clearInterval(intervalId);
+  }, [activeView, data.trainingWorkspace.latest_run?.status]);
+
   const activeText = viewText[activeView];
   const statusText = useMemo(() => {
     if (isLoading) {
@@ -471,6 +495,21 @@ export function DashboardPage() {
             data={data}
             errorText={trainingError}
             messageText={trainingMessage}
+            onFullRefresh={() => {
+              setTrainingAction("full-refresh");
+              setTrainingError(null);
+              setTrainingMessage(null);
+              startTrainingFullRefresh()
+                .then((run) => {
+                  setData((current) => ({
+                    ...current,
+                    trainingWorkspace: { ...current.trainingWorkspace, latest_run: run }
+                  }));
+                  setTrainingMessage("训练与模型报告刷新已开始");
+                })
+                .catch(() => setTrainingError("训练与模型报告刷新启动失败"))
+                .finally(() => setTrainingAction(null));
+            }}
             onRunAction={(action) => {
               setTrainingAction(action);
               setTrainingError(null);
@@ -1174,24 +1213,76 @@ function ModelTrainingView({
   data,
   errorText,
   messageText,
+  onFullRefresh,
   onRunAction
 }: {
   actionInFlight: string | null;
   data: DashboardData;
   errorText: string | null;
   messageText: string | null;
+  onFullRefresh: () => void;
   onRunAction: (action: "baseline-dataset" | "baseline-dataset-qa" | "market-baseline") => void;
 }) {
   const workspace = data.trainingWorkspace;
+  const latestRun = workspace.latest_run;
   const workflowCards = buildTrainingWorkspaceCards(workspace);
+  const runCards = buildTrainingRunCards(latestRun);
   const summaryCards = buildModelTrainingSummaryCards(data.modelTraining);
   const recentRuns = listRecentModelRuns(data.modelTraining);
   const marketRows = listTrainingMarketRows(workspace);
   const qualityIssues = countTrainingQualityIssues(workspace);
   const lowSampleLeagueText = formatLowSampleLeagues(workspace.qa.low_sample_leagues);
+  const isFullRefreshRunning =
+    actionInFlight === "full-refresh" || latestRun?.status === "running";
 
   return (
     <section className="single-column">
+      <Panel title="训练编排">
+        {messageText && <div className="inline-success">{messageText}</div>}
+        {errorText && <div className="inline-warning">{errorText}</div>}
+        {latestRun?.status === "failed" && latestRun.error_message && (
+          <div className="inline-warning">
+            {`失败步骤：${formatTrainingRunStep(latestRun.error_step)} / ${latestRun.error_message}`}
+          </div>
+        )}
+        <div className="training-actions">
+          <button disabled={isFullRefreshRunning} onClick={onFullRefresh} type="button">
+            <Play size={16} />
+            更新训练与模型报告
+          </button>
+          {latestRun && (
+            <span>
+              {formatTrainingRunStatus(latestRun.status)} /{" "}
+              {formatTrainingRunStep(latestRun.current_step)}
+            </span>
+          )}
+        </div>
+        <section className="metrics compact-metrics">
+          {runCards.map((card) => (
+            <MetricCard key={card.label} label={card.label} value={card.value} />
+          ))}
+        </section>
+        {latestRun && (
+          <div className="training-status-grid orchestration-grid">
+            <StatusLine
+              label={`运行 ${latestRun.snapshot_tag} / ${formatTrainingRunStatus(latestRun.status)}`}
+              path={`当前步骤：${formatTrainingRunStep(latestRun.current_step)}`}
+              ready={latestRun.status !== "failed"}
+            />
+            {Object.entries(latestRun.artifact_paths)
+              .filter(([, path]) => Boolean(path))
+              .map(([key, path]) => (
+                <StatusLine
+                  key={key}
+                  label={formatArtifactPathLabel(key)}
+                  path={path ?? ""}
+                  ready={latestRun.status === "success"}
+                />
+              ))}
+          </div>
+        )}
+      </Panel>
+
       <section className="metrics compact-metrics">
         {workflowCards.map((card) => (
           <MetricCard key={card.label} label={card.label} value={card.value} />
@@ -1436,6 +1527,21 @@ function formatTrainingAction(action: string) {
     "market-baseline": "市场基准"
   };
   return names[action] ?? action;
+}
+
+function formatArtifactPathLabel(key: string) {
+  const names: Record<string, string> = {
+    away_cover_stability_report_path: "客队方向稳定性报告",
+    dataset_path: "训练集 CSV",
+    dataset_report_path: "训练集报告",
+    dynamic_feature_path: "动态特征 CSV",
+    dynamic_feature_report_path: "动态特征报告",
+    feature_path: "基础特征 CSV",
+    feature_report_path: "基础特征报告",
+    market_baseline_report_path: "市场基准报告",
+    qa_report_path: "QA 报告"
+  };
+  return names[key] ?? key;
 }
 
 function PaperTrackingView({

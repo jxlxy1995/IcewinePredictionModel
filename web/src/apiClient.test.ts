@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadDashboardData, loadPaperRecommendationWorkspace } from "./apiClient";
+import {
+  loadDashboardData,
+  loadLatestTrainingRun,
+  loadPaperRecommendationWorkspace,
+  startTrainingFullRefresh
+} from "./apiClient";
 
 const apiPayloads: Record<string, unknown> = {
   "/api/dashboard/summary": {
@@ -34,7 +39,28 @@ const apiPayloads: Record<string, unknown> = {
     dataset: { column_count: 0, exists: false, path: "x", row_count: 0, size_bytes: 0, updated_at: null },
     dataset_report: { exists: false, path: "x", size_bytes: 0, updated_at: null },
     market_baseline: { exists: false, path: "x" },
-    qa: { exists: false, path: "x" }
+    qa: { exists: false, path: "x" },
+    latest_run: null
+  },
+  "/api/training/runs/latest": {
+    id: 3,
+    run_type: "full_refresh",
+    status: "success",
+    started_at: "2026-05-30T13:23:00+08:00",
+    finished_at: "2026-05-30T13:28:00+08:00",
+    snapshot_tag: "20260530-1323",
+    current_step: "finalize",
+    error_step: null,
+    error_message: null,
+    dataset_rows: 5330,
+    eligible_matches: 5981,
+    complete_matches: 5330,
+    coverage_ratio: "0.8912",
+    last_trained_match_id: 177,
+    last_trained_match_summary: "日职联 神户胜利船 1-0 鹿岛鹿角",
+    last_trained_kickoff_time: "2026-05-30T18:00:00+08:00",
+    new_complete_matches: null,
+    artifact_paths: {}
   },
   "/api/match-list/workspace": {
     filters: {
@@ -107,5 +133,54 @@ describe("apiClient", () => {
     const workspace = await loadPaperRecommendationWorkspace();
 
     expect(workspace.summary.total_records).toBeGreaterThan(0);
+  });
+
+  it("loads latest training run", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (rawUrl: string) => {
+        const url = rawUrl.replace(/^http:\/\/127\.0\.0\.1:\d+/, "");
+        return Response.json(apiPayloads[url]);
+      })
+    );
+
+    const run = await loadLatestTrainingRun();
+
+    expect(run?.snapshot_tag).toBe("20260530-1323");
+  });
+
+  it("starts training full refresh", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        id: 4,
+        run_type: "full_refresh",
+        status: "running",
+        started_at: "2026-05-30T13:23:00+08:00",
+        finished_at: null,
+        snapshot_tag: "20260530-1323",
+        current_step: "queued",
+        error_step: null,
+        error_message: null,
+        dataset_rows: null,
+        eligible_matches: null,
+        complete_matches: null,
+        coverage_ratio: null,
+        last_trained_match_id: null,
+        last_trained_match_summary: null,
+        last_trained_kickoff_time: null,
+        new_complete_matches: null,
+        artifact_paths: {}
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const run = await startTrainingFullRefresh();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/training/runs/full-refresh", {
+      body: "{}",
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    expect(run.status).toBe("running");
   });
 });

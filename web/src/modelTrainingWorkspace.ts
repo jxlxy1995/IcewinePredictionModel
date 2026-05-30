@@ -2,6 +2,8 @@ import type {
   ModelTrainingOverview,
   ModelTrainingRun,
   ModelTrainingStatus,
+  TrainingRun,
+  TrainingRunStatus,
   TrainingWorkspace
 } from "./types";
 
@@ -24,6 +26,11 @@ export type TrainingMarketRow = {
   logLoss: string;
   brier: string;
   flatBetRoi: string;
+};
+
+export type TrainingRunCard = {
+  label: string;
+  value: string;
 };
 
 export function buildModelTrainingSummaryCards(
@@ -49,6 +56,22 @@ export function buildTrainingWorkspaceCards(
       label: "市场基准样本",
       value: workspace.market_baseline.evaluated_market_samples.toLocaleString()
     }
+  ];
+}
+
+export function buildTrainingRunCards(run: TrainingRun | null): TrainingRunCard[] {
+  if (!run) {
+    return [
+      { label: "最近更新", value: "暂无" },
+      { label: "训练样本", value: "0" },
+      { label: "最后入训", value: "暂无" }
+    ];
+  }
+  return [
+    { label: "最近更新", value: formatDateTimeCompact(run.finished_at ?? run.started_at) },
+    { label: "训练样本", value: (run.dataset_rows ?? 0).toLocaleString() },
+    { label: "覆盖率", value: run.coverage_ratio ?? "暂无" },
+    { label: "最后入训", value: run.last_trained_match_summary ?? "暂无" }
   ];
 }
 
@@ -96,6 +119,46 @@ export function formatModelTrainingStatus(status: ModelTrainingStatus): string {
     training: "训练中"
   };
   return statusText[status];
+}
+
+export function formatTrainingRunStatus(status: TrainingRunStatus): string {
+  const statusText: Record<TrainingRunStatus, string> = {
+    failed: "失败",
+    running: "运行中",
+    success: "成功"
+  };
+  return statusText[status];
+}
+
+export function formatTrainingRunStep(step: string | null): string {
+  if (!step) {
+    return "等待中";
+  }
+  const names: Record<string, string> = {
+    away_cover_stability: "客队方向稳定性",
+    baseline_dataset: "训练集",
+    dataset_qa: "数据 QA",
+    dynamic_feature_set: "动态特征",
+    feature_set: "基础特征",
+    finalize: "收尾",
+    market_baseline: "市场基准",
+    queued: "排队中"
+  };
+  return names[step] ?? step;
+}
+
+function formatDateTimeCompact(value: string | null): string {
+  if (!value) {
+    return "暂无";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const pad = (part: number) => part.toString().padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
 }
 
 export function formatMarketType(value: string): string {

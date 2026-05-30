@@ -384,6 +384,32 @@ export const mockTrainingWorkspace: TrainingWorkspace = {
         predicted_side_counts: { home: 3608, away: 1690, draw: 32 }
       }
     }
+  },
+  latest_run: {
+    id: 3,
+    run_type: "full_refresh",
+    status: "success",
+    started_at: "2026-05-30T13:23:00+08:00",
+    finished_at: "2026-05-30T13:28:00+08:00",
+    snapshot_tag: "20260530-1323",
+    current_step: "finalize",
+    error_step: null,
+    error_message: null,
+    dataset_rows: 5330,
+    eligible_matches: 5981,
+    complete_matches: 5330,
+    coverage_ratio: "0.8912",
+    last_trained_match_id: 177,
+    last_trained_match_summary: "日职联 神户胜利船 1-0 鹿岛鹿角",
+    last_trained_kickoff_time: "2026-05-30T18:00:00+08:00",
+    new_complete_matches: null,
+    artifact_paths: {
+      away_cover_stability_report_path:
+        "docs/模型实验/20260530-1323-baseline-away-cover-stability-v1.md",
+      dataset_path: "local_data/training/baseline_main_leagues_20260530-1323.csv",
+      dynamic_feature_path:
+        "local_data/training/baseline_dynamic_features_main_leagues_20260530-1323.csv"
+    }
   }
 };
 

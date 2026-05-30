@@ -15,6 +15,7 @@ from icewine_prediction.models import (
     OddsSnapshot,
     RecommendationRecord,
     Team,
+    TrainingRun,
 )
 from icewine_prediction.web_api import create_web_app
 
@@ -1040,6 +1041,91 @@ def test_web_console_api_returns_training_workspace(tmp_path):
     assert payload["market_baseline"]["exists"] is True
     assert payload["market_baseline"]["evaluated_market_samples"] == 3
     assert payload["market_baseline"]["market_reports"]["match_winner"]["flat_bet_roi"] == "1.1000"
+    assert payload["latest_run"] is None
+
+
+def test_web_console_api_starts_training_full_refresh(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    started: list[int] = []
+
+    def fake_background_runner(run_id: int):
+        started.append(run_id)
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            training_full_refresh_runner=fake_background_runner,
+            clock=lambda: datetime(2026, 5, 30, 13, 23, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    response = client.post("/api/training/runs/full-refresh")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "running"
+    assert payload["snapshot_tag"] == "20260530-1323"
+    assert payload["current_step"] == "queued"
+    assert started == [payload["id"]]
+
+
+def test_web_console_api_rejects_second_training_full_refresh(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            training_full_refresh_runner=lambda run_id: None,
+            clock=lambda: datetime(2026, 5, 30, 13, 23, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    first_response = client.post("/api/training/runs/full-refresh")
+    second_response = client.post("/api/training/runs/full-refresh")
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 409
+    assert second_response.json()["detail"]["active_run_id"] == first_response.json()["id"]
+
+
+def test_web_console_api_returns_latest_training_run(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        session.add(
+            TrainingRun(
+                run_type="full_refresh",
+                status="success",
+                started_at=datetime(2026, 5, 30, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                finished_at=datetime(2026, 5, 30, 13, 5, tzinfo=ZoneInfo("Asia/Shanghai")),
+                snapshot_tag="20260530-1300",
+                current_step="finalize",
+                dataset_rows=5330,
+                coverage_ratio=Decimal("0.8912"),
+                last_trained_match_summary="日职联 神户胜利船 1-0 鹿岛鹿角",
+                dataset_path="local_data/training/baseline.csv",
+            )
+        )
+        session.commit()
+
+    client = TestClient(create_web_app(session_factory=session_factory, log_dir=tmp_path))
+    response = client.get("/api/training/runs/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["snapshot_tag"] == "20260530-1300"
+    assert payload["status"] == "success"
+    assert payload["dataset_rows"] == 5330
+    assert payload["coverage_ratio"] == "0.8912"
+    assert payload["last_trained_match_summary"] == "日职联 神户胜利船 1-0 鹿岛鹿角"
+    assert payload["artifact_paths"]["dataset_path"] == "local_data/training/baseline.csv"
 
 
 def _seed_console_data(session_factory):

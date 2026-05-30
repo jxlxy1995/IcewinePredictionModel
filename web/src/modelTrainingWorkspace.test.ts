@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { ModelTrainingOverview, TrainingWorkspace } from "./types";
 import {
   buildModelTrainingSummaryCards,
+  buildTrainingRunCards,
   buildTrainingWorkspaceCards,
   formatModelTrainingStatus,
+  formatTrainingRunStatus,
+  formatTrainingRunStep,
   listRecentModelRuns,
   listTrainingMarketRows
 } from "./modelTrainingWorkspace";
@@ -126,7 +129,8 @@ const trainingWorkspace: TrainingWorkspace = {
         predicted_side_counts: { home: 3608, away: 1690, draw: 32 }
       }
     }
-  }
+  },
+  latest_run: null
 };
 
 describe("model training workspace helpers", () => {
@@ -166,5 +170,39 @@ describe("model training workspace helpers", () => {
 
     expect(rows.map((row) => row.marketLabel)).toEqual(["亚盘", "大小球", "胜平负"]);
     expect(rows[0].flatBetRoi).toBe("-0.0188");
+  });
+
+  it("formats latest training run cards", () => {
+    const cards = buildTrainingRunCards({
+      id: 3,
+      run_type: "full_refresh",
+      status: "success",
+      started_at: "2026-05-30T13:23:00+08:00",
+      finished_at: "2026-05-30T13:28:00+08:00",
+      snapshot_tag: "20260530-1323",
+      current_step: "finalize",
+      error_step: null,
+      error_message: null,
+      dataset_rows: 5330,
+      eligible_matches: 5981,
+      complete_matches: 5330,
+      coverage_ratio: "0.8912",
+      last_trained_match_id: 177,
+      last_trained_match_summary: "日职联 神户胜利船 1-0 鹿岛鹿角",
+      last_trained_kickoff_time: "2026-05-30T18:00:00+08:00",
+      new_complete_matches: null,
+      artifact_paths: {}
+    });
+
+    expect(cards).toContainEqual({ label: "最近更新", value: "2026-05-30 13:28" });
+    expect(cards).toContainEqual({ label: "训练样本", value: "5,330" });
+    expect(cards).toContainEqual({ label: "最后入训", value: "日职联 神户胜利船 1-0 鹿岛鹿角" });
+  });
+
+  it("formats run status and step labels", () => {
+    expect(formatTrainingRunStatus("running")).toBe("运行中");
+    expect(formatTrainingRunStatus("success")).toBe("成功");
+    expect(formatTrainingRunStatus("failed")).toBe("失败");
+    expect(formatTrainingRunStep("dynamic_feature_set")).toBe("动态特征");
   });
 });

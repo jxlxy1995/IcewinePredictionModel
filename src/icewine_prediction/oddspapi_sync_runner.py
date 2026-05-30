@@ -177,6 +177,7 @@ class OddsPapiRequestLimiter:
 
 
 GLOBAL_HISTORICAL_ODDS_LIMITER = OddsPapiRequestLimiter()
+GLOBAL_FIXTURE_LIMITER = OddsPapiRequestLimiter()
 GLOBAL_MARKET_DEFINITIONS_CACHE: dict[tuple[int, str], list[dict[str, Any]]] = {}
 GLOBAL_MARKET_DEFINITIONS_CACHE_LOCK = Lock()
 
@@ -185,6 +186,8 @@ class OddsPapiSyncClient:
     def __init__(
         self,
         client: OddsPapiClient,
+        fixture_cooldown_seconds: float = 7.5,
+        fixture_limiter: OddsPapiRequestLimiter | None = None,
         historical_odds_cooldown_seconds: float = 0,
         historical_odds_limiter: OddsPapiRequestLimiter | None = None,
         historical_odds_rate_limit_backoff_seconds: float = 30,
@@ -192,6 +195,8 @@ class OddsPapiSyncClient:
         self.client = client
         self._last_fixture_request_at = 0.0
         self._last_historical_odds_request_at = 0.0
+        self.fixture_cooldown_seconds = fixture_cooldown_seconds
+        self.fixture_limiter = fixture_limiter
         self.historical_odds_cooldown_seconds = historical_odds_cooldown_seconds
         self.historical_odds_limiter = historical_odds_limiter
         self.historical_odds_rate_limit_backoff_seconds = historical_odds_rate_limit_backoff_seconds
@@ -201,7 +206,13 @@ class OddsPapiSyncClient:
     def request_count(self) -> int:
         return self.client.request_count
 
-    def fetch_fixtures(self, tournament_id: int, kickoff_time: datetime) -> list[OddsPapiFixture]:
+    def fetch_fixtures(
+        self,
+        tournament_id: int,
+        kickoff_time: datetime,
+        *,
+        require_available_odds: bool = True,
+    ) -> list[OddsPapiFixture]:
         self._respect_fixture_cooldown()
         start_time = _as_utc(kickoff_time) - timedelta(hours=2)
         end_time = _as_utc(kickoff_time) + timedelta(hours=2)
@@ -210,20 +221,23 @@ class OddsPapiSyncClient:
             "tournamentId": tournament_id,
             "from": _format_utc_time(start_time),
             "to": _format_utc_time(end_time),
-            "statusId": 2,
-            "hasOdds": True,
         }
+        if require_available_odds:
+            params["statusId"] = 2
+            params["hasOdds"] = True
         try:
             payload = self.client.get("fixtures", params)
         except OddsPapiApiError as exc:
-            if exc.status_code != 404:
+            if exc.status_code != 404 or not require_available_odds:
                 raise
+            self._mark_fixture_request_finished()
             fallback_params = dict(params)
             fallback_params.pop("statusId", None)
             fallback_params.pop("hasOdds", None)
+            self._respect_fixture_cooldown()
             payload = self.client.get("fixtures", fallback_params)
         finally:
-            self._last_fixture_request_at = time.monotonic()
+            self._mark_fixture_request_finished()
         return [_map_fixture(item) for item in payload]
 
     def fetch_historical_odds(
@@ -305,9 +319,17 @@ class OddsPapiSyncClient:
             return cache_key in GLOBAL_MARKET_DEFINITIONS_CACHE
 
     def _respect_fixture_cooldown(self) -> None:
+        if self.fixture_limiter is not None:
+            self.fixture_limiter.wait()
+            return
         elapsed = time.monotonic() - self._last_fixture_request_at
-        if self._last_fixture_request_at > 0 and elapsed < 2:
-            time.sleep(2 - elapsed)
+        cooldown = self.fixture_cooldown_seconds
+        if self._last_fixture_request_at > 0 and elapsed < cooldown:
+            time.sleep(cooldown - elapsed)
+
+    def _mark_fixture_request_finished(self) -> None:
+        if self.fixture_limiter is None:
+            self._last_fixture_request_at = time.monotonic()
 
     def _respect_historical_odds_cooldown(self) -> None:
         if self.historical_odds_limiter is not None:
@@ -368,6 +390,7 @@ def run_oddspapi_sync(
     progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     settings = load_project_settings()
+    GLOBAL_FIXTURE_LIMITER.set_cooldown(7.5)
     GLOBAL_HISTORICAL_ODDS_LIMITER.set_cooldown(historical_odds_cooldown_seconds)
     raw_client = OddsPapiClient(
         base_url=ODDSPAPI_BASE_URL,
@@ -377,6 +400,7 @@ def run_oddspapi_sync(
     )
     client = OddsPapiSyncClient(
         raw_client,
+        fixture_limiter=GLOBAL_FIXTURE_LIMITER,
         historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
         historical_odds_limiter=GLOBAL_HISTORICAL_ODDS_LIMITER,
     )
@@ -410,6 +434,7 @@ def run_oddspapi_sync_result(
     progress_callback: Callable[[str], None] | None = None,
 ) -> OddsPapiSyncResult:
     settings = load_project_settings()
+    GLOBAL_FIXTURE_LIMITER.set_cooldown(7.5)
     GLOBAL_HISTORICAL_ODDS_LIMITER.set_cooldown(historical_odds_cooldown_seconds)
     raw_client = OddsPapiClient(
         base_url=ODDSPAPI_BASE_URL,
@@ -419,6 +444,7 @@ def run_oddspapi_sync_result(
     )
     client = OddsPapiSyncClient(
         raw_client,
+        fixture_limiter=GLOBAL_FIXTURE_LIMITER,
         historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
         historical_odds_limiter=GLOBAL_HISTORICAL_ODDS_LIMITER,
     )
@@ -703,6 +729,43 @@ def run_oddspapi_sync_for_session(
                 api_football_to_oddspapi_tournament_ids=API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS,
                 team_aliases=team_aliases,
             )
+            if candidate is None and fixtures_by_tournament_id[fixture_cache_key]:
+                fallback_cache_key = (*fixture_cache_key, "unfiltered")
+                if fallback_cache_key not in fixtures_by_tournament_id:
+                    try:
+                        _emit_progress(
+                            progress_callback,
+                            (
+                                f"  fixture_lookup_unfiltered_start match_id={match.id} "
+                                f"tournament_id={tournament_id}"
+                            ),
+                        )
+                        started_at = time.monotonic()
+                        fixtures_by_tournament_id[fallback_cache_key] = client.fetch_fixtures(
+                            tournament_id=tournament_id,
+                            kickoff_time=match.kickoff_time,
+                            require_available_odds=False,
+                        )
+                        _emit_progress(
+                            progress_callback,
+                            (
+                                f"  fixture_lookup_unfiltered_done match_id={match.id} "
+                                f"fixtures={len(fixtures_by_tournament_id[fallback_cache_key])} "
+                                f"elapsed={_format_elapsed_seconds(started_at)}"
+                            ),
+                        )
+                    except OddsPapiApiError as exc:
+                        if _classify_historical_odds_error(exc) == "unavailable":
+                            _store_unavailable_odds_source_match(session, match, str(exc))
+                        else:
+                            _store_fixture_lookup_failed_odds_source_match(session, match, str(exc))
+                        raise
+                candidate = find_best_odds_source_match(
+                    match=match,
+                    fixtures=fixtures_by_tournament_id[fallback_cache_key],
+                    api_football_to_oddspapi_tournament_ids=API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS,
+                    team_aliases=team_aliases,
+                )
             if candidate is None:
                 _store_unmatched_odds_source_match(session, match, "未匹配到 OddsPapi 比赛")
                 _emit_progress(

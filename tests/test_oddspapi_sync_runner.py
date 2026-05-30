@@ -1030,7 +1030,11 @@ def test_run_oddspapi_sync_for_session_reuses_fixture_lookup_for_same_time_windo
     )
 
     fixture_calls = [call for call in raw_client.calls if call[0] == "fixtures"]
-    assert len(fixture_calls) == 1
+    assert len(fixture_calls) == 2
+    assert fixture_calls[0][1]["statusId"] == 2
+    assert fixture_calls[0][1]["hasOdds"] is True
+    assert "statusId" not in fixture_calls[1][1]
+    assert "hasOdds" not in fixture_calls[1][1]
 
 
 def test_run_oddspapi_sync_for_session_stops_gracefully_on_api_error(session):
@@ -1110,6 +1114,70 @@ def test_run_oddspapi_sync_for_session_marks_unmatched_match_as_terminal(session
     assert source_match.match_confidence == Decimal("0.0000")
     assert source_match.match_reason == "未匹配到 OddsPapi 比赛"
     assert source_match.historical_odds_status == "unmatched"
+
+
+def test_run_oddspapi_sync_for_session_retries_unfiltered_fixture_lookup_when_filtered_candidates_miss(session):
+    match = _match(
+        session,
+        source_match_id="1497589",
+        league_name="Superettan (Sweden)",
+        source_league_id="114",
+        kickoff_time=datetime(2026, 5, 30, 23, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Osters IF",
+        away_team_name="Norrby IF",
+    )
+
+    class FilteredFixtureMissClient(FakeOddsPapiClient):
+        def get(self, endpoint, params=None):
+            if endpoint == "fixtures" and (params or {}).get("tournamentId") == 46:
+                self.request_count += 1
+                self.calls.append((endpoint, params or {}))
+                if "statusId" in (params or {}) or "hasOdds" in (params or {}):
+                    return [
+                        {
+                            "fixtureId": "sundsvall-sandviken",
+                            "tournamentId": 46,
+                            "startTime": "2026-05-30T13:00:00Z",
+                            "participant1Name": "GIF Sundsvall",
+                            "participant2Name": "Sandvikens IF",
+                        }
+                    ]
+                return [
+                    {
+                        "fixtureId": "osters-norrby",
+                        "tournamentId": 46,
+                        "startTime": "2026-05-30T15:00:00Z",
+                        "participant1Name": "Osters IF",
+                        "participant2Name": "Norrby IF",
+                    }
+                ]
+            return super().get(endpoint, params)
+
+    raw_client = FilteredFixtureMissClient()
+    client = OddsPapiSyncClient(raw_client)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    source_match = session.query(OddsSourceMatch).filter_by(match_id=match.id).one()
+    fixture_calls = [
+        params for endpoint, params in raw_client.calls if endpoint == "fixtures"
+    ]
+    historical_calls = [
+        params for endpoint, params in raw_client.calls if endpoint == "historical-odds"
+    ]
+    assert result.matched_count == 1
+    assert source_match.source_fixture_id == "osters-norrby"
+    assert source_match.match_confidence == Decimal("1.0000")
+    assert fixture_calls[0]["statusId"] == 2
+    assert fixture_calls[0]["hasOdds"] is True
+    assert "statusId" not in fixture_calls[1]
+    assert "hasOdds" not in fixture_calls[1]
+    assert {call.get("fixtureId") for call in historical_calls} == {"osters-norrby"}
 
 
 def test_run_oddspapi_sync_for_session_continues_after_single_match_odds_error(session):
@@ -1888,6 +1956,31 @@ def test_oddspapi_sync_client_retries_fixture_lookup_without_status_filter_after
     assert "hasOdds" not in raw_client.calls[1][1]
 
 
+def test_oddspapi_sync_client_respects_fixture_cooldown_before_404_fallback(monkeypatch):
+    class FixtureFallbackClient(FakeOddsPapiClient):
+        def get(self, endpoint, params=None):
+            if endpoint == "fixtures" and (params or {}).get("statusId") == 2:
+                self.request_count += 1
+                self.calls.append((endpoint, params or {}))
+                raise OddsPapiApiError("OddsPapi HTTP error: status=404", status_code=404)
+            return super().get(endpoint, params)
+
+    raw_client = FixtureFallbackClient()
+    client = OddsPapiSyncClient(raw_client)
+    now_values = iter([100.0, 100.0, 101.0, 107.5])
+    sleeps = []
+    monkeypatch.setattr(oddspapi_sync_runner.time, "monotonic", lambda: next(now_values))
+    monkeypatch.setattr(oddspapi_sync_runner.time, "sleep", sleeps.append)
+
+    fixtures = client.fetch_fixtures(
+        tournament_id=8,
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+
+    assert fixtures[0].fixture_id == "oddspapi-fixture-1"
+    assert sleeps == [6.5]
+
+
 def test_oddspapi_sync_client_respects_historical_odds_cooldown(monkeypatch):
     raw_client = FakeOddsPapiClient()
     client = OddsPapiSyncClient(raw_client, historical_odds_cooldown_seconds=5)
@@ -1919,6 +2012,29 @@ def test_oddspapi_sync_client_can_share_historical_odds_limiter(monkeypatch):
     assert sleeps == [4.0]
 
 
+def test_oddspapi_sync_client_can_share_fixture_limiter(monkeypatch):
+    first_raw_client = FakeOddsPapiClient()
+    second_raw_client = FakeOddsPapiClient()
+    limiter = OddsPapiRequestLimiter(cooldown_seconds=7.5)
+    first_client = OddsPapiSyncClient(first_raw_client, fixture_limiter=limiter)
+    second_client = OddsPapiSyncClient(second_raw_client, fixture_limiter=limiter)
+    now_values = iter([100.0, 100.0, 101.0, 107.5])
+    sleeps = []
+    monkeypatch.setattr(oddspapi_sync_runner.time, "monotonic", lambda: next(now_values))
+    monkeypatch.setattr(oddspapi_sync_runner.time, "sleep", sleeps.append)
+
+    first_client.fetch_fixtures(
+        tournament_id=8,
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+    second_client.fetch_fixtures(
+        tournament_id=8,
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+
+    assert sleeps == [6.5]
+
+
 def test_oddspapi_sync_client_respects_fixture_cooldown_after_request_error(monkeypatch):
     raw_client = FakeOddsPapiClient(fail_endpoint="fixtures")
     client = OddsPapiSyncClient(raw_client)
@@ -1942,4 +2058,4 @@ def test_oddspapi_sync_client_respects_fixture_cooldown_after_request_error(monk
     except OddsPapiApiError:
         pass
 
-    assert sleeps == [1.0]
+    assert sleeps == [6.5]

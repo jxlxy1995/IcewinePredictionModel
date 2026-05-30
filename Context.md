@@ -820,3 +820,46 @@ with Session() as s:
    - missing source row after this commit should be treated as a bug worth investigating.
 
 4. Do not call Oddspapi for local audits unless explicitly probing/fetching. The web sync and `oddspapi_sync_runner` calls do consume API requests.
+
+## 2026-05-31 Match List Sync, Paper Queue, And OddsPapi 429 Fixes
+
+Work completed and prepared for commit on 2026-05-31:
+
+- Result sync:
+  - `_is_live_match_for_result_sync` now only skips in-play/live statuses while they are within 2 hours after kickoff.
+  - Stale live statuses older than that are refreshed via API-Football so finished scores can be backfilled.
+  - API-Football fixture mapping uses `score.fulltime` for the main stored score when present, falling back to `goals`; extra time and penalty scores remain in their separate fields.
+- Paper recommendation queue:
+  - `asian_away_cover_hgb_edge_v1` candidates now require a usable Asian handicap odds snapshot within 3 hours before kickoff.
+  - Rows without sufficiently fresh odds are marked `stale_odds`.
+  - Paper tracking workspace receives only rows with `status == "candidate"`.
+  - Cleared obsolete local `paper_recommendation_records` rows earlier in this session; one pending record remained at that time.
+- Match list UI:
+  - Removed the `核心盘口` column from the match list table and row model.
+  - Backend odds summary remains available for details/diagnostics.
+- OddsPapi fixture lookup:
+  - Fixed Superettan-style filtered fixture misses by retrying unfiltered fixture lookup when filtered candidates exist but do not match teams.
+  - Diagnosed web odds sync 429s as fixture endpoint short-window limiting, not total quota exhaustion.
+  - `OddsPapiSyncClient` fixture cooldown default is now 7.5 seconds.
+  - The 404 filtered-fixture fallback now records the first request and waits before sending the unfiltered request.
+  - `run_oddspapi_sync` and `run_oddspapi_sync_result` use `GLOBAL_FIXTURE_LIMITER`, so repeated Web/manual single-match clicks share the 7.5s fixture limiter.
+
+Fresh verification for the final state:
+
+```powershell
+$env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
+C:\ProgramData\anaconda3\python.exe -m pytest tests/test_oddspapi_sync_runner.py -q
+C:\ProgramData\anaconda3\python.exe -m pytest tests/test_web_console_api.py -q
+```
+
+Result during implementation: `52 passed` and `32 passed`.
+
+Frontend checks run after removing the match-list core-handicap column:
+
+```powershell
+cd web
+npm test -- matchListWorkspace.test.ts
+npm run build
+```
+
+Result during implementation: match-list test passed and build succeeded.

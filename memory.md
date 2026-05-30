@@ -22,13 +22,17 @@
 - Web console navigation is intentionally focused on active workflows: match list, Chinese names, model training, paper tracking, and recommendation records.
 - Formal `recommendation_records` local demo data was cleared on 2026-05-30; keep `paper_recommendation_records` separate and do not clear it when only cleaning the recommendation-record page.
 - Result sync should not request API-Football fixture updates for truly live/in-play matches; skip them and retry after they are no longer live.
+- Result sync should only skip live/in-play matches during the first 2 hours after kickoff; stale live statuses after that should be refreshed so final results can be backfilled.
+- API-Football main score should use `score.fulltime` when present, falling back to `goals`; this keeps stored match scores as regular-time scores and excludes extra time / penalties from the main result fields.
 - API-Football requests should be gently paced and retried once for transient connection resets.
 - Match sync diagnostics should be persisted per match. Odds diagnostics belong only to odds sync reports, not fixtures/results sync reports.
+- Paper recommendation candidates for `asian_away_cover_hgb_edge_v1` should require a usable Asian handicap odds snapshot within 3 hours before kickoff; stale/no-odds rows stay visible in queue diagnostics but must not enter the recordable paper workspace.
 
 ## Oddspapi Backfill Learnings
 
 - Safe single-worker mode is the default for long runs to reduce 429 risk.
 - `chunk-size=4`, cooldown `7.5s`, and round timeout `500s` have been working well.
+- Web/manual OddsPapi fixture lookups also use a 7.5s shared limiter. The 404 filtered-fixture fallback must wait before sending the unfiltered fixture request, and consecutive Web clicks should share the same limiter.
 - Historical odds requests usually take around 5-8 seconds when healthy.
 - Some early boundary matches return raw data but no usable pre-match/main-line snapshots; these are usually marked `empty`.
 - Rechecked non-matching fixtures should be marked `unavailable`, not left as `unmatched`, when candidates clearly do not match target teams.

@@ -619,7 +619,7 @@ def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
         session.add(
             OddsSnapshot(
                 match=match,
-                captured_at=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                captured_at=datetime(2026, 5, 30, 2, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
                 data_source="api_football",
                 bookmaker="Pinnacle",
                 asian_handicap=Decimal("-0.50"),
@@ -747,6 +747,76 @@ def test_web_console_api_voids_paper_record(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["status"] == "void"
+
+
+def test_web_console_api_paper_workspace_lists_only_recordable_candidates(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="Premier Division", country_or_region="Ireland", level=1)
+        home = Team(canonical_name="Drogheda United")
+        away = Team(canonical_name="Waterford")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 2, 45, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+            source_name="api_football",
+            source_match_id="17446",
+        )
+        session.add_all([league, home, away, match])
+        session.flush()
+        session.add(
+            OddsSnapshot(
+                match=match,
+                captured_at=datetime(2026, 5, 29, 23, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                data_source="api_football",
+                bookmaker="Pinnacle",
+                asian_handicap=Decimal("-0.50"),
+                home_odds=Decimal("1.990"),
+                away_odds=Decimal("1.930"),
+                total_line=Decimal("2.50"),
+                over_odds=Decimal("1.90"),
+                under_odds=Decimal("2.00"),
+                match_winner_home_odds=Decimal("2.10"),
+                match_winner_draw_odds=Decimal("3.25"),
+                match_winner_away_odds=Decimal("3.40"),
+            )
+        )
+        session.commit()
+
+    def fake_scorer(row):
+        from icewine_prediction.paper_recommendation_queue_service import PaperQueueScore
+
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1500"),
+            model_name="fake_hgb",
+        )
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            paper_queue_scorer=fake_scorer,
+            clock=lambda: datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    workspace_response = client.get("/api/paper-recommendations/workspace?hours=6")
+    queue_response = client.get("/api/paper-recommendations/queue?hours=6")
+
+    assert workspace_response.status_code == 200
+    assert queue_response.status_code == 200
+    workspace = workspace_response.json()
+    queue = queue_response.json()
+    assert queue["rows"][0]["status"] == "stale_odds"
+    assert workspace["summary"]["candidate_count"] == 0
+    assert workspace["candidates"] == []
 
 
 def test_web_console_api_backfills_paper_record_from_historical_candidate(tmp_path):
@@ -1158,6 +1228,11 @@ def test_match_list_fixtures_results_sync_skips_live_matches(monkeypatch, tmp_pa
     monkeypatch.setattr(web_api, "_open_session_for_web_sync", lambda: session_factory())
     monkeypatch.setattr(web_api, "load_project_settings", lambda: object())
     monkeypatch.setattr(web_api, "build_api_football_provider", lambda settings: Provider())
+    monkeypatch.setattr(
+        web_api,
+        "now_beijing",
+        lambda: datetime(2026, 5, 30, 18, 35, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
 
     result = web_api._run_match_list_fixtures_results_sync([match_id])
 
@@ -1170,6 +1245,127 @@ def test_match_list_fixtures_results_sync_skips_live_matches(monkeypatch, tmp_pa
             "message": "比赛进行中，暂不申请赛果",
         }
     ]
+
+
+def test_match_list_fixtures_results_sync_refreshes_stale_live_matches(monkeypatch, tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(
+            name="Super League",
+            country_or_region="China",
+            level=1,
+            source_name="api_football",
+            source_league_id="169",
+        )
+        home = Team(
+            canonical_name="Sichuan Jiuniu",
+            source_name="api_football",
+            source_team_id="1",
+        )
+        away = Team(
+            canonical_name="Qingdao Jonoon",
+            source_name="api_football",
+            source_team_id="2",
+        )
+        session.add_all([league, home, away])
+        session.flush()
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            season=2026,
+            status="2h",
+            status_short="2H",
+            status_long="Second Half",
+            elapsed=90,
+            home_score=3,
+            away_score=2,
+            source_name="api_football",
+            source_match_id="1523176",
+        )
+        session.add(match)
+        session.commit()
+        match_id = match.id
+
+    class FinishedClient:
+        request_count = 0
+
+        def get(self, endpoint, params):
+            self.request_count += 1
+            assert endpoint == "fixtures"
+            assert params["id"] == "1523176"
+            return {
+                "response": [
+                    {
+                        "fixture": {
+                            "id": 1523176,
+                            "date": "2026-05-30T20:00:00+08:00",
+                            "timezone": "Asia/Shanghai",
+                            "timestamp": 1780142400,
+                            "periods": {"first": 1780142400, "second": 1780146000},
+                            "venue": {},
+                            "status": {
+                                "long": "Match Finished",
+                                "short": "FT",
+                                "elapsed": 90,
+                                "extra": 11,
+                            },
+                        },
+                        "league": {
+                            "id": 169,
+                            "name": "Super League",
+                            "country": "China",
+                            "season": 2026,
+                        },
+                        "teams": {
+                            "home": {"id": 1, "name": "Sichuan Jiuniu", "winner": True},
+                            "away": {"id": 2, "name": "Qingdao Jonoon", "winner": False},
+                        },
+                        "goals": {"home": 3, "away": 2},
+                        "score": {
+                            "halftime": {"home": 1, "away": 0},
+                            "fulltime": {"home": 3, "away": 2},
+                            "extratime": {"home": None, "away": None},
+                            "penalty": {"home": None, "away": None},
+                        },
+                    }
+                ]
+            }
+
+    class Provider:
+        client = FinishedClient()
+
+    monkeypatch.setattr(web_api, "_open_session_for_web_sync", lambda: session_factory())
+    monkeypatch.setattr(web_api, "load_project_settings", lambda: object())
+    monkeypatch.setattr(web_api, "build_api_football_provider", lambda settings: Provider())
+    monkeypatch.setattr(
+        web_api,
+        "now_beijing",
+        lambda: datetime(2026, 5, 30, 22, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+
+    result = web_api._run_match_list_fixtures_results_sync([match_id])
+
+    assert result["skipped"] == []
+    assert result["failed"] == []
+    assert result["requests"] == 1
+    assert result["success"] == [
+        {
+            "match_id": match_id,
+            "message": "赛程/赛果已刷新",
+            "created": 0,
+            "updated": 1,
+            "requests": 1,
+        }
+    ]
+    with session_factory() as session:
+        refreshed = session.get(Match, match_id)
+        assert refreshed.status == "finished"
+        assert refreshed.status_short == "FT"
+        assert refreshed.status_long == "Match Finished"
 
 
 def test_web_console_api_single_match_sync_uses_only_path_match(tmp_path):

@@ -528,6 +528,48 @@ def test_sample_oddspapi_training_snapshots_accepts_4_hour_30_snapshot_floor():
     )
 
 
+def test_sample_oddspapi_training_snapshots_keeps_sparse_complete_24_hour_markets():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    snapshot_times = [
+        kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(hours=23, minutes=58),
+        kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(hours=23, minutes=57),
+        kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(hours=23, minutes=56),
+    ]
+    snapshots = []
+    for snapshot_time in snapshot_times:
+        for market_type, market_line, outcome_sides in [
+            ("asian_handicap", Decimal("-0.75"), ["home", "away"]),
+            ("total_goals", Decimal("3.25"), ["over", "under"]),
+            ("match_winner", Decimal("0"), ["home", "draw", "away"]),
+        ]:
+            for outcome_side in outcome_sides:
+                snapshots.append(
+                    replace(
+                        _snapshot(match_id),
+                        market_type=market_type,
+                        market_id=f"{market_type}-{market_line}",
+                        market_line=market_line,
+                        outcome_side=outcome_side,
+                        snapshot_time=snapshot_time,
+                    )
+                )
+
+    sampled = sample_oddspapi_training_snapshots(snapshots, kickoff_time=kickoff_time)
+
+    counts_by_market_type = {}
+    for snapshot in sampled:
+        counts_by_market_type[snapshot.market_type] = (
+            counts_by_market_type.get(snapshot.market_type, 0) + 1
+        )
+    assert len(sampled) == 21
+    assert counts_by_market_type == {
+        "asian_handicap": 6,
+        "total_goals": 6,
+        "match_winner": 9,
+    }
+
+
 def test_sample_oddspapi_training_snapshots_keeps_compact_neighbor_groups_together():
     match_id = 1
     kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))

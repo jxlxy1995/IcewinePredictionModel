@@ -12,7 +12,6 @@ export type MatchListDisplayRow = {
   league: string;
   match: MatchListMatch;
   oddsAvailability: string;
-  oddsText: string;
   scoreText: string;
   statusText: string;
 };
@@ -56,11 +55,6 @@ export function buildMatchListRows(workspace: MatchListWorkspace): MatchListDisp
     league: match.league_display_name ?? match.league_name,
     match,
     oddsAvailability: formatOddsAvailability(match.has_odds),
-    oddsText:
-      match.odds_summary.asian_handicap ??
-      match.odds_summary.total_goals ??
-      match.odds_summary.match_winner ??
-      "-",
     scoreText: formatScore(match),
     statusText: formatMatchStatus(match.status)
   }));

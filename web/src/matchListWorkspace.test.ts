@@ -71,11 +71,10 @@ describe("matchListWorkspace", () => {
     ]);
   });
 
-  it("formats match list rows with display names and odds summary", () => {
+  it("formats match list rows with display names", () => {
     expect(buildMatchListRows(workspace)[0]).toMatchObject({
       fixture: "Hiroshima vs Kawasaki",
-      league: "J1",
-      oddsText: "Away +0.50 @ 1.950"
+      league: "J1"
     });
   });
 

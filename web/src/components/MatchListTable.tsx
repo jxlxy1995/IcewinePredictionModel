@@ -31,7 +31,6 @@ export function MatchListTable({
           <th>状态</th>
           <th>比分</th>
           <th>赔率</th>
-          <th>核心盘口</th>
           <th>操作</th>
         </tr>
       </thead>
@@ -58,7 +57,6 @@ export function MatchListTable({
             <td>{row.statusText}</td>
             <td>{row.scoreText}</td>
             <td>{formatOddsAvailability(row.match.has_odds)}</td>
-            <td>{row.oddsText}</td>
             <td>
               <div className="inline-actions">
                 <button

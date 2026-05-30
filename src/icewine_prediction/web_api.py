@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 import csv
 import json
@@ -839,7 +839,7 @@ def _build_paper_recommendation_workspace_response(
     )
     workspace = build_paper_tracking_workspace(
         session,
-        candidates=queue_report.rows,
+        candidates=[row for row in queue_report.rows if row.status == "candidate"],
     )
     return build_paper_tracking_workspace_payload(workspace)
 
@@ -1902,7 +1902,7 @@ def _run_match_list_fixtures_results_sync(match_ids: list[int]) -> dict[str, Any
             if match is None or not match.source_match_id:
                 skipped.append({"match_id": match_id, "message": "缺少 API-Football fixture id"})
                 continue
-            if _is_live_match_for_result_sync(match):
+            if _is_live_match_for_result_sync(match, now=now_beijing()):
                 skipped.append({"match_id": match_id, "message": "比赛进行中，暂不申请赛果"})
                 continue
             try:
@@ -1936,14 +1936,22 @@ def _run_match_list_fixtures_results_sync(match_ids: list[int]) -> dict[str, Any
     }
 
 
-def _is_live_match_for_result_sync(match: Match) -> bool:
+def _is_live_match_for_result_sync(match: Match, *, now: datetime | None = None) -> bool:
     live_values = {"live", "in_play", "halftime", "1h", "2h", "ht", "et", "bt", "p", "int", "susp"}
     status_values = {
         str(value).strip().lower()
         for value in (match.status, match.status_short, match.status_long)
         if value
     }
-    return bool(status_values & live_values)
+    if not status_values & live_values:
+        return False
+    now = now or now_beijing()
+    kickoff_time = match.kickoff_time
+    if kickoff_time.tzinfo is None:
+        kickoff_time = kickoff_time.replace(tzinfo=ZoneInfo(BEIJING_TIMEZONE))
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=ZoneInfo(BEIJING_TIMEZONE))
+    return now - kickoff_time < timedelta(hours=2)
 
 
 def _run_match_list_odds_sync(match_ids: list[int]) -> dict[str, Any]:

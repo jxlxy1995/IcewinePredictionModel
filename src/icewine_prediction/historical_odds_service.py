@@ -189,7 +189,12 @@ def sample_oddspapi_training_snapshots(
         if fallback_start <= _as_utc(snapshot.snapshot_time) <= kickoff_utc
     ]
     fallback_candidates = _filter_complete_market_groups(fallback_candidates)
-    return _sample_complete_groups(fallback_candidates, fallback_min_snapshots)
+    fallback = _sample_complete_groups(fallback_candidates, fallback_min_snapshots)
+    if fallback:
+        return fallback
+    if primary and _has_all_candidate_market_types(primary, primary_window_candidates):
+        return primary
+    return fallback
 
 
 def _has_all_candidate_market_types(

@@ -38,6 +38,7 @@ ASIAN_HANDICAP_PROBABILITY_FIELDS = (
     "asian_handicap_away_implied_probability",
 )
 ASIAN_HANDICAP_ODDS_FIELDS = ("asian_handicap_home_odds", "asian_handicap_away_odds")
+MAX_CANDIDATE_ODDS_LEAD_TIME = timedelta(hours=3)
 
 
 @dataclass(frozen=True)
@@ -261,6 +262,15 @@ def _build_queue_row(
         return _row(
             match,
             status="no_odds",
+            line=line,
+            odds=odds,
+            feature_row=feature_row,
+            display_name_service=display_name_service,
+        )
+    if not _has_candidate_fresh_odds(match):
+        return _row(
+            match,
+            status="stale_odds",
             line=line,
             odds=odds,
             feature_row=feature_row,
@@ -533,6 +543,23 @@ def _risk_tags(line_bucket: str, feature_row: dict[str, str]) -> tuple[str, ...]
     if line_bucket != "unknown":
         tags.append(f"line_bucket:{line_bucket}")
     return tuple(tags)
+
+
+def _has_candidate_fresh_odds(match: Match) -> bool:
+    latest_captured_at = max(
+        (
+            snapshot.captured_at
+            for snapshot in match.odds_snapshots
+            if snapshot.asian_handicap is not None
+            and snapshot.home_odds is not None
+            and snapshot.away_odds is not None
+        ),
+        default=None,
+    )
+    if latest_captured_at is None:
+        return False
+    lead_time = _naive_datetime(match.kickoff_time) - _naive_datetime(latest_captured_at)
+    return timedelta(0) <= lead_time <= MAX_CANDIDATE_ODDS_LEAD_TIME
 
 
 def _normalize_prefetch_result(result: dict[str, Any] | object) -> dict[str, Any]:

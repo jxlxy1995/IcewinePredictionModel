@@ -20,6 +20,50 @@ def test_map_fixtures_converts_api_response():
     assert fixtures[0].status == "scheduled"
 
 
+def test_map_fixtures_uses_fulltime_score_as_main_score():
+    payload = {
+        "response": [
+            {
+                "fixture": {
+                    "id": 1002,
+                    "date": "2026-05-31T03:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "timestamp": 1780234800,
+                    "periods": {"first": 1780234800, "second": 1780238400},
+                    "venue": {},
+                    "status": {"long": "Match Finished", "short": "AET", "elapsed": 120},
+                },
+                "league": {
+                    "id": 2,
+                    "name": "Champions League",
+                    "country": "World",
+                    "season": 2025,
+                },
+                "teams": {
+                    "home": {"id": 10, "name": "Home FC", "winner": True},
+                    "away": {"id": 11, "name": "Away FC", "winner": False},
+                },
+                "goals": {"home": 3, "away": 2},
+                "score": {
+                    "halftime": {"home": 1, "away": 1},
+                    "fulltime": {"home": 2, "away": 2},
+                    "extratime": {"home": 1, "away": 0},
+                    "penalty": {"home": None, "away": None},
+                },
+            }
+        ]
+    }
+
+    fixtures = map_fixtures(payload)
+
+    assert fixtures[0].home_score == 2
+    assert fixtures[0].away_score == 2
+    assert fixtures[0].fulltime_home_score == 2
+    assert fixtures[0].fulltime_away_score == 2
+    assert fixtures[0].extratime_home_score == 1
+    assert fixtures[0].extratime_away_score == 0
+
+
 def test_map_odds_snapshots_extracts_asian_handicap_and_total_line():
     payload = json.loads(Path("tests/fixtures/api_football/odds.json").read_text(encoding="utf-8"))
     payload["response"][0]["bookmakers"][0]["bets"].append(

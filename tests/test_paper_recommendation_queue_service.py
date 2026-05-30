@@ -140,6 +140,63 @@ def test_build_paper_recommendation_queue_marks_candidate_no_odds_and_prefetch(s
     assert candidate.recommended_handicap == "客队 -0.25"
 
 
+def test_build_paper_recommendation_queue_requires_odds_within_three_hours_before_kickoff(session):
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="priced-too-early",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=datetime(2026, 5, 29, 23, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+            data_source="api_football",
+            bookmaker="Bet365",
+            asian_handicap=Decimal("-0.50"),
+            home_odds=Decimal("1.99"),
+            away_odds=Decimal("1.93"),
+            total_line=Decimal("2.50"),
+            over_odds=Decimal("1.90"),
+            under_odds=Decimal("2.00"),
+            match_winner_home_odds=Decimal("2.10"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("3.40"),
+        )
+    )
+    session.commit()
+
+    def fake_scorer(row):
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1500"),
+            model_name="fake_hgb",
+        )
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=fake_scorer,
+    )
+
+    assert report.candidate_count == 0
+    assert report.rows[0].status == "stale_odds"
+
+
 def test_format_paper_recommendation_queue_report_includes_candidate_detail(session):
     report = build_paper_recommendation_queue(
         session,

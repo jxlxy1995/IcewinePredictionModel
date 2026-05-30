@@ -131,8 +131,8 @@ def map_fixtures(payload: dict) -> list[ExternalFixture]:
                 status_short=status.get("short"),
                 elapsed=status.get("elapsed"),
                 extra=status.get("extra"),
-                home_score=goals.get("home"),
-                away_score=goals.get("away"),
+                home_score=_main_score(goals, fulltime, "home"),
+                away_score=_main_score(goals, fulltime, "away"),
                 halftime_home_score=halftime.get("home"),
                 halftime_away_score=halftime.get("away"),
                 fulltime_home_score=fulltime.get("home"),
@@ -144,6 +144,12 @@ def map_fixtures(payload: dict) -> list[ExternalFixture]:
             )
         )
     return fixtures
+
+
+def _main_score(goals: dict, fulltime: dict, side: str) -> int | None:
+    if fulltime.get(side) is not None:
+        return fulltime.get(side)
+    return goals.get(side)
 
 
 def _find_bet(bookmaker: dict, bet_name: str) -> dict | None:

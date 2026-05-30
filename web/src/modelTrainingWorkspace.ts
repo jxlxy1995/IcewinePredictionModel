@@ -64,6 +64,7 @@ export function buildTrainingRunCards(run: TrainingRun | null): TrainingRunCard[
     return [
       { label: "最近更新", value: "暂无" },
       { label: "训练样本", value: "0" },
+      { label: "入训时间", value: "暂无" },
       { label: "最后入训", value: "暂无" }
     ];
   }
@@ -71,6 +72,7 @@ export function buildTrainingRunCards(run: TrainingRun | null): TrainingRunCard[
     { label: "最近更新", value: formatDateTimeCompact(run.finished_at ?? run.started_at) },
     { label: "训练样本", value: (run.dataset_rows ?? 0).toLocaleString() },
     { label: "覆盖率", value: run.coverage_ratio ?? "暂无" },
+    { label: "入训时间", value: formatDateTimeCompact(run.last_trained_kickoff_time) },
     { label: "最后入训", value: run.last_trained_match_summary ?? "暂无" }
   ];
 }

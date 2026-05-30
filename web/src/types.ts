@@ -481,6 +481,43 @@ export type DataSyncRun = {
   error_message: string | null;
 };
 
+export type MatchSyncItem = {
+  match_id: number;
+  kickoff_time: string;
+  league_name: string;
+  league_display_name?: string | null;
+  home_team_name: string;
+  home_team_display_name?: string | null;
+  away_team_name: string;
+  away_team_display_name?: string | null;
+  fixture: string;
+  status: string;
+  message: string;
+  created_count: number;
+  updated_count: number;
+  skipped_count: number;
+  requests_used: number;
+};
+
+export type MatchSyncReport = {
+  sync_type: string;
+  started_at: string;
+  finished_at: string | null;
+  target_count: number;
+  success_count: number;
+  failed_count: number;
+  skipped_count: number;
+  requests_used: number;
+  success: MatchSyncItem[];
+  failed: MatchSyncItem[];
+  skipped: MatchSyncItem[];
+};
+
+export type MatchSyncResponse = {
+  sync_run: DataSyncRun;
+  report: MatchSyncReport;
+};
+
 export type DashboardData = {
   summary: DashboardSummary;
   leagues: LeagueCoverage[];

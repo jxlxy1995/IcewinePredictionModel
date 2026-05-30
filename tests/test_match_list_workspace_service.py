@@ -6,6 +6,7 @@ from icewine_prediction.match_list_workspace_service import (
     build_match_detail,
     build_match_list_workspace,
     record_sync_run,
+    select_match_list_sync_targets,
 )
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, Team
 
@@ -208,6 +209,58 @@ def test_match_list_workspace_filters_by_status_odds_league_and_search(session):
     assert workspace.matches[0].status_group == "not_started"
 
 
+def test_select_match_list_sync_targets_uses_full_filters_without_visible_limit(session):
+    now = datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING)
+    j1 = League(name="J1 League", country_or_region="Japan", level=1)
+    k1 = League(name="K League 1", country_or_region="Korea", level=1)
+    session.add_all([j1, k1])
+    session.flush()
+    selected_matches = []
+    for index in range(3):
+        home = Team(canonical_name=f"Sanfrecce Sync {index}")
+        away = Team(canonical_name=f"Kawasaki Sync {index}")
+        session.add_all([home, away])
+        session.flush()
+        match = Match(
+            league=j1,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 13, index, tzinfo=BEIJING),
+            status="scheduled",
+        )
+        session.add(match)
+        session.flush()
+        _add_asian_handicap_snapshot(session, match, line=Decimal("-0.50"))
+        selected_matches.append(match)
+    other_home = Team(canonical_name="Ulsan Sync")
+    other_away = Team(canonical_name="Daegu Sync")
+    session.add_all([other_home, other_away])
+    session.flush()
+    session.add(
+        Match(
+            league=k1,
+            home_team=other_home,
+            away_team=other_away,
+            kickoff_time=datetime(2026, 5, 30, 13, 30, tzinfo=BEIJING),
+            status="scheduled",
+        )
+    )
+    session.commit()
+
+    targets = select_match_list_sync_targets(
+        session,
+        now=now,
+        start_time=datetime(2026, 5, 30, 0, 0, tzinfo=BEIJING),
+        end_time=datetime(2026, 5, 31, 0, 0, tzinfo=BEIJING),
+        league_name="J1 League",
+        status_filter="not_started",
+        odds_filter="with_odds",
+        search="sync",
+    )
+
+    assert [match.id for match in targets] == [match.id for match in selected_matches]
+
+
 def test_match_detail_includes_odds_and_recommendation_placeholders(session):
     league = League(name="J1 League", country_or_region="Japan", level=1)
     home = Team(canonical_name="Sanfrecce Hiroshima", logo_url="home.png")
@@ -228,6 +281,7 @@ def test_match_detail_includes_odds_and_recommendation_placeholders(session):
     assert detail is not None
     assert detail.match_id == match.id
     assert detail.home_team_logo_url == "home.png"
+    assert detail.has_odds is True
     assert detail.team_data_note == "\u5f85\u63a5\u5165"
     assert detail.odds_summary.asian_handicap == "\u5ba2\u961f +0.50 @ 1.950"
     assert detail.paper_recommendation_summary.label == "\u6682\u65e0\u7eb8\u9762\u63a8\u8350\u8bb0\u5f55"

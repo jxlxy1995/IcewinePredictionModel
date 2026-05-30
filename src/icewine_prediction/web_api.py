@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 import csv
 import json
@@ -60,6 +60,7 @@ from icewine_prediction.match_list_workspace_service import (
     build_match_detail,
     build_match_list_workspace,
     record_sync_run,
+    select_match_list_sync_targets,
 )
 from icewine_prediction.paper_recommendation_tracking_service import (
     backfill_paper_record_from_candidate,
@@ -69,7 +70,11 @@ from icewine_prediction.paper_recommendation_tracking_service import (
     settle_paper_records,
     void_paper_record,
 )
-from icewine_prediction.sync_runner import run_sync_odds, run_sync_results, run_sync_upcoming
+from icewine_prediction.oddspapi_sync_runner import run_oddspapi_sync_result
+from icewine_prediction.sources.api_football_mapper import map_fixtures
+from icewine_prediction.settings import load_project_settings
+from icewine_prediction.sync_runner import build_api_football_provider
+from icewine_prediction.sync_service import upsert_fixtures
 from icewine_prediction.time_utils import now_beijing
 from icewine_prediction.training_orchestration_service import (
     TrainingRunAlreadyRunning,
@@ -98,8 +103,8 @@ def create_web_app(
         "docs/模型实验/20260529-close-market-baseline-evaluation.md"
     ),
     paper_queue_scorer: Callable[[dict[str, str]], PaperQueueScore | None] | None = None,
-    match_list_fixtures_results_syncer: Callable[[int], dict[str, Any] | str] | None = None,
-    match_list_odds_syncer: Callable[[int], dict[str, Any] | str] | None = None,
+    match_list_fixtures_results_syncer: Callable[[list[int]], dict[str, Any] | str] | None = None,
+    match_list_odds_syncer: Callable[[list[int]], dict[str, Any] | str] | None = None,
     training_full_refresh_runner: Callable[[int], None] | None = None,
     clock: Callable[[], datetime] = now_beijing,
 ) -> FastAPI:
@@ -302,20 +307,28 @@ def create_web_app(
 
     @app.post("/api/match-list/sync/fixtures-results")
     def sync_match_list_fixtures_results(payload: dict[str, Any]) -> dict[str, Any]:
-        days = int(payload.get("days", 3))
         started_at = clock()
         with session_factory() as session:
+            matches = _select_sync_matches_from_payload(session, payload, now=clock())
+            match_ids = [match.id for match in matches]
             try:
-                sync_result = _normalize_match_list_sync_result(
-                    match_list_fixtures_results_syncer(days)
+                report = _build_match_sync_report(
+                    session=session,
+                    sync_type="fixtures_results",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    matches=matches,
+                    result=match_list_fixtures_results_syncer(match_ids),
+                    display_name_service=display_name_service,
                 )
+                sync_result = _sync_run_counts_from_report(report)
                 run = record_sync_run(
                     session,
                     sync_type="fixtures_results",
                     started_at=started_at,
                     finished_at=clock(),
                     status="success",
-                    days=days,
+                    days=0,
                     **sync_result,
                 )
             except Exception as error:
@@ -325,7 +338,7 @@ def create_web_app(
                     started_at=started_at,
                     finished_at=clock(),
                     status="failed",
-                    days=days,
+                    days=0,
                     created_count=0,
                     updated_count=0,
                     skipped_count=0,
@@ -341,22 +354,32 @@ def create_web_app(
                 "missing-team-names",
                 "paper-recommendation-workspace",
             )
-            return {"sync_run": build_data_sync_run_payload(run)}
+            return {"sync_run": build_data_sync_run_payload(run), "report": report}
 
     @app.post("/api/match-list/sync/odds")
     def sync_match_list_odds(payload: dict[str, Any]) -> dict[str, Any]:
-        days = int(payload.get("days", 2))
         started_at = clock()
         with session_factory() as session:
+            matches = _select_sync_matches_from_payload(session, payload, now=clock())
+            match_ids = [match.id for match in matches]
             try:
-                sync_result = _normalize_match_list_sync_result(match_list_odds_syncer(days))
+                report = _build_match_sync_report(
+                    session=session,
+                    sync_type="odds",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    matches=matches,
+                    result=match_list_odds_syncer(match_ids),
+                    display_name_service=display_name_service,
+                )
+                sync_result = _sync_run_counts_from_report(report)
                 run = record_sync_run(
                     session,
                     sync_type="odds",
                     started_at=started_at,
                     finished_at=clock(),
                     status="success",
-                    days=days,
+                    days=0,
                     **sync_result,
                 )
             except Exception as error:
@@ -366,7 +389,7 @@ def create_web_app(
                     started_at=started_at,
                     finished_at=clock(),
                     status="failed",
-                    days=days,
+                    days=0,
                     created_count=0,
                     updated_count=0,
                     skipped_count=0,
@@ -382,7 +405,89 @@ def create_web_app(
                 "oddspapi-backfill-audit",
                 "paper-recommendation-workspace",
             )
-            return {"sync_run": build_data_sync_run_payload(run)}
+            return {"sync_run": build_data_sync_run_payload(run), "report": report}
+
+    @app.post("/api/matches/{match_id}/sync/fixtures-results")
+    def sync_match_fixtures_results(match_id: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return _sync_single_match(
+            match_id=match_id,
+            sync_type="fixtures_results",
+            syncer=match_list_fixtures_results_syncer,
+            cache_prefixes=(
+                "dashboard-summary",
+                "league-coverage",
+                "match-list-workspace",
+                "matches-with-odds",
+                "missing-team-names",
+                "paper-recommendation-workspace",
+            ),
+        )
+
+    @app.post("/api/matches/{match_id}/sync/odds")
+    def sync_match_odds(match_id: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return _sync_single_match(
+            match_id=match_id,
+            sync_type="odds",
+            syncer=match_list_odds_syncer,
+            cache_prefixes=(
+                "dashboard-summary",
+                "league-coverage",
+                "match-list-workspace",
+                "matches-with-odds",
+                "oddspapi-backfill-audit",
+                "paper-recommendation-workspace",
+            ),
+        )
+
+    def _sync_single_match(
+        *,
+        match_id: int,
+        sync_type: str,
+        syncer: Callable[[list[int]], dict[str, Any] | str],
+        cache_prefixes: tuple[str, ...],
+    ) -> dict[str, Any]:
+        started_at = clock()
+        with session_factory() as session:
+            match = session.get(Match, match_id)
+            if match is None:
+                raise HTTPException(status_code=404, detail="match not found")
+            try:
+                report = _build_match_sync_report(
+                    session=session,
+                    sync_type=sync_type,
+                    started_at=started_at,
+                    finished_at=clock(),
+                    matches=[match],
+                    result=syncer([match_id]),
+                    display_name_service=display_name_service,
+                )
+                sync_result = _sync_run_counts_from_report(report)
+                run = record_sync_run(
+                    session,
+                    sync_type=sync_type,
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="success",
+                    days=0,
+                    **sync_result,
+                )
+            except Exception as error:
+                run = record_sync_run(
+                    session,
+                    sync_type=sync_type,
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="failed",
+                    days=0,
+                    created_count=0,
+                    updated_count=0,
+                    skipped_count=0,
+                    requests_used=0,
+                    error_message=str(error),
+                )
+                raise HTTPException(status_code=500, detail=str(error)) from error
+            clear_cache_prefix(*cache_prefixes)
+            return {"sync_run": build_data_sync_run_payload(run), "report": report}
 
     @app.get("/api/matches/{match_id}/odds-trends")
     def match_odds_trends(match_id: int) -> dict[str, Any]:
@@ -1187,10 +1292,183 @@ def build_match_detail_payload(detail) -> dict[str, Any]:
         "status_group": detail.status_group,
         "home_score": detail.home_score,
         "away_score": detail.away_score,
+        "has_odds": detail.has_odds,
         "team_data_note": detail.team_data_note,
         "odds_summary": asdict(detail.odds_summary),
         "paper_recommendation_summary": asdict(detail.paper_recommendation_summary),
         "formal_recommendation_summary": asdict(detail.formal_recommendation_summary),
+    }
+
+
+def _select_sync_matches_from_payload(
+    session: Session,
+    payload: dict[str, Any],
+    *,
+    now: datetime,
+) -> list[Match]:
+    return select_match_list_sync_targets(
+        session,
+        now=now,
+        start_time=_parse_optional_datetime(payload.get("start_time")),
+        end_time=_parse_optional_datetime(payload.get("end_time")),
+        league_name=payload.get("league_name") or None,
+        status_filter=str(payload.get("status_filter") or "all"),
+        odds_filter=str(payload.get("odds_filter") or "all"),
+        search=payload.get("search") or None,
+    )
+
+
+def _build_match_sync_report(
+    *,
+    session: Session,
+    sync_type: str,
+    started_at: datetime,
+    finished_at: datetime,
+    matches: list[Match],
+    result: dict[str, Any] | str,
+    display_name_service: DisplayNameService,
+) -> dict[str, Any]:
+    normalized = _normalize_match_sync_report_result(result)
+    match_by_id = {match.id: match for match in matches}
+    success = _build_match_sync_items(
+        session,
+        normalized["success"],
+        match_by_id=match_by_id,
+        default_status="success",
+        display_name_service=display_name_service,
+    )
+    failed = _build_match_sync_items(
+        session,
+        normalized["failed"],
+        match_by_id=match_by_id,
+        default_status="failed",
+        display_name_service=display_name_service,
+    )
+    skipped = _build_match_sync_items(
+        session,
+        normalized["skipped"],
+        match_by_id=match_by_id,
+        default_status="skipped",
+        display_name_service=display_name_service,
+    )
+    reported_ids = {
+        item["match_id"]
+        for group in (success, failed, skipped)
+        for item in group
+        if item.get("match_id") is not None
+    }
+    for match in matches:
+        if match.id not in reported_ids:
+            skipped.append(
+                _build_match_sync_item_payload(
+                    match,
+                    status="skipped",
+                    message="同步器未返回该场比赛结果",
+                    display_name_service=display_name_service,
+                )
+            )
+    return {
+        "sync_type": sync_type,
+        "started_at": _format_datetime(started_at),
+        "finished_at": _format_datetime(finished_at),
+        "target_count": len(matches),
+        "success_count": len(success),
+        "failed_count": len(failed),
+        "skipped_count": len(skipped),
+        "requests_used": normalized["requests"],
+        "success": success,
+        "failed": failed,
+        "skipped": skipped,
+    }
+
+
+def _normalize_match_sync_report_result(result: dict[str, Any] | str) -> dict[str, Any]:
+    if isinstance(result, str):
+        parsed = _parse_sync_summary(result)
+        return {
+            "success": [],
+            "failed": [],
+            "skipped": [],
+            "requests": parsed["requests"],
+        }
+    return {
+        "success": list(result.get("success") or []),
+        "failed": list(result.get("failed") or []),
+        "skipped": list(result.get("skipped") or []),
+        "requests": int(result.get("requests", result.get("requests_used", 0)) or 0),
+    }
+
+
+def _build_match_sync_items(
+    session: Session,
+    rows: list[Any],
+    *,
+    match_by_id: dict[int, Match],
+    default_status: str,
+    display_name_service: DisplayNameService,
+) -> list[dict[str, Any]]:
+    items = []
+    for row in rows:
+        row_payload = row if isinstance(row, dict) else {"match_id": row}
+        match_id = int(row_payload["match_id"])
+        match = match_by_id.get(match_id) or session.get(Match, match_id)
+        if match is None:
+            continue
+        items.append(
+            _build_match_sync_item_payload(
+                match,
+                status=str(row_payload.get("status") or default_status),
+                message=str(row_payload.get("message") or ""),
+                created_count=int(row_payload.get("created_count", row_payload.get("created", 0)) or 0),
+                updated_count=int(row_payload.get("updated_count", row_payload.get("updated", 0)) or 0),
+                skipped_count=int(row_payload.get("skipped_count", row_payload.get("skipped", 0)) or 0),
+                requests_used=int(row_payload.get("requests_used", row_payload.get("requests", 0)) or 0),
+                display_name_service=display_name_service,
+            )
+        )
+    return items
+
+
+def _build_match_sync_item_payload(
+    match: Match,
+    *,
+    status: str,
+    message: str,
+    display_name_service: DisplayNameService,
+    created_count: int = 0,
+    updated_count: int = 0,
+    skipped_count: int = 0,
+    requests_used: int = 0,
+) -> dict[str, Any]:
+    home_name = match.home_team.canonical_name
+    away_name = match.away_team.canonical_name
+    home_display = display_name_service.display_team(home_name)
+    away_display = display_name_service.display_team(away_name)
+    return {
+        "match_id": match.id,
+        "kickoff_time": _format_datetime(match.kickoff_time),
+        "league_name": match.league.name,
+        "league_display_name": display_name_service.display_league(match.league.name),
+        "home_team_name": home_name,
+        "home_team_display_name": home_display,
+        "away_team_name": away_name,
+        "away_team_display_name": away_display,
+        "fixture": f"{home_display or home_name} vs {away_display or away_name}",
+        "status": status,
+        "message": message,
+        "created_count": created_count,
+        "updated_count": updated_count,
+        "skipped_count": skipped_count,
+        "requests_used": requests_used,
+    }
+
+
+def _sync_run_counts_from_report(report: dict[str, Any]) -> dict[str, int]:
+    return {
+        "created_count": int(report["success_count"]),
+        "updated_count": 0,
+        "skipped_count": int(report["skipped_count"]),
+        "requests_used": int(report["requests_used"]),
     }
 
 
@@ -1461,39 +1739,112 @@ def _start_training_full_refresh_thread(
     thread.start()
 
 
-def _run_match_list_fixtures_results_sync(days: int) -> dict[str, int]:
-    upcoming_summary = run_sync_upcoming(days)
-    today = now_beijing().date()
-    results_summary = run_sync_results(today - timedelta(days=days), today + timedelta(days=days))
-    upcoming_counts = _parse_sync_summary(upcoming_summary)
-    results_counts = _parse_sync_summary(results_summary)
+def _run_match_list_fixtures_results_sync(match_ids: list[int]) -> dict[str, Any]:
+    if not match_ids:
+        return {"success": [], "failed": [], "skipped": [], "requests": 0}
+    settings = load_project_settings()
+    provider = build_api_football_provider(settings)
+    success = []
+    failed = []
+    skipped = []
+    with _open_session_for_web_sync() as session:
+        for match_id in match_ids:
+            match = session.get(Match, match_id)
+            if match is None or not match.source_match_id:
+                skipped.append({"match_id": match_id, "message": "缺少 API-Football fixture id"})
+                continue
+            try:
+                payload = provider.client.get(
+                    "fixtures",
+                    {
+                        "id": match.source_match_id,
+                        "timezone": "Asia/Shanghai",
+                    },
+                )
+                result = upsert_fixtures(session, map_fixtures(payload))
+                success.append(
+                    {
+                        "match_id": match_id,
+                        "message": "赛程/赛果已刷新",
+                        "created": result.created_matches,
+                        "updated": result.updated_matches,
+                        "requests": 1,
+                    }
+                )
+            except Exception as error:
+                failed.append({"match_id": match_id, "message": str(error)})
     return {
-        "created": upcoming_counts["created"] + results_counts["created"],
-        "updated": upcoming_counts["updated"] + results_counts["updated"],
-        "skipped": upcoming_counts["skipped"] + results_counts["skipped"],
-        "requests": upcoming_counts["requests"] + results_counts["requests"],
+        "success": success,
+        "failed": failed,
+        "skipped": skipped,
+        "requests": provider.client.request_count,
     }
 
 
-def _run_match_list_odds_sync(days: int) -> dict[str, int]:
-    return _parse_sync_summary(run_sync_odds(days))
-
-
-def _normalize_match_list_sync_result(result: dict[str, Any] | str) -> dict[str, int]:
-    if isinstance(result, str):
-        parsed = _parse_sync_summary(result)
+def _run_match_list_odds_sync(match_ids: list[int]) -> dict[str, Any]:
+    if not match_ids:
+        return {"success": [], "failed": [], "skipped": [], "requests": 0}
+    with _open_session_for_web_sync() as session:
+        matches = session.query(Match).filter(Match.id.in_(match_ids)).all()
+        seasons = sorted({match.season for match in matches if match.season is not None})
+    if not seasons:
         return {
-            "created_count": parsed["created"],
-            "updated_count": parsed["updated"],
-            "skipped_count": parsed["skipped"],
-            "requests_used": parsed["requests"],
+            "success": [],
+            "failed": [],
+            "skipped": [{"match_id": match_id, "message": "缺少赛季"} for match_id in match_ids],
+            "requests": 0,
         }
+    success_ids: set[int] = set()
+    failed_ids: set[int] = set()
+    skipped = []
+    requests_used = 0
+    for season in seasons:
+        season_match_ids = {
+            match.id for match in matches if match.season == season
+        }
+        if not season_match_ids:
+            continue
+        result = run_oddspapi_sync_result(
+            season=season,
+            max_matches=len(season_match_ids),
+            request_budget=max(50, len(season_match_ids) * 20),
+            timeout_seconds=40,
+            max_snapshots_per_match=151,
+            match_ids=season_match_ids,
+            historical_odds_cooldown_seconds=7.5,
+        )
+        requests_used += result.requests_used
+        with _open_session_for_web_sync() as session:
+            for match_id in season_match_ids:
+                has_odds = (
+                    session.query(HistoricalOddsSnapshot)
+                    .filter_by(match_id=match_id, source_name="oddspapi")
+                    .first()
+                    is not None
+                )
+                if has_odds:
+                    success_ids.add(match_id)
+                else:
+                    failed_ids.add(match_id)
     return {
-        "created_count": int(result.get("created", result.get("created_count", 0))),
-        "updated_count": int(result.get("updated", result.get("updated_count", 0))),
-        "skipped_count": int(result.get("skipped", result.get("skipped_count", 0))),
-        "requests_used": int(result.get("requests", result.get("requests_used", 0))),
+        "success": [
+            {"match_id": match_id, "message": "赔率已刷新"}
+            for match_id in sorted(success_ids)
+        ],
+        "failed": [
+            {"match_id": match_id, "message": "未获取到可用赔率"}
+            for match_id in sorted(failed_ids - success_ids)
+        ],
+        "skipped": skipped,
+        "requests": requests_used,
     }
+
+
+def _open_session_for_web_sync():
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    return session_factory()
 
 
 def _parse_sync_summary(summary: str) -> dict[str, int]:

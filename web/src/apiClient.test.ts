@@ -5,7 +5,9 @@ import {
   loadLatestTrainingRun,
   loadMatchListWorkspace,
   loadPaperRecommendationWorkspace,
-  startTrainingFullRefresh
+  startTrainingFullRefresh,
+  syncFilteredMatchListFixturesResults,
+  syncSingleMatchOdds
 } from "./apiClient";
 
 const apiPayloads: Record<string, unknown> = {
@@ -201,5 +203,103 @@ describe("apiClient", () => {
       "/api/match-list/workspace?end_time=2026-05-31T12%3A00&league_name=J1+League&start_time=2026-05-30T00%3A00&status_filter=live"
     );
     expect(workspace.filters.start_time).toBe("2026-05-30T00:00:00+08:00");
+  });
+
+  it("syncs filtered match fixtures with full filter payload", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        sync_run: {
+          id: 1,
+          sync_type: "fixtures_results",
+          started_at: "2026-05-30T10:00:00+08:00",
+          finished_at: "2026-05-30T10:01:00+08:00",
+          status: "success",
+          days: 0,
+          created_count: 1,
+          updated_count: 0,
+          skipped_count: 0,
+          requests_used: 1,
+          error_message: null
+        },
+        report: {
+          sync_type: "fixtures_results",
+          started_at: "2026-05-30T10:00:00+08:00",
+          finished_at: "2026-05-30T10:01:00+08:00",
+          target_count: 1,
+          success_count: 1,
+          failed_count: 0,
+          skipped_count: 0,
+          requests_used: 1,
+          success: [],
+          failed: [],
+          skipped: []
+        }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncFilteredMatchListFixturesResults({
+      end_time: "2026-05-31T12:00",
+      league_name: "J1 League",
+      odds_filter: "with_odds",
+      search: "hiro",
+      start_time: "2026-05-30T00:00",
+      status_filter: "not_started"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/match-list/sync/fixtures-results", {
+      body: JSON.stringify({
+        end_time: "2026-05-31T12:00",
+        league_name: "J1 League",
+        odds_filter: "with_odds",
+        search: "hiro",
+        start_time: "2026-05-30T00:00",
+        status_filter: "not_started"
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+  });
+
+  it("syncs single match odds by path id", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        sync_run: {
+          id: 1,
+          sync_type: "odds",
+          started_at: "2026-05-30T10:00:00+08:00",
+          finished_at: "2026-05-30T10:01:00+08:00",
+          status: "success",
+          days: 0,
+          created_count: 1,
+          updated_count: 0,
+          skipped_count: 0,
+          requests_used: 1,
+          error_message: null
+        },
+        report: {
+          sync_type: "odds",
+          started_at: "2026-05-30T10:00:00+08:00",
+          finished_at: "2026-05-30T10:01:00+08:00",
+          target_count: 1,
+          success_count: 1,
+          failed_count: 0,
+          skipped_count: 0,
+          requests_used: 1,
+          success: [],
+          failed: [],
+          skipped: []
+        }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncSingleMatchOdds(16356);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/matches/16356/sync/odds", {
+      body: "{}",
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
   });
 });

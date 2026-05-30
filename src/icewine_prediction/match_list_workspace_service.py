@@ -101,6 +101,7 @@ class MatchDetail:
     status_group: str
     home_score: int | None
     away_score: int | None
+    has_odds: bool
     team_data_note: str
     odds_summary: MatchOddsSummary
     paper_recommendation_summary: RecommendationSummary
@@ -153,28 +154,16 @@ def build_match_list_workspace(
 ) -> MatchListWorkspace:
     display_name_service = display_name_service or DisplayNameService()
     odds_match_ids = _odds_match_ids(session)
-    query = (
-        session.query(Match)
-        .options(joinedload(Match.league), joinedload(Match.home_team), joinedload(Match.away_team))
-        .order_by(Match.kickoff_time.asc(), Match.id.asc())
-    )
     start, end = _time_window(now, start_time=start_time, end_time=end_time)
-    query = query.filter(Match.kickoff_time >= start)
-    query = query.filter(Match.kickoff_time <= end)
-    if league_name:
-        query = query.filter(Match.league.has(name=league_name))
-    if odds_filter == "with_odds":
-        query = query.filter(Match.id.in_(odds_match_ids or [-1]))
-    if odds_filter == "without_odds":
-        query = query.filter(~Match.id.in_(odds_match_ids or [-1]))
-    if search:
-        pattern = f"%{search}%"
-        query = query.filter(
-            or_(
-                Match.home_team.has(Match.home_team.property.mapper.class_.canonical_name.ilike(pattern)),
-                Match.away_team.has(Match.away_team.property.mapper.class_.canonical_name.ilike(pattern)),
-            )
-        )
+    query = _match_list_filtered_query(
+        session,
+        start=start,
+        end=end,
+        league_name=league_name,
+        odds_filter=odds_filter,
+        search=search,
+        odds_match_ids=odds_match_ids,
+    )
     raw_matches = query.all()
     matches = [
         match
@@ -205,6 +194,36 @@ def build_match_list_workspace(
             for match in visible_matches
         ],
     )
+
+
+def select_match_list_sync_targets(
+    session: Session,
+    *,
+    now: datetime,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    league_name: str | None = None,
+    status_filter: str = "all",
+    odds_filter: str = "all",
+    search: str | None = None,
+) -> list[Match]:
+    odds_match_ids = _odds_match_ids(session)
+    start, end = _time_window(now, start_time=start_time, end_time=end_time)
+    raw_matches = _match_list_filtered_query(
+        session,
+        start=start,
+        end=end,
+        league_name=league_name,
+        odds_filter=odds_filter,
+        search=search,
+        odds_match_ids=odds_match_ids,
+    ).all()
+    matches = [
+        match
+        for match in raw_matches
+        if status_filter == "all" or _display_status_group(match, now=now) == status_filter
+    ]
+    return matches
 
 
 def build_match_detail(
@@ -256,6 +275,7 @@ def build_match_detail(
         status_group=row.status_group,
         home_score=row.home_score,
         away_score=row.away_score,
+        has_odds=row.has_odds,
         team_data_note="待接入",
         odds_summary=row.odds_summary,
         paper_recommendation_summary=RecommendationSummary(
@@ -267,6 +287,40 @@ def build_match_detail(
             label=f"正式推荐 {formal_count} 条" if formal_count else "暂无正式推荐记录",
         ),
     )
+
+
+def _match_list_filtered_query(
+    session: Session,
+    *,
+    start: datetime,
+    end: datetime,
+    league_name: str | None,
+    odds_filter: str,
+    search: str | None,
+    odds_match_ids: set[int],
+):
+    query = (
+        session.query(Match)
+        .options(joinedload(Match.league), joinedload(Match.home_team), joinedload(Match.away_team))
+        .order_by(Match.kickoff_time.asc(), Match.id.asc())
+        .filter(Match.kickoff_time >= start)
+        .filter(Match.kickoff_time <= end)
+    )
+    if league_name:
+        query = query.filter(Match.league.has(name=league_name))
+    if odds_filter == "with_odds":
+        query = query.filter(Match.id.in_(odds_match_ids or [-1]))
+    if odds_filter == "without_odds":
+        query = query.filter(~Match.id.in_(odds_match_ids or [-1]))
+    if search:
+        pattern = f"%{search}%"
+        query = query.filter(
+            or_(
+                Match.home_team.has(Match.home_team.property.mapper.class_.canonical_name.ilike(pattern)),
+                Match.away_team.has(Match.away_team.property.mapper.class_.canonical_name.ilike(pattern)),
+            )
+        )
+    return query
 
 
 def _match_row(

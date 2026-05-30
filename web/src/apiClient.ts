@@ -15,6 +15,7 @@ import type {
   LeagueCoverage,
   MatchDetail,
   MatchListWorkspace,
+  MatchSyncResponse,
   MatchWithOdds,
   MatchOddsTrends,
   OddspapiBackfillAudit,
@@ -226,6 +227,36 @@ export async function syncMatchListFixturesResults(days: number): Promise<unknow
 
 export async function syncMatchListOdds(days: number): Promise<unknown> {
   return await postJson("/api/match-list/sync/odds", { days });
+}
+
+export async function syncFilteredMatchListFixturesResults(filters: {
+  end_time?: string;
+  league_name?: string | null;
+  odds_filter?: string;
+  search?: string | null;
+  start_time?: string;
+  status_filter?: string;
+}): Promise<MatchSyncResponse> {
+  return await postJson<MatchSyncResponse>("/api/match-list/sync/fixtures-results", filters);
+}
+
+export async function syncFilteredMatchListOdds(filters: {
+  end_time?: string;
+  league_name?: string | null;
+  odds_filter?: string;
+  search?: string | null;
+  start_time?: string;
+  status_filter?: string;
+}): Promise<MatchSyncResponse> {
+  return await postJson<MatchSyncResponse>("/api/match-list/sync/odds", filters);
+}
+
+export async function syncSingleMatchFixturesResults(matchId: number): Promise<MatchSyncResponse> {
+  return await postJson<MatchSyncResponse>(`/api/matches/${matchId}/sync/fixtures-results`, {});
+}
+
+export async function syncSingleMatchOdds(matchId: number): Promise<MatchSyncResponse> {
+  return await postJson<MatchSyncResponse>(`/api/matches/${matchId}/sync/odds`, {});
 }
 
 export async function recordPaperCandidate(matchId: number): Promise<unknown> {

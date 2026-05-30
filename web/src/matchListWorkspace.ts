@@ -1,4 +1,4 @@
-import type { MatchDetail, MatchListMatch, MatchListWorkspace } from "./types";
+import type { MatchDetail, MatchListMatch, MatchListWorkspace, MatchSyncReport } from "./types";
 
 export type MatchFreshnessCard = {
   label: string;
@@ -15,6 +15,11 @@ export type MatchListDisplayRow = {
   oddsText: string;
   scoreText: string;
   statusText: string;
+};
+
+export type MatchSyncSummary = {
+  title: string;
+  line: string;
 };
 
 export function buildMatchFreshnessCards(workspace: MatchListWorkspace): MatchFreshnessCard[] {
@@ -68,6 +73,13 @@ export function summarizeMatchDetail(detail: MatchDetail) {
     }`,
     recommendations: `${detail.paper_recommendation_summary.label} / ${detail.formal_recommendation_summary.label}`,
     teamData: detail.team_data_note
+  };
+}
+
+export function buildMatchSyncSummary(report: MatchSyncReport): MatchSyncSummary {
+  return {
+    title: report.sync_type === "odds" ? "赔率同步结果" : "赛程/赛果同步结果",
+    line: `目标 ${report.target_count} 场，成功 ${report.success_count}，失败 ${report.failed_count}，跳过 ${report.skipped_count}，请求 ${report.requests_used}`
   };
 }
 

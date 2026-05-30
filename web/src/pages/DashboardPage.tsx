@@ -32,8 +32,10 @@ import {
   runTrainingWorkflowAction,
   saveTeamDisplayNames,
   settlePaperRecords,
-  syncMatchListFixturesResults,
-  syncMatchListOdds,
+  syncFilteredMatchListFixturesResults,
+  syncFilteredMatchListOdds,
+  syncSingleMatchFixturesResults,
+  syncSingleMatchOdds,
   voidPaperRecord,
   loadTeamDisplayNameWorkspace
 } from "../apiClient";
@@ -78,6 +80,7 @@ import {
 } from "../paperRecommendationWorkspace";
 import {
   buildMatchFreshnessCards,
+  buildMatchSyncSummary,
   defaultMatchListDateRange,
   formatMatchStatus,
   summarizeMatchDetail
@@ -89,6 +92,7 @@ import type {
   DashboardData,
   MatchDetail,
   MatchListMatch,
+  MatchSyncReport,
   MatchOddsTrends,
   PaperCandidate,
   PaperRecord,
@@ -219,6 +223,9 @@ export function DashboardPage() {
   const [matchListAction, setMatchListAction] = useState<string | null>(null);
   const [matchListMessage, setMatchListMessage] = useState<string | null>(null);
   const [matchListError, setMatchListError] = useState<string | null>(null);
+  const [matchListSyncReport, setMatchListSyncReport] = useState<MatchSyncReport | null>(null);
+  const [matchDetailOddsTrends, setMatchDetailOddsTrends] = useState<MatchOddsTrends | null>(null);
+  const [matchDetailOddsError, setMatchDetailOddsError] = useState<string | null>(null);
   const [matchListFilters, setMatchListFilters] = useState<MatchListFilterState>({
     ...defaultMatchListDateRange(),
     league_name: "",
@@ -226,8 +233,6 @@ export function DashboardPage() {
     search: "",
     status_filter: "all"
   });
-  const [fixturesSyncDays, setFixturesSyncDays] = useState(3);
-  const [oddsSyncDays, setOddsSyncDays] = useState(2);
   const [selectedMatchDetail, setSelectedMatchDetail] = useState<MatchDetail | null>(null);
   const [loadedLazyViews, setLoadedLazyViews] = useState<Set<ViewKey>>(new Set());
 
@@ -358,32 +363,46 @@ export function DashboardPage() {
 
         {activeView === "overview" && <OverviewView data={data} oddsTrends={oddsTrends} />}
         {activeView === "matchList" && (
-          <MatchListView
+          <FilteredMatchListView
             actionInFlight={matchListAction}
             data={data}
             detail={selectedMatchDetail}
+            detailOddsError={matchDetailOddsError}
+            detailOddsTrends={matchDetailOddsTrends}
             errorText={matchListError}
             filters={matchListFilters}
-            fixturesSyncDays={fixturesSyncDays}
             messageText={matchListMessage}
-            oddsSyncDays={oddsSyncDays}
-            onBackToList={() => setSelectedMatchDetail(null)}
+            syncReport={matchListSyncReport}
+            onBackToList={() => {
+              setSelectedMatchDetail(null);
+              setMatchDetailOddsTrends(null);
+              setMatchDetailOddsError(null);
+            }}
             onFiltersChange={(nextFilters) => {
               const merged = { ...matchListFilters, ...nextFilters };
               setMatchListFilters(merged);
               setMatchListError(null);
               setMatchListMessage(null);
+              setMatchListSyncReport(null);
               refreshMatchListWorkspace(setData, merged).catch(() =>
                 setMatchListError("刷新比赛列表失败")
               );
             }}
-            onFixturesSyncDaysChange={setFixturesSyncDays}
-            onOddsSyncDaysChange={setOddsSyncDays}
             onOpenMatch={(match) => {
               setMatchListAction(`detail-${match.match_id}`);
               setMatchListError(null);
+              setMatchDetailOddsTrends(null);
+              setMatchDetailOddsError(null);
               loadMatchDetail(match.match_id)
-                .then(setSelectedMatchDetail)
+                .then((detail) => {
+                  setSelectedMatchDetail(detail);
+                  if (!detail.has_odds) {
+                    return null;
+                  }
+                  return loadMatchOddsTrend(match.match_id)
+                    .then(setMatchDetailOddsTrends)
+                    .catch(() => setMatchDetailOddsError("读取赔率走势失败，请稍后重试"));
+                })
                 .catch(() => setMatchListError("读取比赛详情失败"))
                 .finally(() => setMatchListAction(null));
             }}
@@ -391,8 +410,26 @@ export function DashboardPage() {
               setMatchListAction("sync-fixtures");
               setMatchListError(null);
               setMatchListMessage(null);
-              syncMatchListFixturesResults(fixturesSyncDays)
-                .then(() => refreshMatchListWorkspace(setData, matchListFilters))
+              setMatchListSyncReport(null);
+              syncFilteredMatchListFixturesResults(matchListFilters)
+                .then((response) => {
+                  setMatchListSyncReport(response.report);
+                  return refreshMatchListWorkspace(setData, matchListFilters);
+                })
+                .then(() => setMatchListMessage("赛程/赛果同步完成"))
+                .catch(() => setMatchListError("赛程/赛果同步失败"))
+                .finally(() => setMatchListAction(null));
+            }}
+            onSyncMatchFixturesResults={(match) => {
+              setMatchListAction(`sync-fixtures-${match.match_id}`);
+              setMatchListError(null);
+              setMatchListMessage(null);
+              setMatchListSyncReport(null);
+              syncSingleMatchFixturesResults(match.match_id)
+                .then((response) => {
+                  setMatchListSyncReport(response.report);
+                  return refreshMatchListWorkspace(setData, matchListFilters);
+                })
                 .then(() => setMatchListMessage("赛程/赛果同步完成"))
                 .catch(() => setMatchListError("赛程/赛果同步失败"))
                 .finally(() => setMatchListAction(null));
@@ -401,8 +438,26 @@ export function DashboardPage() {
               setMatchListAction("sync-odds");
               setMatchListError(null);
               setMatchListMessage(null);
-              syncMatchListOdds(oddsSyncDays)
-                .then(() => refreshMatchListWorkspace(setData, matchListFilters))
+              setMatchListSyncReport(null);
+              syncFilteredMatchListOdds(matchListFilters)
+                .then((response) => {
+                  setMatchListSyncReport(response.report);
+                  return refreshMatchListWorkspace(setData, matchListFilters);
+                })
+                .then(() => setMatchListMessage("赔率同步完成"))
+                .catch(() => setMatchListError("赔率同步失败"))
+                .finally(() => setMatchListAction(null));
+            }}
+            onSyncMatchOdds={(match) => {
+              setMatchListAction(`sync-odds-${match.match_id}`);
+              setMatchListError(null);
+              setMatchListMessage(null);
+              setMatchListSyncReport(null);
+              syncSingleMatchOdds(match.match_id)
+                .then((response) => {
+                  setMatchListSyncReport(response.report);
+                  return refreshMatchListWorkspace(setData, matchListFilters);
+                })
                 .then(() => setMatchListMessage("赔率同步完成"))
                 .catch(() => setMatchListError("赔率同步失败"))
                 .finally(() => setMatchListAction(null));
@@ -656,7 +711,14 @@ function MatchListView({
   onSyncOdds: () => void;
 }) {
   if (detail) {
-    return <MatchDetailView detail={detail} onBack={onBackToList} />;
+    return (
+      <MatchDetailView
+        detail={detail}
+        oddsError={null}
+        oddsTrends={null}
+        onBack={onBackToList}
+      />
+    );
   }
   const workspace = data.matchList;
   const freshnessCards = buildMatchFreshnessCards(workspace);
@@ -771,7 +833,209 @@ function MatchListView({
   );
 }
 
-function MatchDetailView({ detail, onBack }: { detail: MatchDetail; onBack: () => void }) {
+function FilteredMatchListView({
+  actionInFlight,
+  data,
+  detail,
+  detailOddsError,
+  detailOddsTrends,
+  errorText,
+  filters,
+  messageText,
+  syncReport,
+  onBackToList,
+  onFiltersChange,
+  onOpenMatch,
+  onSyncFixturesResults,
+  onSyncMatchFixturesResults,
+  onSyncMatchOdds,
+  onSyncOdds
+}: {
+  actionInFlight: string | null;
+  data: DashboardData;
+  detail: MatchDetail | null;
+  detailOddsError: string | null;
+  detailOddsTrends: MatchOddsTrends | null;
+  errorText: string | null;
+  filters: MatchListFilterState;
+  messageText: string | null;
+  syncReport: MatchSyncReport | null;
+  onBackToList: () => void;
+  onFiltersChange: (filters: Partial<MatchListFilterState>) => void;
+  onOpenMatch: (match: MatchListMatch) => void;
+  onSyncFixturesResults: () => void;
+  onSyncMatchFixturesResults: (match: MatchListMatch) => void;
+  onSyncMatchOdds: (match: MatchListMatch) => void;
+  onSyncOdds: () => void;
+}) {
+  if (detail) {
+    return (
+      <MatchDetailView
+        detail={detail}
+        oddsError={detailOddsError}
+        oddsTrends={detailOddsTrends}
+        onBack={onBackToList}
+      />
+    );
+  }
+  const workspace = data.matchList;
+  const freshnessCards = buildMatchFreshnessCards(workspace);
+  const isBusy = actionInFlight !== null;
+
+  return (
+    <section className="single-column">
+      <section className="match-sync-strip">
+        {freshnessCards.slice(0, 2).map((card) => (
+          <div className="sync-card" key={card.label}>
+            <span>{card.label}</span>
+            <strong>{card.value}</strong>
+            <small>按当前筛选</small>
+          </div>
+        ))}
+        <div className="sync-action">
+          <button disabled={isBusy} onClick={onSyncFixturesResults} type="button">
+            同步赛程/赛果
+          </button>
+        </div>
+        <div className="sync-action">
+          <button disabled={isBusy} onClick={onSyncOdds} type="button">
+            同步赔率
+          </button>
+        </div>
+      </section>
+      <section className="match-secondary-freshness">
+        {freshnessCards.slice(2).map((card) => (
+          <span key={card.label}>
+            {card.label}: <strong>{card.value}</strong>
+          </span>
+        ))}
+        {actionInFlight && <span>正在执行 {formatMatchListAction(actionInFlight)}</span>}
+        {messageText && <span className="success-text">{messageText}</span>}
+        {errorText && <span className="error-text">{errorText}</span>}
+      </section>
+      {syncReport && <MatchSyncResultPanel report={syncReport} />}
+      <Panel title="筛选">
+        <div className="match-filter-row">
+          <label>
+            <span>开始时间</span>
+            <input
+              onChange={(event) => onFiltersChange({ start_time: event.target.value })}
+              type="datetime-local"
+              value={filters.start_time}
+            />
+          </label>
+          <label>
+            <span>结束时间</span>
+            <input
+              onChange={(event) => onFiltersChange({ end_time: event.target.value })}
+              type="datetime-local"
+              value={filters.end_time}
+            />
+          </label>
+          <select
+            onChange={(event) => onFiltersChange({ league_name: event.target.value })}
+            value={filters.league_name}
+          >
+            <option value="">全部联赛</option>
+            {workspace.leagues.map((league) => (
+              <option key={league.name} value={league.name}>
+                {league.display_name}
+              </option>
+            ))}
+          </select>
+          <select
+            onChange={(event) => onFiltersChange({ status_filter: event.target.value })}
+            value={filters.status_filter}
+          >
+            <option value="all">全部状态</option>
+            <option value="not_started">未开赛</option>
+            <option value="live">进行中</option>
+            <option value="finished">已完赛</option>
+          </select>
+          <select
+            onChange={(event) => onFiltersChange({ odds_filter: event.target.value })}
+            value={filters.odds_filter}
+          >
+            <option value="all">全部赔率</option>
+            <option value="with_odds">有赔率</option>
+            <option value="without_odds">无赔率</option>
+          </select>
+          <input
+            onChange={(event) => onFiltersChange({ search: event.target.value })}
+            placeholder="搜索球队"
+            value={filters.search}
+          />
+        </div>
+      </Panel>
+      <Panel title={`比赛列表 · ${workspace.total_matches.toLocaleString()} 场`}>
+        <MatchListTable
+          isBusy={isBusy}
+          onOpenMatch={onOpenMatch}
+          onSyncFixturesResults={onSyncMatchFixturesResults}
+          onSyncOdds={onSyncMatchOdds}
+          workspace={workspace}
+        />
+      </Panel>
+    </section>
+  );
+}
+
+function MatchSyncResultPanel({ report }: { report: MatchSyncReport }) {
+  const summary = buildMatchSyncSummary(report);
+  return (
+    <Panel title={summary.title}>
+      <div className="sync-result-summary">{summary.line}</div>
+      <div className="sync-result-groups">
+        <MatchSyncResultGroup label="成功" items={report.success} />
+        <MatchSyncResultGroup label="失败" items={report.failed} />
+        <MatchSyncResultGroup label="跳过" items={report.skipped} />
+      </div>
+    </Panel>
+  );
+}
+
+function MatchSyncResultGroup({
+  items,
+  label
+}: {
+  items: MatchSyncReport["success"];
+  label: string;
+}) {
+  return (
+    <details className="sync-result-group">
+      <summary>
+        {label} <strong>{items.length}</strong>
+      </summary>
+      {items.length === 0 ? (
+        <div className="empty-state compact">暂无明细</div>
+      ) : (
+        <div className="sync-result-list">
+          {items.map((item) => (
+            <div className="sync-result-item" key={`${label}-${item.match_id}`}>
+              <strong>
+                {item.league_display_name ?? item.league_name} {item.fixture}
+              </strong>
+              <span>{item.kickoff_time}</span>
+              {item.message && <small>{item.message}</small>}
+            </div>
+          ))}
+        </div>
+      )}
+    </details>
+  );
+}
+
+function MatchDetailView({
+  detail,
+  oddsError,
+  oddsTrends,
+  onBack
+}: {
+  detail: MatchDetail;
+  oddsError: string | null;
+  oddsTrends: MatchOddsTrends | null;
+  onBack: () => void;
+}) {
   const summary = summarizeMatchDetail(detail);
   return (
     <section className="single-column">
@@ -820,6 +1084,16 @@ function MatchDetailView({ detail, onBack }: { detail: MatchDetail; onBack: () =
           </div>
         </div>
       </Panel>
+      {detail.has_odds && (
+        <Panel title="赔率走势">
+          {oddsError && <div className="inline-warning">{oddsError}</div>}
+          {oddsTrends ? (
+            <OddsTrendPanel compactHeader trends={oddsTrends} />
+          ) : (
+            <div className="empty-state">正在读取赔率走势</div>
+          )}
+        </Panel>
+      )}
     </section>
   );
 }

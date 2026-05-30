@@ -887,6 +887,7 @@ def test_web_console_api_returns_match_list_workspace_and_detail(tmp_path):
     assert detail_response.status_code == 200
     detail = detail_response.json()
     assert detail["home_team_logo_url"] == "home.png"
+    assert detail["has_odds"] is True
     assert detail["team_data_note"] == "待接入"
     assert detail["paper_recommendation_summary"]["label"] == "暂无纸面推荐记录"
 
@@ -897,21 +898,21 @@ def test_web_console_api_match_list_sync_buttons_record_runs(tmp_path):
     session_factory = create_session_factory(engine)
     calls = []
 
-    def fake_fixtures_results(days: int):
-        calls.append(("fixtures_results", days))
+    def fake_fixtures_results(match_ids: list[int]):
+        calls.append(("fixtures_results", tuple(match_ids)))
         return {
-            "created": 1,
-            "updated": 2,
-            "skipped": 0,
+            "success": [],
+            "failed": [],
+            "skipped": [],
             "requests": 3,
         }
 
-    def fake_odds(days: int):
-        calls.append(("odds", days))
+    def fake_odds(match_ids: list[int]):
+        calls.append(("odds", tuple(match_ids)))
         return {
-            "created": 4,
-            "updated": 0,
-            "skipped": 1,
+            "success": [],
+            "failed": [],
+            "skipped": [],
             "requests": 5,
         }
 
@@ -930,9 +931,143 @@ def test_web_console_api_match_list_sync_buttons_record_runs(tmp_path):
 
     assert fixtures_response.status_code == 200
     assert odds_response.status_code == 200
-    assert calls == [("fixtures_results", 3), ("odds", 2)]
+    assert calls == [("fixtures_results", ()), ("odds", ())]
     assert fixtures_response.json()["sync_run"]["sync_type"] == "fixtures_results"
-    assert odds_response.json()["sync_run"]["created_count"] == 4
+    assert odds_response.json()["sync_run"]["requests_used"] == 5
+
+
+def test_web_console_api_match_list_sync_uses_filtered_match_targets(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    calls = []
+    with session_factory() as session:
+        league = League(name="J1 League", country_or_region="Japan", level=1)
+        other_league = League(name="K League 1", country_or_region="Korea", level=1)
+        session.add_all([league, other_league])
+        session.flush()
+        selected_ids = []
+        for index in range(2):
+            home = Team(canonical_name=f"Sanfrecce API {index}")
+            away = Team(canonical_name=f"Kawasaki API {index}")
+            session.add_all([home, away])
+            session.flush()
+            match = Match(
+                league=league,
+                home_team=home,
+                away_team=away,
+                kickoff_time=datetime(2026, 5, 30, 13, index, tzinfo=ZoneInfo("Asia/Shanghai")),
+                status="scheduled",
+            )
+            session.add(match)
+            session.flush()
+            selected_ids.append(match.id)
+        other_home = Team(canonical_name="Ulsan API")
+        other_away = Team(canonical_name="Daegu API")
+        session.add_all([other_home, other_away])
+        session.flush()
+        session.add(
+            Match(
+                league=other_league,
+                home_team=other_home,
+                away_team=other_away,
+                kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                status="scheduled",
+            )
+        )
+        session.commit()
+
+    def fake_fixtures_results(match_ids):
+        calls.append(tuple(match_ids))
+        return {
+            "success": [
+                {"match_id": match_ids[0], "message": "updated"},
+            ],
+            "failed": [
+                {"match_id": match_ids[1], "message": "remote error"},
+            ],
+            "skipped": [],
+            "requests": 2,
+        }
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            clock=lambda: datetime(2026, 5, 30, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_list_fixtures_results_syncer=fake_fixtures_results,
+        )
+    )
+
+    response = client.post(
+        "/api/match-list/sync/fixtures-results",
+        json={
+            "start_time": "2026-05-30T00:00",
+            "end_time": "2026-05-31T00:00",
+            "league_name": "J1 League",
+            "status_filter": "not_started",
+            "odds_filter": "all",
+            "search": "api",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert calls == [tuple(selected_ids)]
+    assert payload["report"]["target_count"] == 2
+    assert payload["report"]["success_count"] == 1
+    assert payload["report"]["failed_count"] == 1
+    assert payload["report"]["success"][0]["match_id"] == selected_ids[0]
+    assert payload["report"]["failed"][0]["message"] == "remote error"
+
+
+def test_web_console_api_single_match_sync_uses_only_path_match(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    calls = []
+    with session_factory() as session:
+        league = League(name="J1 League", country_or_region="Japan", level=1)
+        home = Team(canonical_name="Sanfrecce One")
+        away = Team(canonical_name="Kawasaki One")
+        session.add_all([league, home, away])
+        session.flush()
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+        )
+        session.add(match)
+        session.commit()
+        match_id = match.id
+
+    def fake_odds(match_ids):
+        calls.append(tuple(match_ids))
+        return {
+            "success": [{"match_id": match_ids[0], "message": "snapshots=12"}],
+            "failed": [],
+            "skipped": [],
+            "requests": 3,
+        }
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            clock=lambda: datetime(2026, 5, 30, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_list_odds_syncer=fake_odds,
+        )
+    )
+
+    response = client.post(f"/api/matches/{match_id}/sync/odds", json={})
+
+    assert response.status_code == 200
+    assert calls == [(match_id,)]
+    payload = response.json()
+    assert payload["report"]["sync_type"] == "odds"
+    assert payload["report"]["success"][0]["fixture"] == "Sanfrecce One vs Kawasaki One"
 
 
 def test_web_console_api_match_list_sync_invalidates_cached_workspace(tmp_path):

@@ -553,7 +553,8 @@ export const mockPaperRecommendationWorkspace: PaperRecommendationWorkspace = {
 
 export const mockMatchListWorkspace: MatchListWorkspace = {
   filters: {
-    time_preset: "next_24h",
+    start_time: "2026-05-30T00:00:00+08:00",
+    end_time: "2026-05-31T12:00:00+08:00",
     league_name: null,
     status_filter: "all",
     odds_filter: "all",
@@ -565,7 +566,10 @@ export const mockMatchListWorkspace: MatchListWorkspace = {
     latest_kickoff_time: "2026-06-02T03:00:00+08:00",
     latest_odds_snapshot_time: "2026-05-30T10:15:00+08:00"
   },
-  leagues: ["J1 League", "K League 1"],
+  leagues: [
+    { name: "J1 League", display_name: "日职联" },
+    { name: "K League 1", display_name: "韩K联" }
+  ],
   total_matches: 2,
   matches: [
     {

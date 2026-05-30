@@ -13,6 +13,10 @@
 - Earlier old-format odds data lacked match-winner odds and may have selected non-main lines. Most old-format leagues have now been rerun.
 - UTC storage/parsing is fine; user-facing display should use Beijing time.
 - Web console should default to local real API data. Mock data is only a fallback when local API data is unavailable, preferably scoped to the failed section rather than replacing the whole dashboard.
+- Web match list defaults to local real data for today 00:00 through tomorrow 12:00 Beijing time, using explicit datetime controls rather than future-N-day presets.
+- Web match-list league filters should display Chinese league names while preserving raw league names as stable filter values.
+- Started matches with no recorded score should be displayed and filterable as live/in-progress. Apply derived status filtering before list limiting so live matches are not hidden by the display cap.
+- Use `start_web.ps1` as the unified Web control script for start/stop/restart/status. Backend runs without `uvicorn --reload`; restart the script after backend code changes.
 - Paper/formal recommendation strategies should have a memorable Chinese display name, with English keys/model names allowed as secondary technical identifiers.
 - Paper recommendation records are independent tracking records. Missed queue candidates can be backfilled from historical paper queue reports, but should be marked as manual/backfill rather than pretending they were automatic clicks.
 

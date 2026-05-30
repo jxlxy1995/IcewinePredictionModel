@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .worktrees/
 .worktrees
+.web/
 *.pyc
 *.db
 *.sqlite

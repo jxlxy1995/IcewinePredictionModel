@@ -586,6 +586,58 @@ $env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
 C:\ProgramData\anaconda3\python.exe -m icewine_cli odds-source oddspapi-sample-candidates --season 2026 --league-ids <ids> --from-date 2026-01-15 --per-league 8
 ```
 
+## 2026-05-30 Latest Web Console Handoff
+
+Latest committed work after this context update:
+
+- Web console loading behavior was improved so the dashboard uses local API data by default and optional workspaces fall back section-by-section instead of replacing the full dashboard with mock data.
+- Match list now uses explicit datetime filters:
+  - default start: today 00:00 Beijing time
+  - default end: tomorrow 12:00 Beijing time
+  - frontend controls are `datetime-local`
+  - backend API params are `start_time` and `end_time`
+- Match list started/unscored matches are derived as `live`/`进行中`.
+- Important bug fixed: derived status filtering now happens before applying the visible result limit, so `status_filter=live` is not accidentally emptied by the first 200 raw rows.
+- Match-list league options now return `{ name, display_name }`; frontend displays Chinese `display_name` while submitting stable raw `name`.
+- Local Web control script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start_web.ps1 start
+powershell -ExecutionPolicy Bypass -File .\start_web.ps1 stop
+powershell -ExecutionPolicy Bypass -File .\start_web.ps1 restart
+powershell -ExecutionPolicy Bypass -File .\start_web.ps1 status
+```
+
+- `start_web.ps1` manages backend `127.0.0.1:8000` and frontend `127.0.0.1:5173`, writes runtime PID files under `.web/`, and `.web/` is gitignored.
+- `scripts/start_web_api.ps1` intentionally runs uvicorn without `--reload` so stop/restart can manage the backend process reliably. Use `restart` after backend code changes.
+- PowerShell may block direct `.\start_web.ps1 restart`; use the `-ExecutionPolicy Bypass -File` form above.
+
+Fresh verification for this final Web handoff:
+
+```powershell
+$env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
+C:\ProgramData\anaconda3\python.exe -m pytest tests/test_match_list_workspace_service.py tests/test_web_console_api.py -q
+```
+
+Result: `30 passed`.
+
+```powershell
+cd web
+npm test -- apiClient.test.ts matchListWorkspace.test.ts paperRecommendationWorkspace.test.ts
+npm run build
+```
+
+Result: frontend tests `15 passed`; build succeeded.
+
+`git diff --check` passed with only expected CRLF warnings.
+
+Suggested next conversation setup:
+
+1. Read `Agent.md`, `memory.md`, and this `Context.md`.
+2. Start or restart Web with `powershell -ExecutionPolicy Bypass -File .\start_web.ps1 restart`.
+3. Use `http://127.0.0.1:5173` for the local console.
+4. Treat the latest Web match-list behavior as the baseline for future UI/data work.
+
 ## 2026-05-30 Web Paper Tracking And Match List Implementation
 
 Implementation branch state:

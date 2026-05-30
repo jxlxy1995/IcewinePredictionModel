@@ -78,8 +78,8 @@ import {
 } from "../paperRecommendationWorkspace";
 import {
   buildMatchFreshnessCards,
+  defaultMatchListDateRange,
   formatMatchStatus,
-  matchTimePresetLabel,
   summarizeMatchDetail
 } from "../matchListWorkspace";
 import { WorkerStatusTable } from "../components/WorkerStatusTable";
@@ -115,11 +115,12 @@ type NavItem = {
 };
 
 type MatchListFilterState = {
+  end_time: string;
   league_name: string;
   odds_filter: string;
   search: string;
+  start_time: string;
   status_filter: string;
-  time_preset: string;
 };
 
 const navItems: NavItem[] = [
@@ -218,12 +219,12 @@ export function DashboardPage() {
   const [matchListAction, setMatchListAction] = useState<string | null>(null);
   const [matchListMessage, setMatchListMessage] = useState<string | null>(null);
   const [matchListError, setMatchListError] = useState<string | null>(null);
-  const [matchListFilters, setMatchListFilters] = useState({
+  const [matchListFilters, setMatchListFilters] = useState<MatchListFilterState>({
+    ...defaultMatchListDateRange(),
     league_name: "",
     odds_filter: "all",
     search: "",
-    status_filter: "all",
-    time_preset: "next_24h"
+    status_filter: "all"
   });
   const [fixturesSyncDays, setFixturesSyncDays] = useState(3);
   const [oddsSyncDays, setOddsSyncDays] = useState(2);
@@ -636,11 +637,12 @@ function MatchListView({
   detail: MatchDetail | null;
   errorText: string | null;
   filters: {
+    end_time: string;
     league_name: string;
     odds_filter: string;
     search: string;
+    start_time: string;
     status_filter: string;
-    time_preset: string;
   };
   fixturesSyncDays: number;
   messageText: string | null;
@@ -711,24 +713,30 @@ function MatchListView({
       </section>
       <Panel title="筛选">
         <div className="match-filter-row">
-          <select
-            onChange={(event) => onFiltersChange({ time_preset: event.target.value })}
-            value={filters.time_preset}
-          >
-            {["next_24h", "next_3d", "previous_24h", "previous_7d", "all"].map((preset) => (
-              <option key={preset} value={preset}>
-                {matchTimePresetLabel(preset)}
-              </option>
-            ))}
-          </select>
+          <label>
+            <span>开始时间</span>
+            <input
+              onChange={(event) => onFiltersChange({ start_time: event.target.value })}
+              type="datetime-local"
+              value={filters.start_time}
+            />
+          </label>
+          <label>
+            <span>结束时间</span>
+            <input
+              onChange={(event) => onFiltersChange({ end_time: event.target.value })}
+              type="datetime-local"
+              value={filters.end_time}
+            />
+          </label>
           <select
             onChange={(event) => onFiltersChange({ league_name: event.target.value })}
             value={filters.league_name}
           >
             <option value="">全部联赛</option>
             {workspace.leagues.map((league) => (
-              <option key={league} value={league}>
-                {league}
+              <option key={league.name} value={league.name}>
+                {league.display_name}
               </option>
             ))}
           </select>
@@ -828,11 +836,12 @@ function TeamBadge({ logoUrl, name }: { logoUrl?: string | null; name: string })
 function refreshMatchListWorkspace(
   setData: React.Dispatch<React.SetStateAction<DashboardData>>,
   filters: {
+    end_time?: string;
     league_name?: string | null;
     odds_filter?: string;
     search?: string | null;
+    start_time?: string;
     status_filter?: string;
-    time_preset?: string;
   }
 ): Promise<void> {
   return loadMatchListWorkspace(filters).then((workspace) => {

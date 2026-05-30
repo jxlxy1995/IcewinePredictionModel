@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   loadDashboardData,
   loadLatestTrainingRun,
+  loadMatchListWorkspace,
   loadPaperRecommendationWorkspace,
   startTrainingFullRefresh
 } from "./apiClient";
@@ -64,11 +65,12 @@ const apiPayloads: Record<string, unknown> = {
   },
   "/api/match-list/workspace": {
     filters: {
+      end_time: "2026-05-31T12:00:00+08:00",
       league_name: null,
       odds_filter: "all",
       search: null,
-      status_filter: "all",
-      time_preset: "next_24h"
+      start_time: "2026-05-30T00:00:00+08:00",
+      status_filter: "all"
     },
     freshness: {
       latest_match_updated_at: null,
@@ -182,5 +184,22 @@ describe("apiClient", () => {
       method: "POST"
     });
     expect(run.status).toBe("running");
+  });
+
+  it("loads match list workspace with explicit datetime range", async () => {
+    const fetchMock = vi.fn(async () => Response.json(apiPayloads["/api/match-list/workspace"]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const workspace = await loadMatchListWorkspace({
+      end_time: "2026-05-31T12:00",
+      league_name: "J1 League",
+      start_time: "2026-05-30T00:00",
+      status_filter: "live"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/match-list/workspace?end_time=2026-05-31T12%3A00&league_name=J1+League&start_time=2026-05-30T00%3A00&status_filter=live"
+    );
+    expect(workspace.filters.start_time).toBe("2026-05-30T00:00:00+08:00");
   });
 });

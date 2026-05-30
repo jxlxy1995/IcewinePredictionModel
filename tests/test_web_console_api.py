@@ -876,7 +876,8 @@ def test_web_console_api_returns_match_list_workspace_and_detail(tmp_path):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["filters"]["time_preset"] == "next_24h"
+    assert payload["filters"]["start_time"] == "2026-05-30T00:00:00+08:00"
+    assert payload["filters"]["end_time"] == "2026-05-31T12:00:00+08:00"
     assert payload["total_matches"] == 1
     assert payload["matches"][0]["match_id"] == match_id
     assert payload["matches"][0]["odds_summary"]["asian_handicap"] == "客队 +0.50 @ 1.950"

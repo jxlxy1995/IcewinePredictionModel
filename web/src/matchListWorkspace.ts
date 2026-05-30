@@ -71,15 +71,35 @@ export function summarizeMatchDetail(detail: MatchDetail) {
   };
 }
 
-export function matchTimePresetLabel(value: string): string {
-  const labels: Record<string, string> = {
-    all: "全部",
-    next_24h: "未来 24h",
-    next_3d: "未来 3 天",
-    previous_24h: "过去 24h",
-    previous_7d: "过去 7 天"
+export function defaultMatchListDateRange(now = new Date()): {
+  start_time: string;
+  end_time: string;
+} {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 1);
+  end.setHours(12, 0, 0, 0);
+  return {
+    start_time: toDatetimeLocalValue(start),
+    end_time: toDatetimeLocalValue(end)
   };
-  return labels[value] ?? value;
+}
+
+export function toDatetimeLocalValue(value: string | Date | null): string {
+  if (!value) {
+    return "";
+  }
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return typeof value === "string" ? value : "";
+  }
+  const year = parsed.getFullYear();
+  const month = `${parsed.getMonth() + 1}`.padStart(2, "0");
+  const day = `${parsed.getDate()}`.padStart(2, "0");
+  const hour = `${parsed.getHours()}`.padStart(2, "0");
+  const minute = `${parsed.getMinutes()}`.padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 export function formatMatchStatus(value: string): string {

@@ -28,6 +28,17 @@ $env:PYTHONIOENCODING='utf-8'
 
 - Main local DB: `local_data/icewine_prediction.sqlite3`
 - Odds logs: `logs\odds`
+- Web console control script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start_web.ps1 start
+powershell -ExecutionPolicy Bypass -File .\start_web.ps1 stop
+powershell -ExecutionPolicy Bypass -File .\start_web.ps1 restart
+powershell -ExecutionPolicy Bypass -File .\start_web.ps1 status
+```
+
+- The script manages backend `http://127.0.0.1:8000` and frontend `http://127.0.0.1:5173`. Direct `.\start_web.ps1 ...` may be blocked by local PowerShell execution policy; use the `-ExecutionPolicy Bypass -File` form when that happens.
+- Runtime PID state is written to `.web/`, which is gitignored.
 - Common worker status command:
 
 ```powershell

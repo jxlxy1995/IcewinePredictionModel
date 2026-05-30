@@ -594,7 +594,14 @@ th {
 .match-filter-row {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.match-filter-row label {
+  color: #64748b;
+  display: grid;
+  font-size: 12px;
+  gap: 4px;
 }
 
 .match-filter-row input,
@@ -604,6 +611,7 @@ th {
   font: inherit;
   min-height: 36px;
   padding: 0 10px;
+  width: 100%;
 }
 
 .clickable-row {

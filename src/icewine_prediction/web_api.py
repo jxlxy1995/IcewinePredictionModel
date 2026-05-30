@@ -273,21 +273,23 @@ def create_web_app(
 
     @app.get("/api/match-list/workspace")
     def match_list_workspace(
-        time_preset: str = "next_24h",
+        start_time: str | None = None,
+        end_time: str | None = None,
         league_name: str | None = None,
         status_filter: str = "all",
         odds_filter: str = "all",
         search: str | None = None,
     ) -> dict[str, Any]:
         return cached_response(
-            ("match-list-workspace", time_preset, league_name, status_filter, odds_filter, search),
+            ("match-list-workspace", start_time, end_time, league_name, status_filter, odds_filter, search),
             lambda: _with_session(
                 session_factory,
                 lambda session: build_match_list_workspace_payload(
                     build_match_list_workspace(
                         session,
                         now=clock(),
-                        time_preset=time_preset,
+                        start_time=_parse_optional_datetime(start_time),
+                        end_time=_parse_optional_datetime(end_time),
                         league_name=league_name,
                         status_filter=status_filter,
                         odds_filter=odds_filter,

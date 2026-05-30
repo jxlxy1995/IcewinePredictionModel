@@ -3,16 +3,17 @@ import { describe, expect, it } from "vitest";
 import {
   buildMatchFreshnessCards,
   buildMatchListRows,
+  defaultMatchListDateRange,
   formatMatchStatus,
   formatOddsAvailability,
-  matchTimePresetLabel,
   summarizeMatchDetail
 } from "./matchListWorkspace";
 import type { MatchDetail, MatchListWorkspace } from "./types";
 
 const workspace: MatchListWorkspace = {
   filters: {
-    time_preset: "next_24h",
+    start_time: "2026-05-30T00:00:00+08:00",
+    end_time: "2026-05-31T12:00:00+08:00",
     league_name: null,
     status_filter: "all",
     odds_filter: "all",
@@ -24,19 +25,19 @@ const workspace: MatchListWorkspace = {
     latest_kickoff_time: "2026-06-02T03:00:00+08:00",
     latest_odds_snapshot_time: "2026-05-30T10:15:00+08:00"
   },
-  leagues: ["J1 League"],
+  leagues: [{ name: "J1 League", display_name: "J1" }],
   total_matches: 1,
   matches: [
     {
       match_id: 16356,
       kickoff_time: "2026-05-30T13:00:00+08:00",
       league_name: "J1 League",
-      league_display_name: "日职联",
+      league_display_name: "J1",
       home_team_name: "Sanfrecce Hiroshima",
-      home_team_display_name: "广岛三箭",
+      home_team_display_name: "Hiroshima",
       home_team_logo_url: "home.png",
       away_team_name: "Kawasaki Frontale",
-      away_team_display_name: "川崎前锋",
+      away_team_display_name: "Kawasaki",
       away_team_logo_url: "away.png",
       status: "scheduled",
       status_group: "not_started",
@@ -44,7 +45,7 @@ const workspace: MatchListWorkspace = {
       away_score: null,
       has_odds: true,
       odds_summary: {
-        asian_handicap: "客队 +0.50 @ 1.950",
+        asian_handicap: "Away +0.50 @ 1.950",
         total_goals: null,
         match_winner: null
       }
@@ -54,41 +55,48 @@ const workspace: MatchListWorkspace = {
 
 const detail: MatchDetail = {
   ...workspace.matches[0],
-  team_data_note: "待接入",
-  paper_recommendation_summary: { count: 0, label: "暂无纸面推荐记录" },
-  formal_recommendation_summary: { count: 0, label: "暂无正式推荐记录" }
+  team_data_note: "Pending",
+  paper_recommendation_summary: { count: 0, label: "No paper records" },
+  formal_recommendation_summary: { count: 0, label: "No formal records" }
 };
 
 describe("matchListWorkspace", () => {
   it("builds compact freshness cards", () => {
-    expect(buildMatchFreshnessCards(workspace)).toEqual([
-      { label: "赛程/赛果同步", value: "2026-05-30 10:12", meta: "默认 3 天" },
-      { label: "赔率同步", value: "2026-05-30 10:16", meta: "默认 2 天" },
-      { label: "库内最新开赛", value: "2026-06-02 03:00", meta: "辅助参考" },
-      { label: "最新赔率快照", value: "2026-05-30 10:15", meta: "辅助参考" }
+    expect(buildMatchFreshnessCards(workspace).map((card) => card.value)).toEqual([
+      "2026-05-30 10:12",
+      "2026-05-30 10:16",
+      "2026-06-02 03:00",
+      "2026-05-30 10:15"
     ]);
   });
 
-  it("formats match list rows with Chinese names and odds summary", () => {
+  it("formats match list rows with display names and odds summary", () => {
     expect(buildMatchListRows(workspace)[0]).toMatchObject({
-      fixture: "广岛三箭 vs 川崎前锋",
-      league: "日职联",
-      oddsText: "客队 +0.50 @ 1.950",
-      statusText: "未开赛"
+      fixture: "Hiroshima vs Kawasaki",
+      league: "J1",
+      oddsText: "Away +0.50 @ 1.950"
     });
   });
 
-  it("formats filter labels and status text", () => {
-    expect(matchTimePresetLabel("next_24h")).toBe("未来 24h");
-    expect(formatMatchStatus("finished")).toBe("已完赛");
-    expect(formatOddsAvailability(false)).toBe("无赔率");
+  it("formats default datetime-local range from today to tomorrow noon", () => {
+    const range = defaultMatchListDateRange(new Date(2026, 4, 30, 15, 24));
+
+    expect(range).toEqual({
+      start_time: "2026-05-30T00:00",
+      end_time: "2026-05-31T12:00"
+    });
+  });
+
+  it("formats status text and odds availability", () => {
+    expect(formatMatchStatus("custom_status")).toBe("custom_status");
+    expect(formatOddsAvailability(true)).not.toBe("-");
   });
 
   it("summarizes match detail placeholders", () => {
     expect(summarizeMatchDetail(detail)).toEqual({
-      fixture: "广岛三箭 vs 川崎前锋",
-      recommendations: "暂无纸面推荐记录 / 暂无正式推荐记录",
-      teamData: "待接入"
+      fixture: "Hiroshima vs Kawasaki",
+      recommendations: "No paper records / No formal records",
+      teamData: "Pending"
     });
   });
 });

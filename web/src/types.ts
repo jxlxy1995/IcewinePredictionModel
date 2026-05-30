@@ -409,8 +409,14 @@ export type DataSyncFreshness = {
   latest_odds_snapshot_time: string | null;
 };
 
+export type MatchListLeagueOption = {
+  name: string;
+  display_name: string;
+};
+
 export type MatchListFilters = {
-  time_preset: string;
+  start_time: string;
+  end_time: string;
   league_name: string | null;
   status_filter: string;
   odds_filter: string;
@@ -445,7 +451,7 @@ export type MatchListMatch = {
 export type MatchListWorkspace = {
   filters: MatchListFilters;
   freshness: DataSyncFreshness;
-  leagues: string[];
+  leagues: MatchListLeagueOption[];
   total_matches: number;
   matches: MatchListMatch[];
 };

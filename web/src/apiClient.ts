@@ -190,11 +190,12 @@ export async function loadPaperRecommendationWorkspace(): Promise<PaperRecommend
 }
 
 export async function loadMatchListWorkspace(params: {
+  end_time?: string;
   league_name?: string | null;
   odds_filter?: string;
   search?: string | null;
+  start_time?: string;
   status_filter?: string;
-  time_preset?: string;
 } = {}): Promise<MatchListWorkspace> {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

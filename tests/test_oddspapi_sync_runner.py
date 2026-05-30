@@ -202,6 +202,9 @@ def _match(
     kickoff_time: datetime | None = None,
     home_team_name: str = "Mallorca",
     away_team_name: str = "Oviedo",
+    status: str = "finished",
+    home_score: int | None = 2,
+    away_score: int | None = 1,
 ):
     league = League(
         name=league_name,
@@ -221,9 +224,9 @@ def _match(
         kickoff_time=kickoff_time
         or datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
         season=2025,
-        status="finished",
-        home_score=2,
-        away_score=1,
+        status=status,
+        home_score=home_score,
+        away_score=away_score,
         source_name="api_football",
         source_match_id=source_match_id,
     )
@@ -269,6 +272,37 @@ def test_select_oddspapi_candidate_matches_prioritizes_league_then_recentness(se
 
     assert skipped == 0
     assert matches == [premier_league, la_liga, bundesliga]
+
+
+def test_select_oddspapi_candidate_matches_includes_unfinished_matches_when_targeted(session):
+    scheduled_match = _match(
+        session,
+        source_match_id="scheduled-j1",
+        league_name="J1 League",
+        source_league_id="98",
+        kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        home_team_name="Sanfrecce Hiroshima",
+        away_team_name="Kawasaki Frontale",
+        status="scheduled",
+        home_score=None,
+        away_score=None,
+    )
+
+    untargeted_matches, _ = select_oddspapi_candidate_matches(
+        session=session,
+        season=2025,
+        max_matches=10,
+    )
+    targeted_matches, skipped = select_oddspapi_candidate_matches(
+        session=session,
+        season=2025,
+        max_matches=10,
+        match_ids={scheduled_match.id},
+    )
+
+    assert scheduled_match not in untargeted_matches
+    assert skipped == 0
+    assert targeted_matches == [scheduled_match]
 
 
 def test_select_oddspapi_candidate_matches_skips_unavailable_or_empty_historical_odds(session):
@@ -338,6 +372,43 @@ def test_select_oddspapi_candidate_matches_skips_unavailable_or_empty_historical
 
     assert skipped == 2
     assert matches == [retryable_match, fresh_match]
+
+
+def test_select_oddspapi_candidate_matches_retries_terminal_status_when_targeted(session):
+    unavailable_match = _match(
+        session,
+        source_match_id="targeted-unavailable",
+        league_name="J1 League",
+        source_league_id="98",
+    )
+    session.add(
+        OddsSourceMatch(
+            match_id=unavailable_match.id,
+            source_name="oddspapi",
+            source_fixture_id="",
+            matched_at=datetime(2026, 5, 30, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_confidence=Decimal("0.0000"),
+            match_reason="unavailable",
+            historical_odds_status="unavailable",
+        )
+    )
+    session.commit()
+
+    untargeted_matches, _ = select_oddspapi_candidate_matches(
+        session=session,
+        season=2025,
+        max_matches=10,
+    )
+    targeted_matches, skipped = select_oddspapi_candidate_matches(
+        session=session,
+        season=2025,
+        max_matches=10,
+        match_ids={unavailable_match.id},
+    )
+
+    assert unavailable_match not in untargeted_matches
+    assert skipped == 0
+    assert targeted_matches == [unavailable_match]
 
 
 def test_select_oddspapi_candidate_matches_skips_unmatched_historical_odds(session):
@@ -1787,6 +1858,30 @@ def test_oddspapi_sync_client_requests_fixture_and_historical_odds_payloads():
             "bookmakers": "pinnacle",
         },
     )
+
+
+def test_oddspapi_sync_client_retries_fixture_lookup_without_status_filter_after_404():
+    class FixtureFallbackClient(FakeOddsPapiClient):
+        def get(self, endpoint, params=None):
+            if endpoint == "fixtures" and (params or {}).get("statusId") == 2:
+                self.request_count += 1
+                self.calls.append((endpoint, params or {}))
+                raise OddsPapiApiError("OddsPapi HTTP error: status=404", status_code=404)
+            return super().get(endpoint, params)
+
+    raw_client = FixtureFallbackClient()
+    client = OddsPapiSyncClient(raw_client)
+
+    fixtures = client.fetch_fixtures(
+        tournament_id=8,
+        kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+
+    assert fixtures[0].fixture_id == "oddspapi-fixture-1"
+    assert raw_client.calls[0][1]["statusId"] == 2
+    assert raw_client.calls[0][1]["hasOdds"] is True
+    assert "statusId" not in raw_client.calls[1][1]
+    assert "hasOdds" not in raw_client.calls[1][1]
 
 
 def test_oddspapi_sync_client_respects_historical_odds_cooldown(monkeypatch):

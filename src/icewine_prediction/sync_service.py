@@ -162,6 +162,7 @@ def upsert_odds_snapshots(session: Session, snapshots: list[ExternalOddsSnapshot
     created = 0
     skipped = 0
     for snapshot in snapshots:
+        captured_at = snapshot.captured_at.replace(second=0, microsecond=0)
         match = (
             session.query(Match)
             .filter_by(source_name=snapshot.source_name, source_match_id=snapshot.source_match_id)
@@ -176,7 +177,7 @@ def upsert_odds_snapshots(session: Session, snapshots: list[ExternalOddsSnapshot
                 match_id=match.id,
                 data_source=snapshot.source_name,
                 bookmaker=snapshot.bookmaker,
-                captured_at=snapshot.captured_at,
+                captured_at=captured_at,
             )
             .one_or_none()
         )
@@ -186,7 +187,7 @@ def upsert_odds_snapshots(session: Session, snapshots: list[ExternalOddsSnapshot
         session.add(
             OddsSnapshot(
                 match=match,
-                captured_at=snapshot.captured_at,
+                captured_at=captured_at,
                 data_source=snapshot.source_name,
                 bookmaker=snapshot.bookmaker,
                 asian_handicap=snapshot.asian_handicap,

@@ -151,3 +151,56 @@ def test_upsert_odds_snapshots_saves_snapshot_for_existing_match(session):
     assert saved.match_winner_home_odds == Decimal("2.10")
     assert saved.match_winner_draw_odds == Decimal("3.25")
     assert saved.match_winner_away_odds == Decimal("3.40")
+
+
+def test_upsert_odds_snapshots_treats_same_minute_bookmaker_snapshot_as_duplicate(session):
+    fixture = ExternalFixture(
+        source_name="api_football",
+        source_match_id="1001",
+        source_league_id="39",
+        league_name="Premier League",
+        country="England",
+        home_source_team_id="50",
+        home_team_name="Manchester City",
+        away_source_team_id="42",
+        away_team_name="Arsenal",
+        kickoff_time=datetime(2026, 5, 23, 22, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        home_score=None,
+        away_score=None,
+        season=2025,
+    )
+    upsert_fixtures(session, [fixture])
+    captured_at = datetime(2026, 5, 23, 18, 0, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
+    first = ExternalOddsSnapshot(
+        source_name="api_football",
+        source_match_id="1001",
+        captured_at=captured_at,
+        bookmaker="Pinnacle",
+        asian_handicap=Decimal("-0.25"),
+        home_odds=Decimal("1.92"),
+        away_odds=Decimal("1.96"),
+        total_line=Decimal("2.50"),
+        over_odds=Decimal("1.94"),
+        under_odds=Decimal("1.94"),
+    )
+    second = ExternalOddsSnapshot(
+        source_name="api_football",
+        source_match_id="1001",
+        captured_at=captured_at.replace(second=50),
+        bookmaker="Pinnacle",
+        asian_handicap=Decimal("-0.25"),
+        home_odds=Decimal("1.92"),
+        away_odds=Decimal("1.96"),
+        total_line=Decimal("2.50"),
+        over_odds=Decimal("1.94"),
+        under_odds=Decimal("1.94"),
+    )
+
+    first_result = upsert_odds_snapshots(session, [first])
+    second_result = upsert_odds_snapshots(session, [second])
+
+    assert first_result.created_odds_snapshots == 1
+    assert second_result.created_odds_snapshots == 0
+    assert second_result.skipped_odds_snapshots == 1
+    assert session.query(OddsSnapshot).count() == 1

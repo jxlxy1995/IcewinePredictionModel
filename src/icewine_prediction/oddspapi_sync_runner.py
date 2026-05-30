@@ -205,18 +205,23 @@ class OddsPapiSyncClient:
         self._respect_fixture_cooldown()
         start_time = _as_utc(kickoff_time) - timedelta(hours=2)
         end_time = _as_utc(kickoff_time) + timedelta(hours=2)
+        params = {
+            "sportId": SOCCER_SPORT_ID,
+            "tournamentId": tournament_id,
+            "from": _format_utc_time(start_time),
+            "to": _format_utc_time(end_time),
+            "statusId": 2,
+            "hasOdds": True,
+        }
         try:
-            payload = self.client.get(
-                "fixtures",
-                {
-                    "sportId": SOCCER_SPORT_ID,
-                    "tournamentId": tournament_id,
-                    "from": _format_utc_time(start_time),
-                    "to": _format_utc_time(end_time),
-                    "statusId": 2,
-                    "hasOdds": True,
-                },
-            )
+            payload = self.client.get("fixtures", params)
+        except OddsPapiApiError as exc:
+            if exc.status_code != 404:
+                raise
+            fallback_params = dict(params)
+            fallback_params.pop("statusId", None)
+            fallback_params.pop("hasOdds", None)
+            payload = self.client.get("fixtures", fallback_params)
         finally:
             self._last_fixture_request_at = time.monotonic()
         return [_map_fixture(item) for item in payload]
@@ -1143,11 +1148,14 @@ def select_oddspapi_candidate_matches(
     query = (
         session.query(Match)
         .filter(Match.season == season)
-        .filter(Match.status == "finished")
-        .filter(Match.home_score.isnot(None))
-        .filter(Match.away_score.isnot(None))
         .order_by(Match.kickoff_time.desc())
     )
+    if not match_ids:
+        query = (
+            query.filter(Match.status == "finished")
+            .filter(Match.home_score.isnot(None))
+            .filter(Match.away_score.isnot(None))
+        )
     if match_ids:
         query = query.filter(Match.id.in_(match_ids))
     if from_date is not None:
@@ -1164,7 +1172,7 @@ def select_oddspapi_candidate_matches(
         if _has_historical_odds(session, match.id):
             skipped_existing_odds += 1
             continue
-        if _has_terminal_historical_odds_status(session, match.id):
+        if not match_ids and _has_terminal_historical_odds_status(session, match.id):
             skipped_existing_odds += 1
             continue
         selected.append(match)

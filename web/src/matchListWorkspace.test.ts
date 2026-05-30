@@ -89,6 +89,11 @@ describe("matchListWorkspace", () => {
   });
 
   it("formats status text and odds availability", () => {
+    expect(formatMatchStatus("scheduled")).toBe("未开赛");
+    expect(formatMatchStatus("pending_result")).toBe("待填赛果");
+    expect(formatMatchStatus("1h")).toBe("待填赛果");
+    expect(formatMatchStatus("2H")).toBe("待填赛果");
+    expect(formatMatchStatus("ht")).toBe("待填赛果");
     expect(formatMatchStatus("custom_status")).toBe("custom_status");
     expect(formatOddsAvailability(true)).not.toBe("-");
   });

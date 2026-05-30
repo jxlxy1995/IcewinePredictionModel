@@ -564,10 +564,16 @@ def _snapshot_unique_key(
         snapshot.bookmaker,
         snapshot.market_type,
         snapshot.market_id,
-        snapshot.market_line,
+        Decimal(snapshot.market_line).quantize(Decimal("0.01")),
         snapshot.outcome_side,
-        snapshot.snapshot_time,
+        _snapshot_unique_time(snapshot.snapshot_time),
     )
+
+
+def _snapshot_unique_time(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
 
 
 def build_historical_odds_coverage_report(

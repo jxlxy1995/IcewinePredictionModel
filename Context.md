@@ -736,3 +736,87 @@ Suggested next conversation directions:
    - Use the `比赛列表` page against real local data.
    - Confirm sync buttons, default next-24h list, filtering, and detail page behavior.
    - Improve detail content when team stats/standings/recommendation links become available.
+
+## 2026-05-30 Web Sync Diagnostics, Cleanup, And Odds-Failure Handoff
+
+Latest work pending commit after this handoff:
+
+- Added persistent per-match sync details:
+  - Model/table: `DataSyncRunItem`.
+  - API: `GET /api/data-sync-runs/{run_id}/items`.
+  - Web: `最近同步诊断` panel with collapsible success/failed/skipped details.
+  - Useful for next odds-failure diagnosis: inspect the latest odds sync run items first, then join to `odds_source_matches` and `historical_odds_snapshots`.
+- Fixed confusing diagnostics display:
+  - OddsPapi diagnostic fields (`diagnostic_status`, `source_fixture_id`, `snapshot_count`, `diagnostic_error`) are shown only for odds sync.
+  - Fixtures/results sync no longer displays stale odds diagnostics such as `诊断: success · 快照 151`.
+- API-Football stability:
+  - `ApiFootballClient` now supports request cooldown, one retry, retry cooldown, and wraps `requests.RequestException` as `ApiFootballApiError`.
+  - `build_api_football_provider` passes defaults: `request_cooldown_seconds=0.8`, `max_retries=1`, `retry_cooldown_seconds=2.0`.
+  - `同步赛程/赛果` lazily initializes the provider so fully skipped batches use `0` requests.
+  - Truly live/in-play matches are skipped for result sync with message `比赛进行中，暂不申请赛果`.
+  - Live detection checks `status`, `status_short`, and `status_long` lowercased against:
+    `live`, `in_play`, `halftime`, `1h`, `2h`, `ht`, `et`, `bt`, `p`, `int`, `susp`.
+- Raw historical odds duplicate fix:
+  - Historical odds raw/snapshot unique-key comparison normalizes `market_line` to `0.01` and timezone-aware `snapshot_time` to naive UTC before de-duping.
+  - This fixed the SQLite unique-key failure seen in earlier odds sync runs.
+- OddsPapi fixture lookup diagnostics:
+  - Non-404 fixture lookup `OddsPapiApiError` now stores/updates `OddsSourceMatch` as `historical_odds_status="fixture_lookup_failed"` with the error text.
+  - 404/unavailable behavior remains separate.
+- Match-list status display:
+  - Started/no-score matches display `pending_result` / `待填赛果`.
+  - `scheduled`/`not_started` display `未开赛`.
+- Web console cleanup:
+  - Default page is now `比赛列表`.
+  - Sidebar intentionally shows only:
+    `比赛列表`, `中文名`, `模型训练`, `纸面跟踪`, `推荐记录`.
+  - Overview, coverage, worker, Oddspapi audit, unmatched, and standalone odds-trend pages are hidden from navigation but not deleted.
+  - `mockDashboardData.recommendationRecords` is empty.
+  - Local SQLite table `recommendation_records` was cleared on 2026-05-30:
+    deleted `11`, remaining `0`.
+  - `paper_recommendation_records` was not cleared and had `6` rows at cleanup time.
+  - Web was restarted after clearing `recommendation_records`; `/api/recommendation-records` returned `Count: 0`.
+
+Fresh verification run before this handoff:
+
+```powershell
+$env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
+C:\ProgramData\anaconda3\python.exe -m pytest tests/test_web_console_api.py tests/test_match_list_workspace_service.py tests/test_api_football_client.py -q
+```
+
+Result: `45 passed`.
+
+```powershell
+cd web
+npm test
+npm run build
+```
+
+Result: frontend `44 passed`; build succeeded.
+
+Useful next odds-failure diagnosis flow:
+
+1. Run or inspect latest odds sync from Web.
+2. Query latest run:
+
+```powershell
+$env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
+@'
+from icewine_prediction.database import create_database_engine, create_session_factory, initialize_database
+from icewine_prediction.models import DataSyncRun, DataSyncRunItem
+engine=create_database_engine(); initialize_database(engine); Session=create_session_factory(engine)
+with Session() as s:
+    run=s.query(DataSyncRun).filter_by(sync_type="odds").order_by(DataSyncRun.id.desc()).first()
+    print(run.id, run.status, run.created_count, run.skipped_count, run.requests_used, run.error_message)
+    for item in s.query(DataSyncRunItem).filter_by(run_id=run.id).order_by(DataSyncRunItem.status, DataSyncRunItem.match_id):
+        print(item.status, item.match_id, item.message, item.diagnostic_status, item.source_fixture_id, item.snapshot_count, item.diagnostic_error)
+'@ | C:\ProgramData\anaconda3\python.exe -
+```
+
+3. For failures, classify using `diagnostic_status`:
+   - `fixture_lookup_failed`: API/transport/provider failure during OddsPapi fixture lookup; error text should now be persisted.
+   - `unmatched`: no OddsPapi fixture matched by teams/time/league mapping.
+   - `unavailable`: usually 404/unavailable fixture.
+   - `empty`: fixture matched but no usable pre-match/main-line odds.
+   - missing source row after this commit should be treated as a bug worth investigating.
+
+4. Do not call Oddspapi for local audits unless explicitly probing/fetching. The web sync and `oddspapi_sync_runner` calls do consume API requests.

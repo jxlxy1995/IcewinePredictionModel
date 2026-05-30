@@ -93,7 +93,7 @@ def test_match_list_workspace_defaults_to_today_through_tomorrow_noon_and_freshn
     assert workspace.matches[0].odds_summary.asian_handicap == "\u5ba2\u961f +0.25 @ 1.950"
 
 
-def test_match_list_workspace_marks_started_unscored_matches_as_live(session):
+def test_match_list_workspace_marks_started_unscored_matches_as_pending_result(session):
     now = datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING)
     league = League(name="J1 League", country_or_region="Japan", level=1)
     home = Team(canonical_name="Sanfrecce Hiroshima")
@@ -116,7 +116,35 @@ def test_match_list_workspace_marks_started_unscored_matches_as_live(session):
 
     assert workspace.total_matches == 1
     assert workspace.matches[0].match_id == match.id
-    assert workspace.matches[0].status == "live"
+    assert workspace.matches[0].status == "pending_result"
+    assert workspace.matches[0].status_group == "live"
+
+
+def test_match_list_workspace_hides_period_status_for_unscored_matches(session):
+    now = datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING)
+    league = League(name="J1 League", country_or_region="Japan", level=1)
+    home = Team(canonical_name="Sanfrecce Hiroshima")
+    away = Team(canonical_name="Kawasaki Frontale")
+    session.add_all([league, home, away])
+    session.flush()
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 9, 30, tzinfo=BEIJING),
+        status="1h",
+        status_short="1H",
+        home_score=None,
+        away_score=None,
+    )
+    session.add(match)
+    session.commit()
+
+    workspace = build_match_list_workspace(session, now=now, status_filter="live")
+
+    assert workspace.total_matches == 1
+    assert workspace.matches[0].match_id == match.id
+    assert workspace.matches[0].status == "pending_result"
     assert workspace.matches[0].status_group == "live"
 
 

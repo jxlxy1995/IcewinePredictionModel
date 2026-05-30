@@ -4,6 +4,7 @@ import {
   loadDashboardData,
   loadLatestTrainingRun,
   loadMatchListWorkspace,
+  loadMatchSyncRunDetail,
   loadPaperRecommendationWorkspace,
   startTrainingFullRefresh,
   syncFilteredMatchListFixturesResults,
@@ -301,5 +302,79 @@ describe("apiClient", () => {
       headers: { "Content-Type": "application/json" },
       method: "POST"
     });
+  });
+
+  it("includes API error detail when match odds sync fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { detail: "UNIQUE constraint failed: historical_odds_raw_snapshots" },
+          { status: 500 }
+        )
+      )
+    );
+
+    await expect(syncSingleMatchOdds(16356)).rejects.toThrow(
+      "UNIQUE constraint failed: historical_odds_raw_snapshots"
+    );
+  });
+
+  it("loads persisted match sync run detail", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        sync_run: {
+          id: 7,
+          sync_type: "odds",
+          started_at: "2026-05-30T10:00:00+08:00",
+          finished_at: "2026-05-30T10:01:00+08:00",
+          status: "success",
+          days: 0,
+          created_count: 1,
+          updated_count: 0,
+          skipped_count: 0,
+          requests_used: 2,
+          error_message: null
+        },
+        report: {
+          sync_type: "odds",
+          started_at: "2026-05-30T10:00:00+08:00",
+          finished_at: "2026-05-30T10:01:00+08:00",
+          target_count: 1,
+          success_count: 0,
+          failed_count: 1,
+          skipped_count: 0,
+          requests_used: 2,
+          success: [],
+          failed: [
+            {
+              match_id: 16359,
+              kickoff_time: "2026-05-30T14:00:00+08:00",
+              league_name: "J1 League",
+              home_team_name: "Cerezo Osaka",
+              away_team_name: "FC Tokyo",
+              fixture: "Cerezo Osaka vs FC Tokyo",
+              status: "failed",
+              message: "未获取到可用赔率",
+              created_count: 0,
+              updated_count: 0,
+              skipped_count: 0,
+              requests_used: 0,
+              source_fixture_id: "missing-fixture",
+              diagnostic_status: "unavailable",
+              diagnostic_error: "OddsPapi HTTP error: status=404",
+              snapshot_count: 0
+            }
+          ],
+          skipped: []
+        }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const detail = await loadMatchSyncRunDetail(7);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/data-sync-runs/7/items");
+    expect(detail.report.failed[0].diagnostic_status).toBe("unavailable");
   });
 });

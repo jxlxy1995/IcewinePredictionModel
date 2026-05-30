@@ -690,6 +690,8 @@ def run_oddspapi_sync_for_session(
                 except OddsPapiApiError as exc:
                     if _classify_historical_odds_error(exc) == "unavailable":
                         _store_unavailable_odds_source_match(session, match, str(exc))
+                    else:
+                        _store_fixture_lookup_failed_odds_source_match(session, match, str(exc))
                     raise
             _emit_progress(
                 progress_callback,
@@ -1330,6 +1332,35 @@ def _store_unavailable_odds_source_match(session: Session, match: Match, reason:
         existing.match_confidence = Decimal("0.0000")
         existing.match_reason = reason
         existing.historical_odds_status = "unavailable"
+        existing.historical_odds_checked_at = now_beijing()
+        existing.historical_odds_error = reason
+    session.commit()
+
+
+def _store_fixture_lookup_failed_odds_source_match(session: Session, match: Match, reason: str) -> None:
+    existing = (
+        session.query(OddsSourceMatch)
+        .filter_by(match_id=match.id, source_name=ODDSPAPI_SOURCE_NAME)
+        .one_or_none()
+    )
+    if existing is None:
+        session.add(
+            OddsSourceMatch(
+                match_id=match.id,
+                source_name=ODDSPAPI_SOURCE_NAME,
+                source_fixture_id="",
+                matched_at=now_beijing(),
+                match_confidence=Decimal("0.0000"),
+                match_reason=reason,
+                historical_odds_status="fixture_lookup_failed",
+                historical_odds_checked_at=now_beijing(),
+                historical_odds_error=reason,
+            )
+        )
+    else:
+        existing.match_confidence = Decimal("0.0000")
+        existing.match_reason = reason
+        existing.historical_odds_status = "fixture_lookup_failed"
         existing.historical_odds_checked_at = now_beijing()
         existing.historical_odds_error = reason
     session.commit()

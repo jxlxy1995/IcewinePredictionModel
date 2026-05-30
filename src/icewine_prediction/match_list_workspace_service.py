@@ -482,12 +482,12 @@ def _time_window(
 
 def _display_status(match: Match, *, now: datetime) -> str:
     if (
-        match.status in ("scheduled", "not_started")
+        match.status in ("scheduled", "not_started", "1h", "2h", "ht", "live", "in_play", "halftime")
         and match.home_score is None
         and match.away_score is None
         and _as_beijing_datetime(match.kickoff_time) <= _as_beijing_datetime(now)
     ):
-        return "live"
+        return "pending_result"
     return match.status
 
 
@@ -498,7 +498,7 @@ def _display_status_group(match: Match, *, now: datetime) -> str:
 def _status_group(status: str) -> str:
     if status in ("scheduled", "not_started"):
         return "not_started"
-    if status in ("live", "in_play", "halftime"):
+    if status in ("pending_result", "live", "in_play", "halftime", "1h", "2h", "ht"):
         return "live"
     if status == "finished":
         return "finished"

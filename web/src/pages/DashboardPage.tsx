@@ -22,6 +22,7 @@ import {
   loadMatchDetail,
   loadMatchListWorkspace,
   loadMatchOddsTrend,
+  loadMatchSyncRunDetail,
   loadOddspapiBackfillAudit,
   loadPaperRecommendationWorkspace,
   loadTrainingWorkspace,
@@ -93,6 +94,7 @@ import type {
   MatchDetail,
   MatchListMatch,
   MatchSyncReport,
+  MatchSyncRunDetail,
   MatchOddsTrends,
   PaperCandidate,
   PaperRecord,
@@ -127,17 +129,13 @@ type MatchListFilterState = {
   status_filter: string;
 };
 
-const navItems: NavItem[] = [
-  { key: "overview", label: "总览", icon: Activity },
+export const initialDashboardView: ViewKey = "matchList";
+
+export const dashboardNavItems: NavItem[] = [
   { key: "matchList", label: "比赛列表", icon: Search },
-  { key: "coverage", label: "覆盖率", icon: Database },
-  { key: "workers", label: "Worker", icon: Radio },
-  { key: "oddspapiAudit", label: "回填审计", icon: ClipboardList },
-  { key: "unmatched", label: "未匹配", icon: CircleAlert },
   { key: "displayNames", label: "中文名", icon: Languages },
   { key: "models", label: "模型训练", icon: BrainCircuit },
   { key: "paperTracking", label: "纸面跟踪", icon: ScrollText },
-  { key: "odds", label: "赔率走势", icon: BarChart3 },
   { key: "records", label: "推荐记录", icon: ListChecks }
 ];
 
@@ -189,7 +187,7 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
 };
 
 export function DashboardPage() {
-  const [activeView, setActiveView] = useState<ViewKey>("overview");
+  const [activeView, setActiveView] = useState<ViewKey>(initialDashboardView);
   const [data, setData] = useState<DashboardData>(mockDashboardData);
   const [isLoading, setIsLoading] = useState(true);
   const [oddsTrends, setOddsTrends] = useState<MatchOddsTrends>(mockDashboardData.oddsTrends);
@@ -224,6 +222,7 @@ export function DashboardPage() {
   const [matchListMessage, setMatchListMessage] = useState<string | null>(null);
   const [matchListError, setMatchListError] = useState<string | null>(null);
   const [matchListSyncReport, setMatchListSyncReport] = useState<MatchSyncReport | null>(null);
+  const [matchListSyncRunDetail, setMatchListSyncRunDetail] = useState<MatchSyncRunDetail | null>(null);
   const [matchDetailOddsTrends, setMatchDetailOddsTrends] = useState<MatchOddsTrends | null>(null);
   const [matchDetailOddsError, setMatchDetailOddsError] = useState<string | null>(null);
   const [matchListFilters, setMatchListFilters] = useState<MatchListFilterState>({
@@ -261,7 +260,7 @@ export function DashboardPage() {
     if (activeView === "matchList") {
       setMatchListAction("refresh");
       refreshMatchListWorkspace(setData, matchListFilters)
-        .catch(() => setMatchListError("刷新比赛列表失败"))
+        .catch((error) => setMatchListError(formatActionError("刷新比赛列表失败", error)))
         .finally(() => setMatchListAction(null));
     }
     if (activeView === "oddspapiAudit") {
@@ -336,7 +335,7 @@ export function DashboardPage() {
       <aside className="sidebar">
         <div className="brand">冰酒预测</div>
         <nav>
-          {navItems.map((item) => {
+          {dashboardNavItems.map((item) => {
             const Icon = item.icon;
             return (
               <button
@@ -373,6 +372,7 @@ export function DashboardPage() {
             filters={matchListFilters}
             messageText={matchListMessage}
             syncReport={matchListSyncReport}
+            syncRunDetail={matchListSyncRunDetail}
             onBackToList={() => {
               setSelectedMatchDetail(null);
               setMatchDetailOddsTrends(null);
@@ -384,9 +384,18 @@ export function DashboardPage() {
               setMatchListError(null);
               setMatchListMessage(null);
               setMatchListSyncReport(null);
-              refreshMatchListWorkspace(setData, merged).catch(() =>
-                setMatchListError("刷新比赛列表失败")
+              setMatchListSyncRunDetail(null);
+              refreshMatchListWorkspace(setData, merged).catch((error) =>
+                setMatchListError(formatActionError("刷新比赛列表失败", error))
               );
+            }}
+            onLoadSyncRunDetail={(runId) => {
+              setMatchListAction(`sync-detail-${runId}`);
+              setMatchListError(null);
+              loadMatchSyncRunDetail(runId)
+                .then(setMatchListSyncRunDetail)
+                .catch((error) => setMatchListError(formatActionError("读取同步诊断明细失败", error)))
+                .finally(() => setMatchListAction(null));
             }}
             onOpenMatch={(match) => {
               setMatchListAction(`detail-${match.match_id}`);
@@ -403,7 +412,7 @@ export function DashboardPage() {
                     .then(setMatchDetailOddsTrends)
                     .catch(() => setMatchDetailOddsError("读取赔率走势失败，请稍后重试"));
                 })
-                .catch(() => setMatchListError("读取比赛详情失败"))
+                .catch((error) => setMatchListError(formatActionError("读取比赛详情失败", error)))
                 .finally(() => setMatchListAction(null));
             }}
             onSyncFixturesResults={() => {
@@ -411,13 +420,15 @@ export function DashboardPage() {
               setMatchListError(null);
               setMatchListMessage(null);
               setMatchListSyncReport(null);
+              setMatchListSyncRunDetail(null);
               syncFilteredMatchListFixturesResults(matchListFilters)
                 .then((response) => {
                   setMatchListSyncReport(response.report);
+                  setMatchListSyncRunDetail(response);
                   return refreshMatchListWorkspace(setData, matchListFilters);
                 })
                 .then(() => setMatchListMessage("赛程/赛果同步完成"))
-                .catch(() => setMatchListError("赛程/赛果同步失败"))
+                .catch((error) => setMatchListError(formatActionError("赛程/赛果同步失败", error)))
                 .finally(() => setMatchListAction(null));
             }}
             onSyncMatchFixturesResults={(match) => {
@@ -425,13 +436,15 @@ export function DashboardPage() {
               setMatchListError(null);
               setMatchListMessage(null);
               setMatchListSyncReport(null);
+              setMatchListSyncRunDetail(null);
               syncSingleMatchFixturesResults(match.match_id)
                 .then((response) => {
                   setMatchListSyncReport(response.report);
+                  setMatchListSyncRunDetail(response);
                   return refreshMatchListWorkspace(setData, matchListFilters);
                 })
                 .then(() => setMatchListMessage("赛程/赛果同步完成"))
-                .catch(() => setMatchListError("赛程/赛果同步失败"))
+                .catch((error) => setMatchListError(formatActionError("赛程/赛果同步失败", error)))
                 .finally(() => setMatchListAction(null));
             }}
             onSyncOdds={() => {
@@ -439,13 +452,15 @@ export function DashboardPage() {
               setMatchListError(null);
               setMatchListMessage(null);
               setMatchListSyncReport(null);
+              setMatchListSyncRunDetail(null);
               syncFilteredMatchListOdds(matchListFilters)
                 .then((response) => {
                   setMatchListSyncReport(response.report);
+                  setMatchListSyncRunDetail(response);
                   return refreshMatchListWorkspace(setData, matchListFilters);
                 })
                 .then(() => setMatchListMessage("赔率同步完成"))
-                .catch(() => setMatchListError("赔率同步失败"))
+                .catch((error) => setMatchListError(formatActionError("赔率同步失败", error)))
                 .finally(() => setMatchListAction(null));
             }}
             onSyncMatchOdds={(match) => {
@@ -453,13 +468,15 @@ export function DashboardPage() {
               setMatchListError(null);
               setMatchListMessage(null);
               setMatchListSyncReport(null);
+              setMatchListSyncRunDetail(null);
               syncSingleMatchOdds(match.match_id)
                 .then((response) => {
                   setMatchListSyncReport(response.report);
+                  setMatchListSyncRunDetail(response);
                   return refreshMatchListWorkspace(setData, matchListFilters);
                 })
                 .then(() => setMatchListMessage("赔率同步完成"))
-                .catch(() => setMatchListError("赔率同步失败"))
+                .catch((error) => setMatchListError(formatActionError("赔率同步失败", error)))
                 .finally(() => setMatchListAction(null));
             }}
           />
@@ -843,8 +860,10 @@ function FilteredMatchListView({
   filters,
   messageText,
   syncReport,
+  syncRunDetail,
   onBackToList,
   onFiltersChange,
+  onLoadSyncRunDetail,
   onOpenMatch,
   onSyncFixturesResults,
   onSyncMatchFixturesResults,
@@ -860,8 +879,10 @@ function FilteredMatchListView({
   filters: MatchListFilterState;
   messageText: string | null;
   syncReport: MatchSyncReport | null;
+  syncRunDetail: MatchSyncRunDetail | null;
   onBackToList: () => void;
   onFiltersChange: (filters: Partial<MatchListFilterState>) => void;
+  onLoadSyncRunDetail: (runId: number) => void;
   onOpenMatch: (match: MatchListMatch) => void;
   onSyncFixturesResults: () => void;
   onSyncMatchFixturesResults: (match: MatchListMatch) => void;
@@ -913,6 +934,13 @@ function FilteredMatchListView({
         {messageText && <span className="success-text">{messageText}</span>}
         {errorText && <span className="error-text">{errorText}</span>}
       </section>
+      {syncRunDetail && (
+        <MatchSyncDiagnosticsPanel
+          detail={syncRunDetail}
+          isBusy={actionInFlight === `sync-detail-${syncRunDetail.sync_run.id}`}
+          onReload={onLoadSyncRunDetail}
+        />
+      )}
       {syncReport && <MatchSyncResultPanel report={syncReport} />}
       <Panel title="筛选">
         <div className="match-filter-row">
@@ -994,6 +1022,37 @@ function MatchSyncResultPanel({ report }: { report: MatchSyncReport }) {
   );
 }
 
+function MatchSyncDiagnosticsPanel({
+  detail,
+  isBusy,
+  onReload
+}: {
+  detail: MatchSyncRunDetail;
+  isBusy: boolean;
+  onReload: (runId: number) => void;
+}) {
+  return (
+    <Panel title={`最近同步诊断 · #${detail.sync_run.id}`}>
+      <div className="sync-result-summary">
+        {buildMatchSyncSummary(detail.report).line}
+        <button
+          className="inline-action compact-action"
+          disabled={isBusy}
+          onClick={() => onReload(detail.sync_run.id)}
+          type="button"
+        >
+          {isBusy ? "读取中" : "刷新明细"}
+        </button>
+      </div>
+      <div className="sync-result-groups">
+        <MatchSyncResultGroup label="失败诊断" items={detail.report.failed} />
+        <MatchSyncResultGroup label="成功诊断" items={detail.report.success} />
+        <MatchSyncResultGroup label="跳过诊断" items={detail.report.skipped} />
+      </div>
+    </Panel>
+  );
+}
+
 function MatchSyncResultGroup({
   items,
   label
@@ -1017,6 +1076,13 @@ function MatchSyncResultGroup({
               </strong>
               <span>{item.kickoff_time}</span>
               {item.message && <small>{item.message}</small>}
+              {(item.diagnostic_status || item.diagnostic_error || item.source_fixture_id || item.snapshot_count > 0) && (
+                <small>
+                  诊断: {item.diagnostic_status ?? "-"} · 快照 {item.snapshot_count}
+                  {item.source_fixture_id ? ` · fixture ${item.source_fixture_id}` : ""}
+                  {item.diagnostic_error ? ` · ${item.diagnostic_error}` : ""}
+                </small>
+              )}
             </div>
           ))}
         </div>
@@ -1121,6 +1187,13 @@ function refreshMatchListWorkspace(
   return loadMatchListWorkspace(filters).then((workspace) => {
     setData((current) => ({ ...current, matchList: workspace }));
   });
+}
+
+function formatActionError(prefix: string, error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return `${prefix}: ${error.message}`;
+  }
+  return prefix;
 }
 
 function formatMatchListAction(action: string) {

@@ -68,6 +68,7 @@ def test_initialize_database_adds_match_detail_columns_to_existing_sqlite_databa
         "historical_odds_snapshots",
         "historical_odds_raw_snapshots",
         "external_aliases",
+        "data_sync_run_items",
     }.issubset(table_names)
     assert {"logo_url", "flag_url", "standings_supported"}.issubset(league_columns)
     assert "logo_url" in team_columns

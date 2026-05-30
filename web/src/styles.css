@@ -644,9 +644,18 @@ th {
 }
 
 .sync-result-summary {
+  align-items: center;
   color: #334155;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
   font-size: 14px;
   margin-bottom: 12px;
+}
+
+.compact-action {
+  min-height: 30px;
+  padding: 5px 10px;
 }
 
 .sync-result-groups {

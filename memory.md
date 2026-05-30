@@ -19,6 +19,11 @@
 - Use `start_web.ps1` as the unified Web control script for start/stop/restart/status. Backend runs without `uvicorn --reload`; restart the script after backend code changes.
 - Paper/formal recommendation strategies should have a memorable Chinese display name, with English keys/model names allowed as secondary technical identifiers.
 - Paper recommendation records are independent tracking records. Missed queue candidates can be backfilled from historical paper queue reports, but should be marked as manual/backfill rather than pretending they were automatic clicks.
+- Web console navigation is intentionally focused on active workflows: match list, Chinese names, model training, paper tracking, and recommendation records.
+- Formal `recommendation_records` local demo data was cleared on 2026-05-30; keep `paper_recommendation_records` separate and do not clear it when only cleaning the recommendation-record page.
+- Result sync should not request API-Football fixture updates for truly live/in-play matches; skip them and retry after they are no longer live.
+- API-Football requests should be gently paced and retried once for transient connection resets.
+- Match sync diagnostics should be persisted per match. Odds diagnostics belong only to odds sync reports, not fixtures/results sync reports.
 
 ## Oddspapi Backfill Learnings
 

@@ -9,9 +9,10 @@ from icewine_prediction.historical_odds_service import (
     build_historical_odds_coverage_report,
     sample_oddspapi_training_snapshots,
     sample_historical_odds_snapshots,
+    store_historical_odds_raw_snapshots,
     store_historical_odds_snapshots,
 )
-from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, Team
+from icewine_prediction.models import HistoricalOddsRawSnapshot, HistoricalOddsSnapshot, League, Match, Team
 
 
 def _match(
@@ -76,6 +77,27 @@ def test_store_historical_odds_snapshots_inserts_once_for_same_unique_key(sessio
     saved = session.query(HistoricalOddsSnapshot).one()
     assert result.inserted_count == 1
     assert result.skipped_duplicate_count == 1
+    assert saved.odds == Decimal("1.910")
+
+
+def test_store_historical_odds_raw_snapshots_skips_existing_unique_key(session):
+    match = _match(session)
+    first = _snapshot(match.id, odds=Decimal("1.91"))
+    duplicate = _snapshot(match.id, odds=Decimal("1.95"))
+    away = replace(first, outcome_side="away", odds=Decimal("1.99"))
+
+    first_result = store_historical_odds_raw_snapshots(session, [first, away])
+    second_result = store_historical_odds_raw_snapshots(session, [duplicate, away])
+
+    saved = (
+        session.query(HistoricalOddsRawSnapshot)
+        .filter(HistoricalOddsRawSnapshot.outcome_side == "home")
+        .one()
+    )
+    assert first_result.inserted_count == 2
+    assert first_result.skipped_duplicate_count == 0
+    assert second_result.inserted_count == 0
+    assert second_result.skipped_duplicate_count == 2
     assert saved.odds == Decimal("1.910")
 
 

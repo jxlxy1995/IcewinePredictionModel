@@ -39,6 +39,7 @@ from icewine_prediction.display_service import (
 from icewine_prediction.display_translation_status_service import DisplayTranslationStatusService
 from icewine_prediction.models import (
     DataSyncRun,
+    DataSyncRunItem,
     HistoricalOddsSnapshot,
     League,
     Match,
@@ -331,6 +332,7 @@ def create_web_app(
                     days=0,
                     **sync_result,
                 )
+                _persist_match_sync_run_items(session, run=run, report=report)
             except Exception as error:
                 run = record_sync_run(
                     session,
@@ -382,6 +384,7 @@ def create_web_app(
                     days=0,
                     **sync_result,
                 )
+                _persist_match_sync_run_items(session, run=run, report=report)
             except Exception as error:
                 run = record_sync_run(
                     session,
@@ -471,6 +474,7 @@ def create_web_app(
                     days=0,
                     **sync_result,
                 )
+                _persist_match_sync_run_items(session, run=run, report=report)
             except Exception as error:
                 run = record_sync_run(
                     session,
@@ -488,6 +492,18 @@ def create_web_app(
                 raise HTTPException(status_code=500, detail=str(error)) from error
             clear_cache_prefix(*cache_prefixes)
             return {"sync_run": build_data_sync_run_payload(run), "report": report}
+
+    @app.get("/api/data-sync-runs/{run_id}/items")
+    def data_sync_run_items(run_id: int) -> dict[str, Any]:
+        with session_factory() as session:
+            run = session.get(DataSyncRun, run_id)
+            if run is None:
+                raise HTTPException(status_code=404, detail="同步记录不存在")
+            return _build_persisted_match_sync_run_payload(
+                session=session,
+                run=run,
+                display_name_service=display_name_service,
+            )
 
     @app.get("/api/matches/{match_id}/odds-trends")
     def match_odds_trends(match_id: int) -> dict[str, Any]:
@@ -1330,10 +1346,16 @@ def _build_match_sync_report(
 ) -> dict[str, Any]:
     normalized = _normalize_match_sync_report_result(result)
     match_by_id = {match.id: match for match in matches}
+    diagnostic_by_match_id = (
+        _build_match_sync_diagnostics(session, match_by_id.keys())
+        if sync_type == "odds"
+        else {}
+    )
     success = _build_match_sync_items(
         session,
         normalized["success"],
         match_by_id=match_by_id,
+        diagnostic_by_match_id=diagnostic_by_match_id,
         default_status="success",
         display_name_service=display_name_service,
     )
@@ -1341,6 +1363,7 @@ def _build_match_sync_report(
         session,
         normalized["failed"],
         match_by_id=match_by_id,
+        diagnostic_by_match_id=diagnostic_by_match_id,
         default_status="failed",
         display_name_service=display_name_service,
     )
@@ -1348,6 +1371,7 @@ def _build_match_sync_report(
         session,
         normalized["skipped"],
         match_by_id=match_by_id,
+        diagnostic_by_match_id=diagnostic_by_match_id,
         default_status="skipped",
         display_name_service=display_name_service,
     )
@@ -1364,6 +1388,7 @@ def _build_match_sync_report(
                     match,
                     status="skipped",
                     message="同步器未返回该场比赛结果",
+                    diagnostic=diagnostic_by_match_id.get(match.id, {}),
                     display_name_service=display_name_service,
                 )
             )
@@ -1404,6 +1429,7 @@ def _build_match_sync_items(
     rows: list[Any],
     *,
     match_by_id: dict[int, Match],
+    diagnostic_by_match_id: dict[int, dict[str, Any]],
     default_status: str,
     display_name_service: DisplayNameService,
 ) -> list[dict[str, Any]]:
@@ -1419,6 +1445,7 @@ def _build_match_sync_items(
                 match,
                 status=str(row_payload.get("status") or default_status),
                 message=str(row_payload.get("message") or ""),
+                diagnostic=diagnostic_by_match_id.get(match.id, {}),
                 created_count=int(row_payload.get("created_count", row_payload.get("created", 0)) or 0),
                 updated_count=int(row_payload.get("updated_count", row_payload.get("updated", 0)) or 0),
                 skipped_count=int(row_payload.get("skipped_count", row_payload.get("skipped", 0)) or 0),
@@ -1434,6 +1461,7 @@ def _build_match_sync_item_payload(
     *,
     status: str,
     message: str,
+    diagnostic: dict[str, Any] | None = None,
     display_name_service: DisplayNameService,
     created_count: int = 0,
     updated_count: int = 0,
@@ -1444,6 +1472,7 @@ def _build_match_sync_item_payload(
     away_name = match.away_team.canonical_name
     home_display = display_name_service.display_team(home_name)
     away_display = display_name_service.display_team(away_name)
+    diagnostic = diagnostic or {}
     return {
         "match_id": match.id,
         "kickoff_time": _format_datetime(match.kickoff_time),
@@ -1460,7 +1489,40 @@ def _build_match_sync_item_payload(
         "updated_count": updated_count,
         "skipped_count": skipped_count,
         "requests_used": requests_used,
+        "source_fixture_id": diagnostic.get("source_fixture_id"),
+        "diagnostic_status": diagnostic.get("diagnostic_status"),
+        "diagnostic_error": diagnostic.get("diagnostic_error"),
+        "snapshot_count": int(diagnostic.get("snapshot_count") or 0),
     }
+
+
+def _build_match_sync_diagnostics(session: Session, match_ids) -> dict[int, dict[str, Any]]:
+    ids = [int(match_id) for match_id in match_ids]
+    if not ids:
+        return {}
+    source_rows = {
+        row.match_id: row
+        for row in session.query(OddsSourceMatch).filter(OddsSourceMatch.match_id.in_(ids)).all()
+    }
+    snapshot_counts = dict(
+        session.query(
+            HistoricalOddsSnapshot.match_id,
+            func.count(HistoricalOddsSnapshot.id),
+        )
+        .filter(HistoricalOddsSnapshot.match_id.in_(ids))
+        .group_by(HistoricalOddsSnapshot.match_id)
+        .all()
+    )
+    diagnostics = {}
+    for match_id in ids:
+        source_row = source_rows.get(match_id)
+        diagnostics[match_id] = {
+            "source_fixture_id": source_row.source_fixture_id if source_row else None,
+            "diagnostic_status": source_row.historical_odds_status if source_row else None,
+            "diagnostic_error": source_row.historical_odds_error if source_row else None,
+            "snapshot_count": int(snapshot_counts.get(match_id, 0) or 0),
+        }
+    return diagnostics
 
 
 def _sync_run_counts_from_report(report: dict[str, Any]) -> dict[str, int]:
@@ -1470,6 +1532,94 @@ def _sync_run_counts_from_report(report: dict[str, Any]) -> dict[str, int]:
         "skipped_count": int(report["skipped_count"]),
         "requests_used": int(report["requests_used"]),
     }
+
+
+def _persist_match_sync_run_items(
+    session: Session,
+    *,
+    run: DataSyncRun,
+    report: dict[str, Any],
+) -> None:
+    created_at = run.finished_at or run.started_at
+    items = []
+    for status_key in ("success", "failed", "skipped"):
+        for row in report.get(status_key, []):
+            items.append(
+                DataSyncRunItem(
+                    run_id=run.id,
+                    match_id=int(row["match_id"]),
+                    sync_type=run.sync_type,
+                    status=str(row.get("status") or status_key),
+                    message=row.get("message"),
+                    created_count=int(row.get("created_count") or 0),
+                    updated_count=int(row.get("updated_count") or 0),
+                    skipped_count=int(row.get("skipped_count") or 0),
+                    requests_used=int(row.get("requests_used") or 0),
+                    source_fixture_id=row.get("source_fixture_id"),
+                    diagnostic_status=row.get("diagnostic_status"),
+                    diagnostic_error=row.get("diagnostic_error"),
+                    snapshot_count=int(row.get("snapshot_count") or 0),
+                    created_at=created_at,
+                )
+            )
+    session.add_all(items)
+    session.commit()
+
+
+def _build_persisted_match_sync_run_payload(
+    *,
+    session: Session,
+    run: DataSyncRun,
+    display_name_service: DisplayNameService,
+) -> dict[str, Any]:
+    items = (
+        session.query(DataSyncRunItem)
+        .options(joinedload(DataSyncRunItem.match).joinedload(Match.league))
+        .options(joinedload(DataSyncRunItem.match).joinedload(Match.home_team))
+        .options(joinedload(DataSyncRunItem.match).joinedload(Match.away_team))
+        .filter(DataSyncRunItem.run_id == run.id)
+        .order_by(DataSyncRunItem.id.asc())
+        .all()
+    )
+    groups = {"success": [], "failed": [], "skipped": []}
+    for item in items:
+        diagnostic = (
+            {
+                "source_fixture_id": item.source_fixture_id,
+                "diagnostic_status": item.diagnostic_status,
+                "diagnostic_error": item.diagnostic_error,
+                "snapshot_count": item.snapshot_count,
+            }
+            if run.sync_type == "odds"
+            else {}
+        )
+        payload = _build_match_sync_item_payload(
+            item.match,
+            status=item.status,
+            message=item.message or "",
+            diagnostic=diagnostic,
+            created_count=item.created_count,
+            updated_count=item.updated_count,
+            skipped_count=item.skipped_count,
+            requests_used=item.requests_used,
+            display_name_service=display_name_service,
+        )
+        if item.status in groups:
+            groups[item.status].append(payload)
+        else:
+            groups["failed"].append(payload)
+    report = {
+        "sync_type": run.sync_type,
+        "started_at": _format_datetime(run.started_at),
+        "finished_at": _format_datetime(run.finished_at),
+        "target_count": len(items),
+        "success_count": len(groups["success"]),
+        "failed_count": len(groups["failed"]),
+        "skipped_count": len(groups["skipped"]),
+        "requests_used": run.requests_used,
+        **groups,
+    }
+    return {"sync_run": build_data_sync_run_payload(run), "report": report}
 
 
 def build_data_sync_run_payload(run: DataSyncRun) -> dict[str, Any]:
@@ -1742,8 +1892,7 @@ def _start_training_full_refresh_thread(
 def _run_match_list_fixtures_results_sync(match_ids: list[int]) -> dict[str, Any]:
     if not match_ids:
         return {"success": [], "failed": [], "skipped": [], "requests": 0}
-    settings = load_project_settings()
-    provider = build_api_football_provider(settings)
+    provider = None
     success = []
     failed = []
     skipped = []
@@ -1753,7 +1902,13 @@ def _run_match_list_fixtures_results_sync(match_ids: list[int]) -> dict[str, Any
             if match is None or not match.source_match_id:
                 skipped.append({"match_id": match_id, "message": "缺少 API-Football fixture id"})
                 continue
+            if _is_live_match_for_result_sync(match):
+                skipped.append({"match_id": match_id, "message": "比赛进行中，暂不申请赛果"})
+                continue
             try:
+                if provider is None:
+                    settings = load_project_settings()
+                    provider = build_api_football_provider(settings)
                 payload = provider.client.get(
                     "fixtures",
                     {
@@ -1777,8 +1932,18 @@ def _run_match_list_fixtures_results_sync(match_ids: list[int]) -> dict[str, Any
         "success": success,
         "failed": failed,
         "skipped": skipped,
-        "requests": provider.client.request_count,
+        "requests": provider.client.request_count if provider is not None else 0,
     }
+
+
+def _is_live_match_for_result_sync(match: Match) -> bool:
+    live_values = {"live", "in_play", "halftime", "1h", "2h", "ht", "et", "bt", "p", "int", "susp"}
+    status_values = {
+        str(value).strip().lower()
+        for value in (match.status, match.status_short, match.status_long)
+        if value
+    }
+    return bool(status_values & live_values)
 
 
 def _run_match_list_odds_sync(match_ids: list[int]) -> dict[str, Any]:

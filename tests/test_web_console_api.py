@@ -8,6 +8,7 @@ from icewine_prediction.database import create_memory_database, create_session_f
 from icewine_prediction.display_service import DisplayNameService, DisplayNames, load_display_names
 from icewine_prediction.display_translation_status_service import DisplayTranslationStatusService
 from icewine_prediction.models import (
+    DataSyncRunItem,
     HistoricalOddsSnapshot,
     League,
     Match,
@@ -17,6 +18,7 @@ from icewine_prediction.models import (
     Team,
     TrainingRun,
 )
+from icewine_prediction import web_api
 from icewine_prediction.web_api import create_web_app
 
 
@@ -1021,6 +1023,155 @@ def test_web_console_api_match_list_sync_uses_filtered_match_targets(tmp_path):
     assert payload["report"]["failed"][0]["message"] == "remote error"
 
 
+def test_web_console_api_fixtures_results_sync_does_not_show_odds_diagnostics(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="J1 League", country_or_region="Japan", level=1)
+        home = Team(canonical_name="Sanfrecce API")
+        away = Team(canonical_name="Kawasaki API")
+        session.add_all([league, home, away])
+        session.flush()
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+        )
+        session.add(match)
+        session.flush()
+        match_id = match.id
+        session.add(
+            OddsSourceMatch(
+                match_id=match_id,
+                source_name="oddspapi",
+                source_fixture_id="id1000064968995194",
+                matched_at=datetime(2026, 5, 29, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                match_confidence=1.0,
+                match_reason="exact",
+                historical_odds_status="success",
+                historical_odds_checked_at=datetime(2026, 5, 29, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                historical_odds_error=None,
+            )
+        )
+        session.add(
+            HistoricalOddsSnapshot(
+                match_id=match_id,
+                source_name="oddspapi",
+                source_fixture_id="id1000064968995194",
+                bookmaker="pinnacle",
+                market_type="asian_handicap",
+                market_id="1064",
+                market_name="Asian Handicap",
+                market_line=Decimal("-0.50"),
+                outcome_side="home",
+                odds=Decimal("1.91"),
+                snapshot_time=datetime(2026, 5, 29, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                period="fulltime",
+                raw_payload=None,
+            )
+        )
+        session.commit()
+
+    def fake_fixtures_results(match_ids: list[int]):
+        return {
+            "success": [],
+            "failed": [{"match_id": match_ids[0], "message": "connection reset"}],
+            "skipped": [],
+            "requests": 1,
+        }
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            clock=lambda: datetime(2026, 5, 30, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_list_fixtures_results_syncer=fake_fixtures_results,
+        )
+    )
+
+    response = client.post(
+        "/api/match-list/sync/fixtures-results",
+        json={
+            "start_time": "2026-05-30T00:00",
+            "end_time": "2026-05-31T00:00",
+            "league_name": "J1 League",
+            "status_filter": "all",
+            "odds_filter": "all",
+        },
+    )
+
+    assert response.status_code == 200
+    run_id = response.json()["sync_run"]["id"]
+    failed = response.json()["report"]["failed"][0]
+    assert failed["diagnostic_status"] is None
+    assert failed["source_fixture_id"] is None
+    assert failed["snapshot_count"] == 0
+
+    detail_response = client.get(f"/api/data-sync-runs/{run_id}/items")
+
+    assert detail_response.status_code == 200
+    persisted_failed = detail_response.json()["report"]["failed"][0]
+    assert persisted_failed["diagnostic_status"] is None
+    assert persisted_failed["source_fixture_id"] is None
+    assert persisted_failed["snapshot_count"] == 0
+
+
+def test_match_list_fixtures_results_sync_skips_live_matches(monkeypatch, tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="J1 League", country_or_region="Japan", level=1)
+        home = Team(canonical_name="Live Home")
+        away = Team(canonical_name="Live Away")
+        session.add_all([league, home, away])
+        session.flush()
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 18, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="live",
+            status_short="1H",
+            elapsed=35,
+            home_score=1,
+            away_score=0,
+            source_name="api_football",
+            source_match_id="1523174",
+        )
+        session.add(match)
+        session.commit()
+        match_id = match.id
+
+    class FailingClient:
+        request_count = 0
+
+        def get(self, endpoint, params):
+            raise AssertionError("live matches should not request API-Football fixtures")
+
+    class Provider:
+        client = FailingClient()
+
+    monkeypatch.setattr(web_api, "_open_session_for_web_sync", lambda: session_factory())
+    monkeypatch.setattr(web_api, "load_project_settings", lambda: object())
+    monkeypatch.setattr(web_api, "build_api_football_provider", lambda settings: Provider())
+
+    result = web_api._run_match_list_fixtures_results_sync([match_id])
+
+    assert result["success"] == []
+    assert result["failed"] == []
+    assert result["requests"] == 0
+    assert result["skipped"] == [
+        {
+            "match_id": match_id,
+            "message": "比赛进行中，暂不申请赛果",
+        }
+    ]
+
+
 def test_web_console_api_single_match_sync_uses_only_path_match(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)
@@ -1068,6 +1219,78 @@ def test_web_console_api_single_match_sync_uses_only_path_match(tmp_path):
     payload = response.json()
     assert payload["report"]["sync_type"] == "odds"
     assert payload["report"]["success"][0]["fixture"] == "Sanfrecce One vs Kawasaki One"
+
+
+def test_web_console_api_persists_and_returns_match_sync_run_items(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    seeded = _seed_console_data(session_factory)
+    failed_match_id: int | None = None
+
+    def fake_odds(match_ids: list[int]):
+        nonlocal failed_match_id
+        with session_factory() as session:
+            failed_match = session.query(Match).filter(Match.source_match_id == "1002").one()
+            failed_match_id = failed_match.id
+            source_match = session.query(OddsSourceMatch).filter_by(match_id=failed_match.id).one()
+            source_match.source_fixture_id = "missing-fixture"
+            source_match.historical_odds_status = "unavailable"
+            source_match.historical_odds_checked_at = datetime(2026, 5, 30, 10, 2, tzinfo=ZoneInfo("Asia/Shanghai"))
+            source_match.historical_odds_error = "OddsPapi HTTP error: status=404"
+            session.commit()
+        return {
+            "success": [{"match_id": seeded["matched_match_id"], "message": "赔率已刷新"}],
+            "failed": [{"match_id": failed_match_id, "message": "未获取到可用赔率"}],
+            "skipped": [],
+            "requests": 2,
+        }
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            match_list_odds_syncer=fake_odds,
+            clock=lambda: datetime(2026, 5, 30, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    response = client.post(
+        "/api/match-list/sync/odds",
+        json={
+            "start_time": "2026-05-20T00:00",
+            "end_time": "2026-05-22T23:59",
+            "status_filter": "all",
+            "odds_filter": "all",
+        },
+    )
+
+    assert response.status_code == 200
+    run_id = response.json()["sync_run"]["id"]
+    with session_factory() as session:
+        items = (
+            session.query(DataSyncRunItem)
+            .filter(DataSyncRunItem.run_id == run_id)
+            .order_by(DataSyncRunItem.status.desc(), DataSyncRunItem.match_id.asc())
+            .all()
+        )
+        assert [(item.match_id, item.status) for item in items] == [
+            (seeded["matched_match_id"], "success"),
+            (failed_match_id, "failed"),
+        ]
+        failed = [item for item in items if item.status == "failed"][0]
+        assert failed.diagnostic_status == "unavailable"
+        assert failed.diagnostic_error == "OddsPapi HTTP error: status=404"
+        assert failed.source_fixture_id == "missing-fixture"
+
+    detail_response = client.get(f"/api/data-sync-runs/{run_id}/items")
+
+    assert detail_response.status_code == 200
+    payload = detail_response.json()
+    assert payload["sync_run"]["id"] == run_id
+    assert payload["report"]["failed"][0]["diagnostic_status"] == "unavailable"
+    assert payload["report"]["failed"][0]["diagnostic_error"] == "OddsPapi HTTP error: status=404"
+    assert payload["report"]["failed"][0]["source_fixture_id"] == "missing-fixture"
 
 
 def test_web_console_api_match_list_sync_invalidates_cached_workspace(tmp_path):

@@ -55,6 +55,16 @@ C:\ProgramData\anaconda3\python.exe -m icewine_cli odds-source oddspapi-worker-s
 - Keep commits focused and explain what was verified.
 - Avoid adding temporary scripts to git unless they are deliberately productized.
 
+## Current Web Console Baseline
+
+- The Web console now opens on `比赛列表` by default.
+- Sidebar is intentionally trimmed to: `比赛列表`, `中文名`, `模型训练`, `纸面跟踪`, `推荐记录`.
+- Hidden pages/components/API for overview, coverage, unmatched, worker, Oddspapi audit, and standalone odds trend may still exist in code; they are not current navigation entry points.
+- `推荐记录` is kept as a page, but local demo/formal recommendation records were cleared from `recommendation_records`. Do not confuse this with `paper_recommendation_records`, which remains in use.
+- Match-list sync results are persisted as per-match `data_sync_run_items`. Use `GET /api/data-sync-runs/{run_id}/items` or the page's `最近同步诊断` panel when diagnosing failed odds/result syncs.
+- `同步赛程/赛果` skips truly live/in-play matches in program logic and reports `比赛进行中，暂不申请赛果`; this is intentional to avoid mixing live scores with final results.
+- API-Football client has lightweight pacing/retry defaults via `build_api_football_provider`: `0.8s` request cooldown, one retry, `2.0s` retry cooldown.
+
 ## OddsPapi Worker Defaults
 
 Use safe mode for long unattended runs unless explicitly choosing otherwise:

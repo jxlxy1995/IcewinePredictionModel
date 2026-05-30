@@ -1034,7 +1034,7 @@ def test_run_oddspapi_sync_for_session_reuses_fixture_lookup_for_same_time_windo
 
 
 def test_run_oddspapi_sync_for_session_stops_gracefully_on_api_error(session):
-    _match(session)
+    match = _match(session)
     raw_client = FakeOddsPapiClient(fail_endpoint="fixtures")
     client = OddsPapiSyncClient(raw_client)
 
@@ -1049,6 +1049,10 @@ def test_run_oddspapi_sync_for_session_stops_gracefully_on_api_error(session):
     assert result.requests_used == 1
     assert result.failed_match_count == 1
     assert result.error_message == "1 场比赛失败，已跳过继续"
+    source_match = session.query(OddsSourceMatch).filter_by(match_id=match.id).one()
+    assert source_match.source_fixture_id == ""
+    assert source_match.historical_odds_status == "fixture_lookup_failed"
+    assert source_match.historical_odds_error == "rate limited"
 
 
 def test_run_oddspapi_sync_for_session_marks_404_fixture_error_as_unavailable(session):

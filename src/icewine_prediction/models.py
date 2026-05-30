@@ -299,6 +299,29 @@ class DataSyncRun(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
 
 
+class DataSyncRunItem(Base):
+    __tablename__ = "data_sync_run_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("data_sync_runs.id"), nullable=False)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), nullable=False)
+    sync_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    message: Mapped[str | None] = mapped_column(Text)
+    created_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    requests_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source_fixture_id: Mapped[str | None] = mapped_column(String(120))
+    diagnostic_status: Mapped[str | None] = mapped_column(String(40))
+    diagnostic_error: Mapped[str | None] = mapped_column(Text)
+    snapshot_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    run: Mapped["DataSyncRun"] = relationship()
+    match: Mapped["Match"] = relationship()
+
+
 class TrainingRun(Base):
     __tablename__ = "training_runs"
 

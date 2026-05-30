@@ -62,7 +62,7 @@ export function buildMatchListRows(workspace: MatchListWorkspace): MatchListDisp
       match.odds_summary.match_winner ??
       "-",
     scoreText: formatScore(match),
-    statusText: formatMatchStatus(match.status_group)
+    statusText: formatMatchStatus(match.status)
   }));
 }
 
@@ -115,10 +115,15 @@ export function toDatetimeLocalValue(value: string | Date | null): string {
 }
 
 export function formatMatchStatus(value: string): string {
+  if (["1h", "2h", "ht"].includes(value.toLowerCase())) {
+    return "待填赛果";
+  }
   const labels: Record<string, string> = {
     finished: "已完赛",
     live: "进行中",
-    not_started: "未开赛"
+    not_started: "未开赛",
+    scheduled: "未开赛",
+    pending_result: "待填赛果"
   };
   return labels[value] ?? value;
 }

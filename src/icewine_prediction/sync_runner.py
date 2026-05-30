@@ -52,6 +52,9 @@ def build_api_football_provider(settings: ProjectSettings) -> ApiFootballProvide
         api_key=settings.api_football_key,
         timeout_seconds=source.timeout_seconds,
         daily_request_budget=source.daily_request_budget,
+        request_cooldown_seconds=0.8,
+        max_retries=1,
+        retry_cooldown_seconds=2.0,
     )
     return ApiFootballProvider(client)
 

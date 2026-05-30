@@ -497,6 +497,10 @@ export type MatchSyncItem = {
   updated_count: number;
   skipped_count: number;
   requests_used: number;
+  source_fixture_id?: string | null;
+  diagnostic_status?: string | null;
+  diagnostic_error?: string | null;
+  snapshot_count: number;
 };
 
 export type MatchSyncReport = {
@@ -517,6 +521,8 @@ export type MatchSyncResponse = {
   sync_run: DataSyncRun;
   report: MatchSyncReport;
 };
+
+export type MatchSyncRunDetail = MatchSyncResponse;
 
 export type DashboardData = {
   summary: DashboardSummary;

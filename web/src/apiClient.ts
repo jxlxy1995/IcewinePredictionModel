@@ -15,6 +15,7 @@ import type {
   LeagueCoverage,
   MatchDetail,
   MatchListWorkspace,
+  MatchSyncRunDetail,
   MatchSyncResponse,
   MatchWithOdds,
   MatchOddsTrends,
@@ -259,6 +260,10 @@ export async function syncSingleMatchOdds(matchId: number): Promise<MatchSyncRes
   return await postJson<MatchSyncResponse>(`/api/matches/${matchId}/sync/odds`, {});
 }
 
+export async function loadMatchSyncRunDetail(runId: number): Promise<MatchSyncRunDetail> {
+  return await getJson<MatchSyncRunDetail>(`/api/data-sync-runs/${runId}/items`);
+}
+
 export async function recordPaperCandidate(matchId: number): Promise<unknown> {
   return await postJson("/api/paper-recommendations/records", { match_id: matchId });
 }
@@ -281,7 +286,7 @@ export async function voidPaperRecord(recordId: number): Promise<unknown> {
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`);
   if (!response.ok) {
-    throw new Error(`API request failed: ${path}`);
+    throw new Error(await formatApiError(response, path));
   }
   return response.json() as Promise<T>;
 }
@@ -301,7 +306,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     method: "POST"
   });
   if (!response.ok) {
-    throw new Error(`API request failed: ${path}`);
+    throw new Error(await formatApiError(response, path));
   }
   return response.json() as Promise<T>;
 }
@@ -313,7 +318,28 @@ async function patchJson<T>(path: string, body: unknown): Promise<T> {
     method: "PATCH"
   });
   if (!response.ok) {
-    throw new Error(`API request failed: ${path}`);
+    throw new Error(await formatApiError(response, path));
   }
   return response.json() as Promise<T>;
+}
+
+async function formatApiError(response: Response, path: string): Promise<string> {
+  const fallback = `API request failed: ${path}`;
+  try {
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const payload = (await response.json()) as { detail?: unknown };
+      if (payload.detail) {
+        return `${fallback}: ${String(payload.detail)}`;
+      }
+    } else {
+      const text = await response.text();
+      if (text) {
+        return `${fallback}: ${text}`;
+      }
+    }
+  } catch {
+    return fallback;
+  }
+  return fallback;
 }

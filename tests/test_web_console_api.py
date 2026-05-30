@@ -562,6 +562,345 @@ def test_web_console_api_returns_paper_recommendation_queue(tmp_path):
     assert payload["rows"][0]["recommended_handicap"] == "客队 -0.25"
 
 
+def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="Premier Division", country_or_region="Ireland", level=1)
+        home = Team(canonical_name="Drogheda United")
+        away = Team(canonical_name="Waterford")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 2, 45, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+            source_name="api_football",
+            source_match_id="17446",
+        )
+        session.add_all([league, home, away, match])
+        session.flush()
+        session.add(
+            OddsSnapshot(
+                match=match,
+                captured_at=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                data_source="api_football",
+                bookmaker="Pinnacle",
+                asian_handicap=Decimal("-0.50"),
+                home_odds=Decimal("1.990"),
+                away_odds=Decimal("1.930"),
+                total_line=Decimal("2.50"),
+                over_odds=Decimal("1.90"),
+                under_odds=Decimal("2.00"),
+                match_winner_home_odds=Decimal("2.10"),
+                match_winner_draw_odds=Decimal("3.25"),
+                match_winner_away_odds=Decimal("3.40"),
+            )
+        )
+        session.commit()
+
+    def fake_scorer(row):
+        from icewine_prediction.paper_recommendation_queue_service import PaperQueueScore
+
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1500"),
+            model_name="fake_hgb",
+        )
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            display_name_service=DisplayNameService(
+                DisplayNames(
+                    leagues={"Premier Division": "爱超"},
+                    teams={"Drogheda United": "德罗赫达联", "Waterford": "沃特福德联"},
+                )
+            ),
+            paper_queue_scorer=fake_scorer,
+            clock=lambda: datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    workspace_response = client.get("/api/paper-recommendations/workspace?hours=6")
+    assert workspace_response.status_code == 200
+    workspace = workspace_response.json()
+    assert workspace["summary"]["candidate_count"] == 1
+    assert workspace["candidates"][0]["recommended_handicap"] == "客队 +0.50"
+    assert workspace["strategies"][0]["display_name"] == "亚盘客队方向 · HGB边际 v1"
+
+    create_response = client.post(
+        "/api/paper-recommendations/records",
+        json={"match_id": match.id},
+    )
+    assert create_response.status_code == 200
+    created = create_response.json()
+    assert created["strategy_display_name"] == "亚盘客队方向 · HGB边际 v1"
+    assert created["recommended_handicap"] == "客队 +0.50"
+    assert created["current_market_line"] == "-0.50"
+    assert created["current_odds"] == "1.930"
+
+    edit_response = client.patch(
+        f"/api/paper-recommendations/records/{created['id']}",
+        json={
+            "current_market_line": "-0.25",
+            "current_odds": "1.880",
+            "manual_note": "临场退盘，按人工确认盘口观察",
+        },
+    )
+    assert edit_response.status_code == 200
+    edited = edit_response.json()
+    assert edited["original_market_line"] == "-0.50"
+    assert edited["current_market_line"] == "-0.25"
+    assert edited["recommended_handicap"] == "客队 +0.25"
+    assert edited["is_manually_adjusted"] is True
+
+    with session_factory() as session:
+        db_match = session.get(Match, match.id)
+        db_match.status = "finished"
+        db_match.home_score = 1
+        db_match.away_score = 1
+        session.commit()
+
+    settle_response = client.post("/api/paper-recommendations/settle")
+    assert settle_response.status_code == 200
+    assert settle_response.json()["settled_count"] == 1
+
+    settled_workspace = client.get("/api/paper-recommendations/workspace?hours=6").json()
+    assert settled_workspace["summary"]["settled_records"] == 1
+    assert settled_workspace["summary"]["roi"] == "0.4400"
+    assert settled_workspace["records"][0]["settlement_result"] == "half_win"
+    assert settled_workspace["records"][0]["profit_units"] == "0.440"
+
+
+def test_web_console_api_voids_paper_record(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="Premier Division", country_or_region="Ireland", level=1)
+        home = Team(canonical_name="Drogheda United")
+        away = Team(canonical_name="Waterford")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 2, 45, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+        )
+        session.add_all([league, home, away, match])
+        session.commit()
+
+    client = TestClient(create_web_app(session_factory=session_factory, log_dir=tmp_path))
+    from icewine_prediction.paper_recommendation_tracking_service import create_paper_record_from_queue_row
+    from tests.test_paper_recommendation_tracking_service import _queue_row
+
+    with session_factory() as session:
+        match = session.query(Match).one()
+        record = create_paper_record_from_queue_row(
+            session,
+            _queue_row(match, status="candidate", line=Decimal("-0.50")),
+            recorded_at=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+        record_id = record.id
+
+    response = client.post(f"/api/paper-recommendations/records/{record_id}/void")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "void"
+
+
+def test_web_console_api_backfills_paper_record_from_historical_candidate(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="Premier Division", country_or_region="Ireland", level=1)
+        home = Team(canonical_name="Drogheda United")
+        away = Team(canonical_name="Waterford")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 2, 45, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+            source_match_id="1492706",
+        )
+        session.add_all([league, home, away, match])
+        session.commit()
+        match_id = match.id
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            display_name_service=DisplayNameService(
+                DisplayNames(
+                    leagues={"Premier Division": "爱超"},
+                    teams={"Drogheda United": "德罗赫达联", "Waterford": "沃特福德联"},
+                )
+            ),
+            clock=lambda: datetime(2026, 5, 30, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    response = client.post(
+        "/api/paper-recommendations/records/backfill",
+        json={
+            "match_id": match_id,
+            "market_line": "-0.50",
+            "odds": "1.930",
+            "model_probability": "0.6044",
+            "market_probability": "0.4880",
+            "edge": "0.1164",
+            "manual_note": "从 20260530 paper queue 报告补录",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["match_id"] == match_id
+    assert payload["league_display_name"] == "爱超"
+    assert payload["home_team_display_name"] == "德罗赫达联"
+    assert payload["away_team_display_name"] == "沃特福德联"
+    assert payload["strategy_display_name"] == "亚盘客队方向 · HGB边际 v1"
+    assert payload["recommended_handicap"] == "客队 +0.50"
+    assert payload["current_market_line"] == "-0.50"
+    assert payload["current_odds"] == "1.930"
+    assert payload["model_probability"] == "0.6044"
+    assert payload["market_probability"] == "0.4880"
+    assert payload["edge"] == "0.1164"
+    assert payload["is_manually_adjusted"] is True
+    assert payload["manual_note"] == "从 20260530 paper queue 报告补录"
+    assert "manual_backfill" in payload["risk_tags"]
+
+
+def test_web_console_api_returns_match_list_workspace_and_detail(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="J1 League", country_or_region="Japan", level=1)
+        home = Team(canonical_name="Sanfrecce Hiroshima", logo_url="home.png")
+        away = Team(canonical_name="Kawasaki Frontale", logo_url="away.png")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+        )
+        session.add_all([league, home, away, match])
+        session.flush()
+        session.add_all(
+            [
+                HistoricalOddsSnapshot(
+                    match_id=match.id,
+                    source_name="oddspapi",
+                    source_fixture_id="j1-1",
+                    bookmaker="pinnacle",
+                    market_type="asian_handicap",
+                    market_id="ah",
+                    market_name="Asian Handicap",
+                    market_line=Decimal("-0.50"),
+                    outcome_side="home",
+                    odds=Decimal("1.900"),
+                    snapshot_time=datetime(2026, 5, 30, 9, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+                    period="pre_match",
+                ),
+                HistoricalOddsSnapshot(
+                    match_id=match.id,
+                    source_name="oddspapi",
+                    source_fixture_id="j1-1",
+                    bookmaker="pinnacle",
+                    market_type="asian_handicap",
+                    market_id="ah",
+                    market_name="Asian Handicap",
+                    market_line=Decimal("-0.50"),
+                    outcome_side="away",
+                    odds=Decimal("1.950"),
+                    snapshot_time=datetime(2026, 5, 30, 9, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+                    period="pre_match",
+                ),
+            ]
+        )
+        session.commit()
+        match_id = match.id
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            clock=lambda: datetime(2026, 5, 30, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    response = client.get("/api/match-list/workspace")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filters"]["time_preset"] == "next_24h"
+    assert payload["total_matches"] == 1
+    assert payload["matches"][0]["match_id"] == match_id
+    assert payload["matches"][0]["odds_summary"]["asian_handicap"] == "客队 +0.50 @ 1.950"
+
+    detail_response = client.get(f"/api/matches/{match_id}/detail")
+
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["home_team_logo_url"] == "home.png"
+    assert detail["team_data_note"] == "待接入"
+    assert detail["paper_recommendation_summary"]["label"] == "暂无纸面推荐记录"
+
+
+def test_web_console_api_match_list_sync_buttons_record_runs(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    calls = []
+
+    def fake_fixtures_results(days: int):
+        calls.append(("fixtures_results", days))
+        return {
+            "created": 1,
+            "updated": 2,
+            "skipped": 0,
+            "requests": 3,
+        }
+
+    def fake_odds(days: int):
+        calls.append(("odds", days))
+        return {
+            "created": 4,
+            "updated": 0,
+            "skipped": 1,
+            "requests": 5,
+        }
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            clock=lambda: datetime(2026, 5, 30, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_list_fixtures_results_syncer=fake_fixtures_results,
+            match_list_odds_syncer=fake_odds,
+        )
+    )
+
+    fixtures_response = client.post("/api/match-list/sync/fixtures-results", json={"days": 3})
+    odds_response = client.post("/api/match-list/sync/odds", json={"days": 2})
+
+    assert fixtures_response.status_code == 200
+    assert odds_response.status_code == 200
+    assert calls == [("fixtures_results", 3), ("odds", 2)]
+    assert fixtures_response.json()["sync_run"]["sync_type"] == "fixtures_results"
+    assert odds_response.json()["sync_run"]["created_count"] == 4
+
+
 def test_web_console_api_returns_training_workspace(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

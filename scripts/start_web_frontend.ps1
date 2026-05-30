@@ -8,4 +8,5 @@ if (-not (Test-Path "node_modules")) {
     npm install
 }
 
+$env:VITE_API_BASE_URL = ""
 npm run dev

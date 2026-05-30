@@ -1,7 +1,10 @@
 import {
   mockDashboardData,
+  mockMatchDetail,
+  mockMatchListWorkspace,
   mockModelTrainingOverview,
   mockOddsTrends,
+  mockPaperRecommendationWorkspace,
   mockTrainingWorkspace,
   mockTeamDisplayNameWorkspaces
 } from "./mockData";
@@ -10,9 +13,12 @@ import type {
   DashboardSummary,
   DisplayTranslationStatus,
   LeagueCoverage,
+  MatchDetail,
+  MatchListWorkspace,
   MatchWithOdds,
   MatchOddsTrends,
   OddspapiBackfillAudit,
+  PaperRecommendationWorkspace,
   RecommendationRecord,
   TeamDisplayNameRow,
   TeamDisplayNameWorkspace,
@@ -37,7 +43,9 @@ export async function loadDashboardData(): Promise<DashboardData> {
       displayTranslationStatus,
       recommendationRecords,
       oddspapiBackfillAudit,
-      trainingWorkspace
+      trainingWorkspace,
+      paperRecommendations,
+      matchList
     ] = await Promise.all([
       getJson<DashboardSummary>("/api/dashboard/summary"),
       getJson<LeagueCoverage[]>("/api/leagues/coverage"),
@@ -47,8 +55,19 @@ export async function loadDashboardData(): Promise<DashboardData> {
       getJson<TeamDisplayNameRow[]>("/api/display/missing-team-names"),
       getJson<DisplayTranslationStatus>("/api/display/translation-status"),
       getJson<RecommendationRecord[]>("/api/recommendation-records"),
-      getJson<OddspapiBackfillAudit>("/api/oddspapi/backfill-audit?season=2025"),
-      getJson<TrainingWorkspace>("/api/training/workspace")
+      getJsonOrFallback<OddspapiBackfillAudit>(
+        "/api/oddspapi/backfill-audit?season=2025",
+        mockDashboardData.oddspapiBackfillAudit
+      ),
+      getJsonOrFallback<TrainingWorkspace>(
+        "/api/training/workspace",
+        mockDashboardData.trainingWorkspace
+      ),
+      getJsonOrFallback<PaperRecommendationWorkspace>(
+        "/api/paper-recommendations/workspace",
+        mockPaperRecommendationWorkspace
+      ),
+      getJsonOrFallback<MatchListWorkspace>("/api/match-list/workspace", mockMatchListWorkspace)
     ]);
     const oddsTrends = await loadFirstOddsTrend(matchesWithOdds);
     return {
@@ -64,7 +83,9 @@ export async function loadDashboardData(): Promise<DashboardData> {
       modelTraining: mockModelTrainingOverview,
       recommendationRecords,
       oddspapiBackfillAudit,
-      trainingWorkspace
+      trainingWorkspace,
+      paperRecommendations,
+      matchList
     };
   } catch {
     return {
@@ -79,7 +100,7 @@ async function loadFirstOddsTrend(matchesWithOdds: MatchWithOdds[]): Promise<Mat
   if (!matchId) {
     return mockOddsTrends;
   }
-  return loadMatchOddsTrend(matchId);
+  return getJsonOrFallback<MatchOddsTrends>(`/api/matches/${matchId}/odds-trends`, mockOddsTrends);
 }
 
 export async function loadMatchOddsTrend(matchId: number): Promise<MatchOddsTrends> {
@@ -151,6 +172,71 @@ export async function runTrainingWorkflowAction(
   return await postJson<TrainingWorkspace>(`/api/training/${action}`, {});
 }
 
+export async function loadPaperRecommendationWorkspace(): Promise<PaperRecommendationWorkspace> {
+  try {
+    return await getJson<PaperRecommendationWorkspace>("/api/paper-recommendations/workspace");
+  } catch {
+    return mockPaperRecommendationWorkspace;
+  }
+}
+
+export async function loadMatchListWorkspace(params: {
+  league_name?: string | null;
+  odds_filter?: string;
+  search?: string | null;
+  status_filter?: string;
+  time_preset?: string;
+} = {}): Promise<MatchListWorkspace> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value == null || value === "") {
+      continue;
+    }
+    query.set(key, value);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  try {
+    return await getJson<MatchListWorkspace>(`/api/match-list/workspace${suffix}`);
+  } catch {
+    return mockMatchListWorkspace;
+  }
+}
+
+export async function loadMatchDetail(matchId: number): Promise<MatchDetail> {
+  try {
+    return await getJson<MatchDetail>(`/api/matches/${matchId}/detail`);
+  } catch {
+    return mockMatchDetail;
+  }
+}
+
+export async function syncMatchListFixturesResults(days: number): Promise<unknown> {
+  return await postJson("/api/match-list/sync/fixtures-results", { days });
+}
+
+export async function syncMatchListOdds(days: number): Promise<unknown> {
+  return await postJson("/api/match-list/sync/odds", { days });
+}
+
+export async function recordPaperCandidate(matchId: number): Promise<unknown> {
+  return await postJson("/api/paper-recommendations/records", { match_id: matchId });
+}
+
+export async function editPaperRecord(
+  recordId: number,
+  payload: { current_market_line: string; current_odds: string; manual_note: string }
+): Promise<unknown> {
+  return await patchJson(`/api/paper-recommendations/records/${recordId}`, payload);
+}
+
+export async function settlePaperRecords(): Promise<unknown> {
+  return await postJson("/api/paper-recommendations/settle", {});
+}
+
+export async function voidPaperRecord(recordId: number): Promise<unknown> {
+  return await postJson(`/api/paper-recommendations/records/${recordId}/void`, {});
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`);
   if (!response.ok) {
@@ -159,11 +245,31 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function getJsonOrFallback<T>(path: string, fallback: T): Promise<T> {
+  try {
+    return await getJson<T>(path);
+  } catch {
+    return fallback;
+  }
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     body: JSON.stringify(body),
     headers: { "Content-Type": "application/json" },
     method: "POST"
+  });
+  if (!response.ok) {
+    throw new Error(`API request failed: ${path}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+    method: "PATCH"
   });
   if (!response.ok) {
     throw new Error(`API request failed: ${path}`);

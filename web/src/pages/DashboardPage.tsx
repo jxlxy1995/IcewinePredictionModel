@@ -11,21 +11,34 @@ import {
   Languages,
   ListChecks,
   Play,
+  ScrollText,
+  Search,
   Radio
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import {
   loadDashboardData,
+  loadMatchDetail,
+  loadMatchListWorkspace,
   loadMatchOddsTrend,
+  loadPaperRecommendationWorkspace,
   markTeamDisplayNameWorkspaceDone,
+  editPaperRecord,
+  recordPaperCandidate,
   runTrainingWorkflowAction,
   saveTeamDisplayNames,
+  settlePaperRecords,
+  syncMatchListFixturesResults,
+  syncMatchListOdds,
+  voidPaperRecord,
   loadTeamDisplayNameWorkspace
 } from "../apiClient";
 import { LeagueCoverageTable } from "../components/LeagueCoverageTable";
 import { MetricCard } from "../components/MetricCard";
+import { MatchListTable } from "../components/MatchListTable";
 import { OddsTrendPanel } from "../components/OddsTrendPanel";
+import { PaperCandidateTable, PaperRecordTable } from "../components/PaperRecommendationTables";
 import { Panel } from "../components/Panel";
 import { RecommendationRecordTable } from "../components/RecommendationRecordTable";
 import { TeamDisplayNameEditor } from "../components/TeamDisplayNameEditor";
@@ -53,19 +66,39 @@ import {
   buildRecommendationRecordGroups,
   buildRecommendationRecordSummary
 } from "../recordReportWorkspace";
+import {
+  buildPaperRecordGroups,
+  buildPaperSummaryCards
+} from "../paperRecommendationWorkspace";
+import {
+  buildMatchFreshnessCards,
+  formatMatchStatus,
+  matchTimePresetLabel,
+  summarizeMatchDetail
+} from "../matchListWorkspace";
 import { WorkerStatusTable } from "../components/WorkerStatusTable";
 import { mockDashboardData } from "../mockData";
 import type { DisplayNameStatusFilter } from "../displayNameWorkspace";
-import type { DashboardData, TeamDisplayNameWorkspace, MatchOddsTrends } from "../types";
+import type {
+  DashboardData,
+  MatchDetail,
+  MatchListMatch,
+  MatchOddsTrends,
+  PaperCandidate,
+  PaperRecord,
+  TeamDisplayNameWorkspace
+} from "../types";
 
 type ViewKey =
   | "overview"
+  | "matchList"
   | "coverage"
   | "workers"
   | "oddspapiAudit"
   | "unmatched"
   | "displayNames"
   | "models"
+  | "paperTracking"
   | "odds"
   | "records";
 
@@ -75,14 +108,24 @@ type NavItem = {
   icon: LucideIcon;
 };
 
+type MatchListFilterState = {
+  league_name: string;
+  odds_filter: string;
+  search: string;
+  status_filter: string;
+  time_preset: string;
+};
+
 const navItems: NavItem[] = [
   { key: "overview", label: "总览", icon: Activity },
+  { key: "matchList", label: "比赛列表", icon: Search },
   { key: "coverage", label: "覆盖率", icon: Database },
   { key: "workers", label: "Worker", icon: Radio },
   { key: "oddspapiAudit", label: "回填审计", icon: ClipboardList },
   { key: "unmatched", label: "未匹配", icon: CircleAlert },
   { key: "displayNames", label: "中文名", icon: Languages },
   { key: "models", label: "模型训练", icon: BrainCircuit },
+  { key: "paperTracking", label: "纸面跟踪", icon: ScrollText },
   { key: "odds", label: "赔率走势", icon: BarChart3 },
   { key: "records", label: "推荐记录", icon: ListChecks }
 ];
@@ -91,6 +134,10 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
   overview: {
     title: "控制台总览",
     subtitle: "本地数据回填、赔率覆盖和模型推荐的工作台"
+  },
+  matchList: {
+    title: "比赛列表",
+    subtitle: "同步近期数据，按时间、联赛、状态和赔率浏览本地比赛"
   },
   coverage: {
     title: "联赛覆盖率",
@@ -115,6 +162,10 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
   models: {
     title: "模型训练",
     subtitle: "生成 baseline 训练集、执行 QA，并用 close-market 基准做 sanity check"
+  },
+  paperTracking: {
+    title: "纸面跟踪",
+    subtitle: "观察期候选、人工记录、赛后结算和策略复盘"
   },
   odds: {
     title: "赔率走势",
@@ -155,6 +206,22 @@ export function DashboardPage() {
   const [trainingAction, setTrainingAction] = useState<string | null>(null);
   const [trainingMessage, setTrainingMessage] = useState<string | null>(null);
   const [trainingError, setTrainingError] = useState<string | null>(null);
+  const [paperAction, setPaperAction] = useState<string | null>(null);
+  const [paperMessage, setPaperMessage] = useState<string | null>(null);
+  const [paperError, setPaperError] = useState<string | null>(null);
+  const [matchListAction, setMatchListAction] = useState<string | null>(null);
+  const [matchListMessage, setMatchListMessage] = useState<string | null>(null);
+  const [matchListError, setMatchListError] = useState<string | null>(null);
+  const [matchListFilters, setMatchListFilters] = useState({
+    league_name: "",
+    odds_filter: "all",
+    search: "",
+    status_filter: "all",
+    time_preset: "next_24h"
+  });
+  const [fixturesSyncDays, setFixturesSyncDays] = useState(3);
+  const [oddsSyncDays, setOddsSyncDays] = useState(2);
+  const [selectedMatchDetail, setSelectedMatchDetail] = useState<MatchDetail | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -226,6 +293,58 @@ export function DashboardPage() {
         </section>
 
         {activeView === "overview" && <OverviewView data={data} oddsTrends={oddsTrends} />}
+        {activeView === "matchList" && (
+          <MatchListView
+            actionInFlight={matchListAction}
+            data={data}
+            detail={selectedMatchDetail}
+            errorText={matchListError}
+            filters={matchListFilters}
+            fixturesSyncDays={fixturesSyncDays}
+            messageText={matchListMessage}
+            oddsSyncDays={oddsSyncDays}
+            onBackToList={() => setSelectedMatchDetail(null)}
+            onFiltersChange={(nextFilters) => {
+              const merged = { ...matchListFilters, ...nextFilters };
+              setMatchListFilters(merged);
+              setMatchListError(null);
+              setMatchListMessage(null);
+              refreshMatchListWorkspace(setData, merged).catch(() =>
+                setMatchListError("刷新比赛列表失败")
+              );
+            }}
+            onFixturesSyncDaysChange={setFixturesSyncDays}
+            onOddsSyncDaysChange={setOddsSyncDays}
+            onOpenMatch={(match) => {
+              setMatchListAction(`detail-${match.match_id}`);
+              setMatchListError(null);
+              loadMatchDetail(match.match_id)
+                .then(setSelectedMatchDetail)
+                .catch(() => setMatchListError("读取比赛详情失败"))
+                .finally(() => setMatchListAction(null));
+            }}
+            onSyncFixturesResults={() => {
+              setMatchListAction("sync-fixtures");
+              setMatchListError(null);
+              setMatchListMessage(null);
+              syncMatchListFixturesResults(fixturesSyncDays)
+                .then(() => refreshMatchListWorkspace(setData, matchListFilters))
+                .then(() => setMatchListMessage("赛程/赛果同步完成"))
+                .catch(() => setMatchListError("赛程/赛果同步失败"))
+                .finally(() => setMatchListAction(null));
+            }}
+            onSyncOdds={() => {
+              setMatchListAction("sync-odds");
+              setMatchListError(null);
+              setMatchListMessage(null);
+              syncMatchListOdds(oddsSyncDays)
+                .then(() => refreshMatchListWorkspace(setData, matchListFilters))
+                .then(() => setMatchListMessage("赔率同步完成"))
+                .catch(() => setMatchListError("赔率同步失败"))
+                .finally(() => setMatchListAction(null));
+            }}
+          />
+        )}
         {activeView === "coverage" && (
           <CoverageView
             data={data}
@@ -327,6 +446,73 @@ export function DashboardPage() {
             }}
           />
         )}
+        {activeView === "paperTracking" && (
+          <PaperTrackingView
+            actionInFlight={paperAction}
+            data={data}
+            errorText={paperError}
+            messageText={paperMessage}
+            onBatchRecord={(candidates) => {
+              setPaperAction("batch-record");
+              setPaperError(null);
+              setPaperMessage(null);
+              Promise.all(candidates.map((candidate) => recordPaperCandidate(candidate.match_id)))
+                .then(() => refreshPaperWorkspace(setData))
+                .then(() => setPaperMessage(`已记录 ${candidates.length} 条纸面观察`))
+                .catch(() => setPaperError("批量记录纸面观察失败"))
+                .finally(() => setPaperAction(null));
+            }}
+            onEdit={(record, payload) => {
+              setPaperAction(`edit-${record.id}`);
+              setPaperError(null);
+              setPaperMessage(null);
+              editPaperRecord(record.id, payload)
+                .then(() => refreshPaperWorkspace(setData))
+                .then(() => setPaperMessage("纸面记录已更新"))
+                .catch(() => setPaperError("编辑纸面记录失败"))
+                .finally(() => setPaperAction(null));
+            }}
+            onRecord={(candidate) => {
+              setPaperAction(`record-${candidate.match_id}`);
+              setPaperError(null);
+              setPaperMessage(null);
+              recordPaperCandidate(candidate.match_id)
+                .then(() => refreshPaperWorkspace(setData))
+                .then(() => setPaperMessage("已记录纸面观察"))
+                .catch(() => setPaperError("记录纸面观察失败"))
+                .finally(() => setPaperAction(null));
+            }}
+            onRefresh={() => {
+              setPaperAction("refresh");
+              setPaperError(null);
+              setPaperMessage(null);
+              refreshPaperWorkspace(setData)
+                .then(() => setPaperMessage("纸面跟踪已刷新"))
+                .catch(() => setPaperError("刷新纸面跟踪失败"))
+                .finally(() => setPaperAction(null));
+            }}
+            onSettle={() => {
+              setPaperAction("settle");
+              setPaperError(null);
+              setPaperMessage(null);
+              settlePaperRecords()
+                .then(() => refreshPaperWorkspace(setData))
+                .then(() => setPaperMessage("已结算可结算纸面记录"))
+                .catch(() => setPaperError("结算纸面记录失败"))
+                .finally(() => setPaperAction(null));
+            }}
+            onVoid={(record) => {
+              setPaperAction(`void-${record.id}`);
+              setPaperError(null);
+              setPaperMessage(null);
+              voidPaperRecord(record.id)
+                .then(() => refreshPaperWorkspace(setData))
+                .then(() => setPaperMessage("纸面记录已作废"))
+                .catch(() => setPaperError("作废纸面记录失败"))
+                .finally(() => setPaperAction(null));
+            }}
+          />
+        )}
         {activeView === "odds" && (
           <OddsView
             data={data}
@@ -348,6 +534,245 @@ export function DashboardPage() {
       </main>
     </div>
   );
+}
+
+function MatchListView({
+  actionInFlight,
+  data,
+  detail,
+  errorText,
+  filters,
+  fixturesSyncDays,
+  messageText,
+  oddsSyncDays,
+  onBackToList,
+  onFiltersChange,
+  onFixturesSyncDaysChange,
+  onOddsSyncDaysChange,
+  onOpenMatch,
+  onSyncFixturesResults,
+  onSyncOdds
+}: {
+  actionInFlight: string | null;
+  data: DashboardData;
+  detail: MatchDetail | null;
+  errorText: string | null;
+  filters: {
+    league_name: string;
+    odds_filter: string;
+    search: string;
+    status_filter: string;
+    time_preset: string;
+  };
+  fixturesSyncDays: number;
+  messageText: string | null;
+  oddsSyncDays: number;
+  onBackToList: () => void;
+  onFiltersChange: (filters: Partial<MatchListFilterState>) => void;
+  onFixturesSyncDaysChange: (days: number) => void;
+  onOddsSyncDaysChange: (days: number) => void;
+  onOpenMatch: (match: MatchListMatch) => void;
+  onSyncFixturesResults: () => void;
+  onSyncOdds: () => void;
+}) {
+  if (detail) {
+    return <MatchDetailView detail={detail} onBack={onBackToList} />;
+  }
+  const workspace = data.matchList;
+  const freshnessCards = buildMatchFreshnessCards(workspace);
+  const isBusy = actionInFlight !== null;
+
+  return (
+    <section className="single-column">
+      <section className="match-sync-strip">
+        {freshnessCards.slice(0, 2).map((card) => (
+          <div className="sync-card" key={card.label}>
+            <span>{card.label}</span>
+            <strong>{card.value}</strong>
+            <small>{card.meta}</small>
+          </div>
+        ))}
+        <div className="sync-action">
+          <label>
+            天数
+            <input
+              min={1}
+              onChange={(event) => onFixturesSyncDaysChange(Number(event.target.value))}
+              type="number"
+              value={fixturesSyncDays}
+            />
+          </label>
+          <button disabled={isBusy} onClick={onSyncFixturesResults} type="button">
+            同步赛程/赛果
+          </button>
+        </div>
+        <div className="sync-action">
+          <label>
+            天数
+            <input
+              min={1}
+              onChange={(event) => onOddsSyncDaysChange(Number(event.target.value))}
+              type="number"
+              value={oddsSyncDays}
+            />
+          </label>
+          <button disabled={isBusy} onClick={onSyncOdds} type="button">
+            同步赔率
+          </button>
+        </div>
+      </section>
+      <section className="match-secondary-freshness">
+        {freshnessCards.slice(2).map((card) => (
+          <span key={card.label}>
+            {card.label}: <strong>{card.value}</strong>
+          </span>
+        ))}
+        {actionInFlight && <span>正在执行 {formatMatchListAction(actionInFlight)}</span>}
+        {messageText && <span className="success-text">{messageText}</span>}
+        {errorText && <span className="error-text">{errorText}</span>}
+      </section>
+      <Panel title="筛选">
+        <div className="match-filter-row">
+          <select
+            onChange={(event) => onFiltersChange({ time_preset: event.target.value })}
+            value={filters.time_preset}
+          >
+            {["next_24h", "next_3d", "previous_24h", "previous_7d", "all"].map((preset) => (
+              <option key={preset} value={preset}>
+                {matchTimePresetLabel(preset)}
+              </option>
+            ))}
+          </select>
+          <select
+            onChange={(event) => onFiltersChange({ league_name: event.target.value })}
+            value={filters.league_name}
+          >
+            <option value="">全部联赛</option>
+            {workspace.leagues.map((league) => (
+              <option key={league} value={league}>
+                {league}
+              </option>
+            ))}
+          </select>
+          <select
+            onChange={(event) => onFiltersChange({ status_filter: event.target.value })}
+            value={filters.status_filter}
+          >
+            <option value="all">全部状态</option>
+            <option value="not_started">未开赛</option>
+            <option value="live">进行中</option>
+            <option value="finished">已完赛</option>
+          </select>
+          <select
+            onChange={(event) => onFiltersChange({ odds_filter: event.target.value })}
+            value={filters.odds_filter}
+          >
+            <option value="all">全部赔率</option>
+            <option value="with_odds">有赔率</option>
+            <option value="without_odds">无赔率</option>
+          </select>
+          <input
+            onChange={(event) => onFiltersChange({ search: event.target.value })}
+            placeholder="搜索球队"
+            value={filters.search}
+          />
+        </div>
+      </Panel>
+      <Panel title={`比赛列表 · ${workspace.total_matches.toLocaleString()} 场`}>
+        <MatchListTable onOpenMatch={onOpenMatch} workspace={workspace} />
+      </Panel>
+    </section>
+  );
+}
+
+function MatchDetailView({ detail, onBack }: { detail: MatchDetail; onBack: () => void }) {
+  const summary = summarizeMatchDetail(detail);
+  return (
+    <section className="single-column">
+      <button className="inline-action" onClick={onBack} type="button">
+        返回比赛列表
+      </button>
+      <Panel title={summary.fixture}>
+        <div className="match-detail-header">
+          <TeamBadge logoUrl={detail.home_team_logo_url} name={detail.home_team_display_name ?? detail.home_team_name} />
+          <div className="match-detail-score">
+            <strong>
+              {detail.home_score == null || detail.away_score == null
+                ? "-"
+                : `${detail.home_score}-${detail.away_score}`}
+            </strong>
+            <span>{formatMatchStatus(detail.status_group)}</span>
+            <small>{detail.kickoff_time}</small>
+          </div>
+          <TeamBadge logoUrl={detail.away_team_logo_url} name={detail.away_team_display_name ?? detail.away_team_name} />
+        </div>
+      </Panel>
+      <section className="grid">
+        <Panel title="球队数据">
+          <div className="empty-state">{summary.teamData}</div>
+        </Panel>
+        <Panel title="推荐摘要">
+          <div className="record-placeholder">
+            <div>{detail.paper_recommendation_summary.label}</div>
+            <div>{detail.formal_recommendation_summary.label}</div>
+          </div>
+        </Panel>
+      </section>
+      <Panel title="赔率摘要">
+        <div className="odds-summary-grid">
+          <div>
+            <span>亚盘</span>
+            <strong>{detail.odds_summary.asian_handicap ?? "-"}</strong>
+          </div>
+          <div>
+            <span>大小球</span>
+            <strong>{detail.odds_summary.total_goals ?? "-"}</strong>
+          </div>
+          <div>
+            <span>胜平负</span>
+            <strong>{detail.odds_summary.match_winner ?? "-"}</strong>
+          </div>
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
+function TeamBadge({ logoUrl, name }: { logoUrl?: string | null; name: string }) {
+  return (
+    <div className="team-badge">
+      {logoUrl ? <img alt="" src={logoUrl} /> : <span className="team-logo-placeholder large" />}
+      <strong>{name}</strong>
+    </div>
+  );
+}
+
+function refreshMatchListWorkspace(
+  setData: React.Dispatch<React.SetStateAction<DashboardData>>,
+  filters: {
+    league_name?: string | null;
+    odds_filter?: string;
+    search?: string | null;
+    status_filter?: string;
+    time_preset?: string;
+  }
+): Promise<void> {
+  return loadMatchListWorkspace(filters).then((workspace) => {
+    setData((current) => ({ ...current, matchList: workspace }));
+  });
+}
+
+function formatMatchListAction(action: string) {
+  if (action === "sync-fixtures") {
+    return "同步赛程/赛果";
+  }
+  if (action === "sync-odds") {
+    return "同步赔率";
+  }
+  if (action.startsWith("detail-")) {
+    return "读取详情";
+  }
+  return action;
 }
 
 function OverviewView({ data, oddsTrends }: { data: DashboardData; oddsTrends: MatchOddsTrends }) {
@@ -972,6 +1397,168 @@ function formatTrainingAction(action: string) {
     "market-baseline": "市场基准"
   };
   return names[action] ?? action;
+}
+
+function PaperTrackingView({
+  actionInFlight,
+  data,
+  errorText,
+  messageText,
+  onBatchRecord,
+  onEdit,
+  onRecord,
+  onRefresh,
+  onSettle,
+  onVoid
+}: {
+  actionInFlight: string | null;
+  data: DashboardData;
+  errorText: string | null;
+  messageText: string | null;
+  onBatchRecord: (candidates: PaperCandidate[]) => void;
+  onEdit: (
+    record: PaperRecord,
+    payload: { current_market_line: string; current_odds: string; manual_note: string }
+  ) => void;
+  onRecord: (candidate: PaperCandidate) => void;
+  onRefresh: () => void;
+  onSettle: () => void;
+  onVoid: (record: PaperRecord) => void;
+}) {
+  const workspace = data.paperRecommendations;
+  const cards = buildPaperSummaryCards(workspace);
+  const groups = buildPaperRecordGroups(workspace);
+  const recordableCandidates = workspace.candidates.filter(
+    (candidate) => candidate.is_recordable && candidate.status === "candidate"
+  );
+  const isBusy = actionInFlight !== null;
+
+  return (
+    <section className="single-column">
+      <section className="metrics">
+        {cards.map((card) => (
+          <MetricCard key={card.label} label={card.label} value={card.value} />
+        ))}
+      </section>
+      <Panel title="操作">
+        <div className="action-row">
+          <button disabled={isBusy} onClick={onRefresh} type="button">
+            刷新候选
+          </button>
+          <button
+            disabled={isBusy || recordableCandidates.length === 0}
+            onClick={() => onBatchRecord(recordableCandidates)}
+            type="button"
+          >
+            批量记录候选
+          </button>
+          <button disabled={isBusy} onClick={onSettle} type="button">
+            结算已完赛
+          </button>
+          {actionInFlight && <span>正在执行 {formatPaperAction(actionInFlight)}</span>}
+          {messageText && <span className="success-text">{messageText}</span>}
+          {errorText && <span className="error-text">{errorText}</span>}
+        </div>
+      </Panel>
+      <Panel title="候选队列">
+        <PaperCandidateTable
+          isBusy={isBusy}
+          onRecord={onRecord}
+          workspace={workspace}
+        />
+      </Panel>
+      <Panel title="纸面记录">
+        <PaperRecordTable
+          isBusy={isBusy}
+          onEdit={onEdit}
+          onVoid={onVoid}
+          records={workspace.records}
+        />
+      </Panel>
+      <section className="grid">
+        <Panel title="按策略">
+          <PaperGroupTable groups={groups.byStrategy} />
+        </Panel>
+        <Panel title="按联赛">
+          <PaperGroupTable groups={groups.byLeague} />
+        </Panel>
+      </section>
+      <section className="grid">
+        <Panel title="按盘口桶">
+          <PaperGroupTable groups={groups.byLineBucket} />
+        </Panel>
+        <Panel title="按人工调整">
+          <PaperGroupTable groups={groups.byManualAdjustment} />
+        </Panel>
+      </section>
+    </section>
+  );
+}
+
+function PaperGroupTable({
+  groups
+}: {
+  groups: ReturnType<typeof buildPaperRecordGroups>["byStrategy"];
+}) {
+  if (groups.length === 0) {
+    return <div className="empty-state">暂无已结算记录</div>;
+  }
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>分组</th>
+          <th>记录</th>
+          <th>已结算</th>
+          <th>命中率</th>
+          <th>盈亏</th>
+          <th>ROI</th>
+        </tr>
+      </thead>
+      <tbody>
+        {groups.map((group) => (
+          <tr key={group.groupName}>
+            <td>{group.groupName}</td>
+            <td>{group.recordCount}</td>
+            <td>{group.settledRecords}</td>
+            <td>{group.hitRate}</td>
+            <td>{group.profitUnits}</td>
+            <td>{group.roi}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function refreshPaperWorkspace(
+  setData: React.Dispatch<React.SetStateAction<DashboardData>>
+): Promise<void> {
+  return loadPaperRecommendationWorkspace().then((workspace) => {
+    setData((current) => ({ ...current, paperRecommendations: workspace }));
+  });
+}
+
+function formatPaperAction(action: string) {
+  if (action === "refresh") {
+    return "刷新候选";
+  }
+  if (action === "batch-record") {
+    return "批量记录";
+  }
+  if (action === "settle") {
+    return "结算";
+  }
+  if (action.startsWith("record-")) {
+    return "记录观察";
+  }
+  if (action.startsWith("edit-")) {
+    return "编辑记录";
+  }
+  if (action.startsWith("void-")) {
+    return "作废记录";
+  }
+  return action;
 }
 
 function RecordsView({ data }: { data: DashboardData }) {

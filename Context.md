@@ -585,3 +585,102 @@ Generate sample candidates:
 $env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
 C:\ProgramData\anaconda3\python.exe -m icewine_cli odds-source oddspapi-sample-candidates --season 2026 --league-ids <ids> --from-date 2026-01-15 --per-league 8
 ```
+
+## 2026-05-30 Web Paper Tracking And Match List Implementation
+
+Implementation branch state:
+
+- Committed design docs:
+  - `5fc85b4 新增纸面推荐跟踪设计`
+  - `311cb09 新增比赛列表同步页设计`
+- Implementation is being committed after this context update. It includes backend services, API routes, React views, tests, and local startup behavior.
+
+Paper recommendation tracking:
+
+- Added `PaperRecommendationRecord` in `src/icewine_prediction/models.py`.
+- Added `src/icewine_prediction/paper_recommendation_tracking_service.py`.
+- Current strategy:
+  - key: `asian_away_cover_hgb_edge_v1`
+  - display name: `亚盘客队方向 · HGB边际 v1`
+  - signal: Asian handicap `away_cover`, `edge >= 0.1000`
+  - model: `raw_hgb_team_form_plus_all_markets`
+- API routes in `src/icewine_prediction/web_api.py`:
+  - `GET /api/paper-recommendations/workspace`
+  - `POST /api/paper-recommendations/records`
+  - `POST /api/paper-recommendations/records/backfill`
+  - `PATCH /api/paper-recommendations/records/{record_id}`
+  - `POST /api/paper-recommendations/settle`
+  - `POST /api/paper-recommendations/records/{record_id}/void`
+- Web page: sidebar item `纸面跟踪`, with candidate queue, records, manual edit, void, settlement, and grouped summaries.
+- Important display rule remains: show Beijing time, Chinese league/team names, and explicit handicap such as `客队 +0.50`.
+
+Historical paper backfill done in local DB:
+
+- Root cause: the 2026-05-30 early-morning candidate existed only in `docs/模型实验/20260530-paper-recommendation-queue-v1.md`; no `paper_recommendation_records` row had been created before kickoff.
+- Backfilled local record:
+  - record id: `1`
+  - match id: `17446`
+  - source match id: `1492706`
+  - fixture: `爱超 德罗赫达联 vs 沃特福德联`
+  - kickoff: `2026-05-30 02:45` Beijing time
+  - recommendation: `客队 +0.50`
+  - odds: `1.930`
+  - model p: `0.6044`
+  - market p: `0.4880`
+  - edge: `0.1164`
+  - status: `pending`
+  - manual note: `从 20260530 paper queue 报告补录；原候选生成于 2026-05-30 01:21 北京时间。`
+- Duplicate active backfill is rejected with `duplicate active paper recommendation record`.
+
+Match list and sync page:
+
+- Added `DataSyncRun` in `src/icewine_prediction/models.py`.
+- Added `src/icewine_prediction/match_list_workspace_service.py`.
+- API routes:
+  - `GET /api/match-list/workspace`
+  - `POST /api/match-list/sync/fixtures-results`
+  - `POST /api/match-list/sync/odds`
+  - `GET /api/matches/{match_id}/detail`
+- Web page: sidebar item `比赛列表`.
+- Default list window: `next_24h`.
+- Top strip: compact freshness and sync controls.
+- Filters: time preset, league, status, odds availability, search.
+- Detail view: opens from a match row; shows logos, teams, score/status, odds summary, team-data placeholder, and recommendation-summary placeholder for future linking.
+
+Web local data behavior:
+
+- `web/src/apiClient.ts` now keeps `source: "api"` when core local APIs succeed.
+- Optional sections such as paper recommendations, match list, training workspace, audit, and odds trend fall back section-by-section instead of turning the entire dashboard into mock data.
+- `scripts/start_web_frontend.ps1` clears `VITE_API_BASE_URL` so the frontend uses Vite same-origin `/api` proxy to `http://127.0.0.1:8000`.
+- Current dev servers were restarted:
+  - backend: `http://127.0.0.1:8000`
+  - frontend: `http://127.0.0.1:5173`
+
+Fresh verification before commit:
+
+```powershell
+$env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
+C:\ProgramData\anaconda3\python.exe -m pytest tests/test_paper_recommendation_tracking_service.py tests/test_match_list_workspace_service.py tests/test_web_console_api.py -q
+```
+
+Result: `29 passed`.
+
+```powershell
+cd web
+npm test -- apiClient.test.ts matchListWorkspace.test.ts paperRecommendationWorkspace.test.ts
+npm run build
+```
+
+Result: frontend tests `9 passed`; build succeeded.
+
+Suggested next conversation directions:
+
+1. Paper recommendation settlement loop:
+   - Sync finished results for paper-record matches.
+   - Settle pending records after scores are available.
+   - Decide whether settlement button should stay hidden/manual or be exposed later.
+   - Add paper-record summary/jump from match detail once the UX is ready.
+2. Match list Web验收/迭代:
+   - Use the `比赛列表` page against real local data.
+   - Confirm sync buttons, default next-24h list, filtering, and detail page behavior.
+   - Improve detail content when team stats/standings/recommendation links become available.

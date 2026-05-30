@@ -238,3 +238,62 @@ class RecommendationRecord(Base):
     profit_units: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
 
     match: Mapped["Match"] = relationship()
+
+
+class PaperRecommendationRecord(Base):
+    __tablename__ = "paper_recommendation_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), nullable=False)
+    source_match_id: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    league_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    league_display_name: Mapped[str | None] = mapped_column(String(120))
+    home_team_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    home_team_display_name: Mapped[str | None] = mapped_column(String(120))
+    away_team_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    away_team_display_name: Mapped[str | None] = mapped_column(String(120))
+    kickoff_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    strategy_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    strategy_display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    signal_version: Mapped[str | None] = mapped_column(String(40))
+    market_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    side: Mapped[str] = mapped_column(String(20), nullable=False)
+    recommended_handicap: Mapped[str | None] = mapped_column(String(40))
+    original_recommended_handicap: Mapped[str | None] = mapped_column(String(40))
+    line_bucket: Mapped[str | None] = mapped_column(String(40))
+    risk_tags: Mapped[str | None] = mapped_column(Text)
+    original_market_line: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    original_odds: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False)
+    current_market_line: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    current_odds: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False)
+    model_probability: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+    market_probability: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+    edge: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    stake_units: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    is_manually_adjusted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    manual_note: Mapped[str | None] = mapped_column(Text)
+    settlement_result: Mapped[str | None] = mapped_column(String(20))
+    profit_units: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    match: Mapped["Match"] = relationship()
+
+
+class DataSyncRun(Base):
+    __tablename__ = "data_sync_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sync_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    days: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    requests_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text)

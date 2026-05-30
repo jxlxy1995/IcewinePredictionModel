@@ -258,6 +258,189 @@ export type TrainingWorkspace = {
   market_baseline: TrainingMarketBaselineStatus;
 };
 
+export type PaperStrategy = {
+  strategy_key: string;
+  display_name: string;
+  market_type: string;
+  side: string;
+  edge_threshold: string;
+  model_name: string;
+  signal_version: string | null;
+};
+
+export type PaperCandidate = {
+  match_id: number;
+  source_match_id: string | null;
+  kickoff_time: string;
+  league_name: string;
+  league_display_name?: string | null;
+  home_team_name: string;
+  home_team_display_name?: string | null;
+  away_team_name: string;
+  away_team_display_name?: string | null;
+  status: string;
+  market_type: string;
+  side: string | null;
+  recommended_handicap: string | null;
+  line: string | null;
+  odds: string | null;
+  model_probability: string | null;
+  market_probability: string | null;
+  edge: string | null;
+  line_bucket: string;
+  risk_tags: string[];
+  strategy_key: string;
+  strategy_display_name: string;
+  is_recordable: boolean;
+};
+
+export type PaperRecord = {
+  id: number;
+  match_id: number;
+  source_match_id: string | null;
+  created_at: string;
+  updated_at: string;
+  kickoff_time: string;
+  league_name: string;
+  league_display_name?: string | null;
+  home_team_name: string;
+  home_team_display_name?: string | null;
+  away_team_name: string;
+  away_team_display_name?: string | null;
+  strategy_key: string;
+  strategy_display_name: string;
+  model_name: string;
+  signal_version: string | null;
+  market_type: string;
+  side: string;
+  recommended_handicap: string | null;
+  original_recommended_handicap: string | null;
+  line_bucket: string | null;
+  risk_tags: string[];
+  original_market_line: string;
+  original_odds: string;
+  current_market_line: string;
+  current_odds: string;
+  model_probability: string | null;
+  market_probability: string | null;
+  edge: string;
+  stake_units: string;
+  status: string;
+  is_manually_adjusted: boolean;
+  manual_note: string | null;
+  settlement_result: string | null;
+  profit_units: string | null;
+  settled_at: string | null;
+};
+
+export type PaperSummary = {
+  total_records: number;
+  pending_records: number;
+  settled_records: number;
+  void_records: number;
+  candidate_count: number;
+  total_stake_units: string;
+  total_profit_units: string;
+  hit_rate: string;
+  roi: string;
+};
+
+export type PaperGroupSummary = {
+  group_name: string;
+  record_count: number;
+  settled_records: number;
+  total_stake_units: string;
+  total_profit_units: string;
+  hit_rate: string;
+  roi: string;
+};
+
+export type PaperRecommendationWorkspace = {
+  strategies: PaperStrategy[];
+  candidates: PaperCandidate[];
+  records: PaperRecord[];
+  summary: PaperSummary;
+  groups: {
+    by_strategy: PaperGroupSummary[];
+    by_league: PaperGroupSummary[];
+    by_line_bucket: PaperGroupSummary[];
+    by_manual_adjustment: PaperGroupSummary[];
+  };
+};
+
+export type DataSyncFreshness = {
+  latest_fixtures_results_sync: string | null;
+  latest_odds_sync: string | null;
+  latest_kickoff_time: string | null;
+  latest_odds_snapshot_time: string | null;
+};
+
+export type MatchListFilters = {
+  time_preset: string;
+  league_name: string | null;
+  status_filter: string;
+  odds_filter: string;
+  search: string | null;
+};
+
+export type MatchOddsSummary = {
+  asian_handicap: string | null;
+  total_goals: string | null;
+  match_winner: string | null;
+};
+
+export type MatchListMatch = {
+  match_id: number;
+  kickoff_time: string;
+  league_name: string;
+  league_display_name?: string | null;
+  home_team_name: string;
+  home_team_display_name?: string | null;
+  home_team_logo_url?: string | null;
+  away_team_name: string;
+  away_team_display_name?: string | null;
+  away_team_logo_url?: string | null;
+  status: string;
+  status_group: string;
+  home_score: number | null;
+  away_score: number | null;
+  has_odds: boolean;
+  odds_summary: MatchOddsSummary;
+};
+
+export type MatchListWorkspace = {
+  filters: MatchListFilters;
+  freshness: DataSyncFreshness;
+  leagues: string[];
+  total_matches: number;
+  matches: MatchListMatch[];
+};
+
+export type RecommendationSummaryPlaceholder = {
+  count: number;
+  label: string;
+};
+
+export type MatchDetail = MatchListMatch & {
+  team_data_note: string;
+  paper_recommendation_summary: RecommendationSummaryPlaceholder;
+  formal_recommendation_summary: RecommendationSummaryPlaceholder;
+};
+
+export type DataSyncRun = {
+  id: number;
+  sync_type: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  days: number;
+  created_count: number;
+  updated_count: number;
+  skipped_count: number;
+  requests_used: number;
+  error_message: string | null;
+};
+
 export type DashboardData = {
   summary: DashboardSummary;
   leagues: LeagueCoverage[];
@@ -271,5 +454,7 @@ export type DashboardData = {
   recommendationRecords: RecommendationRecord[];
   modelTraining: ModelTrainingOverview;
   trainingWorkspace: TrainingWorkspace;
+  paperRecommendations: PaperRecommendationWorkspace;
+  matchList: MatchListWorkspace;
   source: "api" | "mock";
 };

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 import csv
 import json
@@ -28,7 +28,7 @@ from icewine_prediction.baseline_training_dataset_service import (
     write_baseline_training_dataset_csv,
     write_baseline_training_dataset_report,
 )
-from icewine_prediction.database import create_database_engine, create_session_factory
+from icewine_prediction.database import create_database_engine, create_session_factory, initialize_database
 from icewine_prediction.display_service import (
     DisplayNameService,
     load_display_names,
@@ -36,6 +36,7 @@ from icewine_prediction.display_service import (
 )
 from icewine_prediction.display_translation_status_service import DisplayTranslationStatusService
 from icewine_prediction.models import (
+    DataSyncRun,
     HistoricalOddsSnapshot,
     League,
     Match,
@@ -52,6 +53,20 @@ from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScore,
     build_paper_recommendation_queue,
 )
+from icewine_prediction.match_list_workspace_service import (
+    build_match_detail,
+    build_match_list_workspace,
+    record_sync_run,
+)
+from icewine_prediction.paper_recommendation_tracking_service import (
+    backfill_paper_record_from_candidate,
+    build_paper_tracking_workspace,
+    create_paper_record_from_queue_row,
+    edit_paper_record,
+    settle_paper_records,
+    void_paper_record,
+)
+from icewine_prediction.sync_runner import run_sync_odds, run_sync_results, run_sync_upcoming
 from icewine_prediction.time_utils import now_beijing
 
 
@@ -74,10 +89,13 @@ def create_web_app(
         "docs/模型实验/20260529-close-market-baseline-evaluation.md"
     ),
     paper_queue_scorer: Callable[[dict[str, str]], PaperQueueScore | None] | None = None,
+    match_list_fixtures_results_syncer: Callable[[int], dict[str, Any] | str] | None = None,
+    match_list_odds_syncer: Callable[[int], dict[str, Any] | str] | None = None,
     clock: Callable[[], datetime] = now_beijing,
 ) -> FastAPI:
     if session_factory is None:
         engine = create_database_engine()
+        initialize_database(engine)
         session_factory = create_session_factory(engine)
     log_dir = Path(log_dir)
     display_name_service = display_name_service or DisplayNameService(load_display_names(display_names_path))
@@ -86,6 +104,10 @@ def create_web_app(
     )
 
     app = FastAPI(title="Icewine Prediction Console API")
+    match_list_fixtures_results_syncer = (
+        match_list_fixtures_results_syncer or _run_match_list_fixtures_results_sync
+    )
+    match_list_odds_syncer = match_list_odds_syncer or _run_match_list_odds_sync
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -179,6 +201,95 @@ def create_web_app(
         with session_factory() as session:
             return build_matches_with_odds(session, display_name_service=display_name_service)
 
+    @app.get("/api/match-list/workspace")
+    def match_list_workspace(
+        time_preset: str = "next_24h",
+        league_name: str | None = None,
+        status_filter: str = "all",
+        odds_filter: str = "all",
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        with session_factory() as session:
+            workspace = build_match_list_workspace(
+                session,
+                now=clock(),
+                time_preset=time_preset,
+                league_name=league_name,
+                status_filter=status_filter,
+                odds_filter=odds_filter,
+                search=search,
+                display_name_service=display_name_service,
+            )
+            return build_match_list_workspace_payload(workspace)
+
+    @app.post("/api/match-list/sync/fixtures-results")
+    def sync_match_list_fixtures_results(payload: dict[str, Any]) -> dict[str, Any]:
+        days = int(payload.get("days", 3))
+        started_at = clock()
+        with session_factory() as session:
+            try:
+                sync_result = _normalize_match_list_sync_result(
+                    match_list_fixtures_results_syncer(days)
+                )
+                run = record_sync_run(
+                    session,
+                    sync_type="fixtures_results",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="success",
+                    days=days,
+                    **sync_result,
+                )
+            except Exception as error:
+                run = record_sync_run(
+                    session,
+                    sync_type="fixtures_results",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="failed",
+                    days=days,
+                    created_count=0,
+                    updated_count=0,
+                    skipped_count=0,
+                    requests_used=0,
+                    error_message=str(error),
+                )
+                raise HTTPException(status_code=500, detail=str(error)) from error
+            return {"sync_run": build_data_sync_run_payload(run)}
+
+    @app.post("/api/match-list/sync/odds")
+    def sync_match_list_odds(payload: dict[str, Any]) -> dict[str, Any]:
+        days = int(payload.get("days", 2))
+        started_at = clock()
+        with session_factory() as session:
+            try:
+                sync_result = _normalize_match_list_sync_result(match_list_odds_syncer(days))
+                run = record_sync_run(
+                    session,
+                    sync_type="odds",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="success",
+                    days=days,
+                    **sync_result,
+                )
+            except Exception as error:
+                run = record_sync_run(
+                    session,
+                    sync_type="odds",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="failed",
+                    days=days,
+                    created_count=0,
+                    updated_count=0,
+                    skipped_count=0,
+                    requests_used=0,
+                    error_message=str(error),
+                )
+                raise HTTPException(status_code=500, detail=str(error)) from error
+            return {"sync_run": build_data_sync_run_payload(run)}
+
     @app.get("/api/matches/{match_id}/odds-trends")
     def match_odds_trends(match_id: int) -> dict[str, Any]:
         with session_factory() as session:
@@ -190,6 +301,18 @@ def create_web_app(
             if payload is None:
                 raise HTTPException(status_code=404, detail="比赛不存在")
             return payload
+
+    @app.get("/api/matches/{match_id}/detail")
+    def match_detail(match_id: int) -> dict[str, Any]:
+        with session_factory() as session:
+            payload = build_match_detail(
+                session,
+                match_id=match_id,
+                display_name_service=display_name_service,
+            )
+            if payload is None:
+                raise HTTPException(status_code=404, detail="比赛不存在")
+            return build_match_detail_payload(payload)
 
     @app.get("/api/recommendation-records")
     def recommendation_records() -> list[dict[str, Any]]:
@@ -216,6 +339,114 @@ def create_web_app(
                 report,
                 display_name_service=display_name_service,
             )
+
+    @app.get("/api/paper-recommendations/workspace")
+    def paper_recommendation_workspace(
+        hours: int = 72,
+        near_start_hours: int = 6,
+        edge_threshold: str = "0.10",
+    ) -> dict[str, Any]:
+        with session_factory() as session:
+            queue_report = build_paper_recommendation_queue(
+                session,
+                now=clock(),
+                hours=hours,
+                near_start_hours=near_start_hours,
+                edge_threshold=edge_threshold,
+                scorer=paper_queue_scorer,
+                display_name_service=display_name_service,
+            )
+            workspace = build_paper_tracking_workspace(
+                session,
+                candidates=queue_report.rows,
+            )
+            return build_paper_tracking_workspace_payload(workspace)
+
+    @app.post("/api/paper-recommendations/records")
+    def create_paper_recommendation_record(payload: dict[str, Any]) -> dict[str, Any]:
+        match_id = int(payload["match_id"])
+        with session_factory() as session:
+            queue_report = build_paper_recommendation_queue(
+                session,
+                now=clock(),
+                hours=int(payload.get("hours", 72)),
+                near_start_hours=int(payload.get("near_start_hours", 6)),
+                edge_threshold=str(payload.get("edge_threshold", "0.10")),
+                scorer=paper_queue_scorer,
+                display_name_service=display_name_service,
+            )
+            row = next((item for item in queue_report.rows if item.match_id == match_id), None)
+            if row is None:
+                raise HTTPException(status_code=404, detail="纸面候选不存在")
+            try:
+                record = create_paper_record_from_queue_row(
+                    session,
+                    row,
+                    recorded_at=clock(),
+                )
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
+            return build_paper_record_payload(record)
+
+    @app.post("/api/paper-recommendations/records/backfill")
+    def backfill_paper_recommendation_record(payload: dict[str, Any]) -> dict[str, Any]:
+        match_id = int(payload["match_id"])
+        with session_factory() as session:
+            match = session.get(Match, match_id)
+            if match is None:
+                raise HTTPException(status_code=404, detail="比赛不存在")
+            try:
+                record = backfill_paper_record_from_candidate(
+                    session,
+                    match_id=match_id,
+                    recorded_at=_parse_optional_datetime(payload.get("recorded_at")) or clock(),
+                    market_line=Decimal(str(payload["market_line"])),
+                    odds=Decimal(str(payload["odds"])),
+                    model_probability=Decimal(str(payload["model_probability"])),
+                    market_probability=Decimal(str(payload["market_probability"])),
+                    edge=Decimal(str(payload["edge"])),
+                    manual_note=str(payload.get("manual_note") or "历史纸面候选补录"),
+                    league_display_name=display_name_service.display_league(match.league.name),
+                    home_team_display_name=display_name_service.display_team(
+                        match.home_team.canonical_name
+                    ),
+                    away_team_display_name=display_name_service.display_team(
+                        match.away_team.canonical_name
+                    ),
+                )
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
+            return build_paper_record_payload(record)
+
+    @app.patch("/api/paper-recommendations/records/{record_id}")
+    def edit_paper_recommendation_record(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        with session_factory() as session:
+            try:
+                record = edit_paper_record(
+                    session,
+                    record_id,
+                    current_market_line=Decimal(str(payload["current_market_line"])),
+                    current_odds=Decimal(str(payload["current_odds"])),
+                    manual_note=payload.get("manual_note"),
+                )
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
+            return build_paper_record_payload(record)
+
+    @app.post("/api/paper-recommendations/settle")
+    def settle_paper_recommendation_records() -> dict[str, int]:
+        with session_factory() as session:
+            result = settle_paper_records(session, settled_at=clock())
+            return asdict(result)
+
+    @app.post("/api/paper-recommendations/records/{record_id}/void")
+    def void_paper_recommendation_record(record_id: int) -> dict[str, Any]:
+        with session_factory() as session:
+            try:
+                record = void_paper_record(session, record_id)
+            except ValueError as error:
+                raise HTTPException(status_code=404, detail=str(error)) from error
+            return build_paper_record_payload(record)
 
     @app.get("/api/training/workspace")
     def training_workspace() -> dict[str, Any]:
@@ -709,6 +940,202 @@ def build_paper_recommendation_queue_payload(
     }
 
 
+def build_match_list_workspace_payload(workspace) -> dict[str, Any]:
+    return {
+        "filters": asdict(workspace.filters),
+        "freshness": asdict(workspace.freshness),
+        "leagues": workspace.leagues,
+        "total_matches": workspace.total_matches,
+        "matches": [build_match_list_row_payload(row) for row in workspace.matches],
+    }
+
+
+def build_match_list_row_payload(row) -> dict[str, Any]:
+    return {
+        "match_id": row.match_id,
+        "kickoff_time": row.kickoff_time,
+        "league_name": row.league_name,
+        "league_display_name": row.league_display_name,
+        "home_team_name": row.home_team_name,
+        "home_team_display_name": row.home_team_display_name,
+        "home_team_logo_url": row.home_team_logo_url,
+        "away_team_name": row.away_team_name,
+        "away_team_display_name": row.away_team_display_name,
+        "away_team_logo_url": row.away_team_logo_url,
+        "status": row.status,
+        "status_group": row.status_group,
+        "home_score": row.home_score,
+        "away_score": row.away_score,
+        "has_odds": row.has_odds,
+        "odds_summary": asdict(row.odds_summary),
+    }
+
+
+def build_match_detail_payload(detail) -> dict[str, Any]:
+    return {
+        "match_id": detail.match_id,
+        "kickoff_time": detail.kickoff_time,
+        "league_name": detail.league_name,
+        "league_display_name": detail.league_display_name,
+        "home_team_name": detail.home_team_name,
+        "home_team_display_name": detail.home_team_display_name,
+        "home_team_logo_url": detail.home_team_logo_url,
+        "away_team_name": detail.away_team_name,
+        "away_team_display_name": detail.away_team_display_name,
+        "away_team_logo_url": detail.away_team_logo_url,
+        "status": detail.status,
+        "status_group": detail.status_group,
+        "home_score": detail.home_score,
+        "away_score": detail.away_score,
+        "team_data_note": detail.team_data_note,
+        "odds_summary": asdict(detail.odds_summary),
+        "paper_recommendation_summary": asdict(detail.paper_recommendation_summary),
+        "formal_recommendation_summary": asdict(detail.formal_recommendation_summary),
+    }
+
+
+def build_data_sync_run_payload(run: DataSyncRun) -> dict[str, Any]:
+    return {
+        "id": run.id,
+        "sync_type": run.sync_type,
+        "started_at": _format_datetime(run.started_at),
+        "finished_at": _format_datetime(run.finished_at),
+        "status": run.status,
+        "days": run.days,
+        "created_count": run.created_count,
+        "updated_count": run.updated_count,
+        "skipped_count": run.skipped_count,
+        "requests_used": run.requests_used,
+        "error_message": run.error_message,
+    }
+
+
+def build_paper_tracking_workspace_payload(workspace) -> dict[str, Any]:
+    return {
+        "strategies": [
+            {
+                "strategy_key": strategy.strategy_key,
+                "display_name": strategy.display_name,
+                "market_type": strategy.market_type,
+                "side": strategy.side,
+                "edge_threshold": _format_decimal(strategy.edge_threshold, "0.0000"),
+                "model_name": strategy.model_name,
+                "signal_version": strategy.signal_version,
+            }
+            for strategy in workspace.strategies
+        ],
+        "candidates": [
+            {
+                "match_id": row.match_id,
+                "source_match_id": row.source_match_id,
+                "kickoff_time": row.kickoff_time,
+                "league_name": row.league_name,
+                "league_display_name": row.league_display_name,
+                "home_team_name": row.home_team_name,
+                "home_team_display_name": row.home_team_display_name,
+                "away_team_name": row.away_team_name,
+                "away_team_display_name": row.away_team_display_name,
+                "status": row.status,
+                "market_type": row.market_type,
+                "side": row.side,
+                "recommended_handicap": row.recommended_handicap,
+                "line": _format_optional_decimal(row.line, "0.00"),
+                "odds": _format_optional_decimal(row.odds, "0.000"),
+                "model_probability": _format_optional_decimal(row.model_probability, "0.0000"),
+                "market_probability": _format_optional_decimal(row.market_probability, "0.0000"),
+                "edge": _format_optional_decimal(row.edge, "0.0000"),
+                "line_bucket": row.line_bucket,
+                "risk_tags": list(row.risk_tags),
+                "strategy_key": workspace.strategies[0].strategy_key,
+                "strategy_display_name": workspace.strategies[0].display_name,
+                "is_recordable": row.status == "candidate",
+            }
+            for row in workspace.candidates
+        ],
+        "records": [build_paper_record_payload(record) for record in workspace.records],
+        "summary": build_paper_summary_payload(workspace.summary),
+        "groups": {
+            "by_strategy": [build_paper_group_payload(group) for group in workspace.by_strategy],
+            "by_league": [build_paper_group_payload(group) for group in workspace.by_league],
+            "by_line_bucket": [build_paper_group_payload(group) for group in workspace.by_line_bucket],
+            "by_manual_adjustment": [
+                build_paper_group_payload(group) for group in workspace.by_manual_adjustment
+            ],
+        },
+    }
+
+
+def build_paper_record_payload(record) -> dict[str, Any]:
+    return {
+        "id": record.id,
+        "match_id": record.match_id,
+        "source_match_id": record.source_match_id,
+        "created_at": _format_datetime(record.created_at),
+        "updated_at": _format_datetime(record.updated_at),
+        "kickoff_time": _format_datetime(record.kickoff_time),
+        "league_name": record.league_name,
+        "league_display_name": record.league_display_name,
+        "home_team_name": record.home_team_name,
+        "home_team_display_name": record.home_team_display_name,
+        "away_team_name": record.away_team_name,
+        "away_team_display_name": record.away_team_display_name,
+        "strategy_key": record.strategy_key,
+        "strategy_display_name": record.strategy_display_name,
+        "model_name": record.model_name,
+        "signal_version": record.signal_version,
+        "market_type": record.market_type,
+        "side": record.side,
+        "recommended_handicap": record.recommended_handicap,
+        "original_recommended_handicap": record.original_recommended_handicap,
+        "line_bucket": record.line_bucket,
+        "risk_tags": _split_tags(record.risk_tags),
+        "original_market_line": _format_decimal(record.original_market_line, "0.00"),
+        "original_odds": _format_decimal(record.original_odds, "0.000"),
+        "current_market_line": _format_decimal(record.current_market_line, "0.00"),
+        "current_odds": _format_decimal(record.current_odds, "0.000"),
+        "model_probability": _format_optional_decimal(record.model_probability, "0.0000"),
+        "market_probability": _format_optional_decimal(record.market_probability, "0.0000"),
+        "edge": _format_decimal(record.edge, "0.0000"),
+        "stake_units": _format_decimal(record.stake_units, "0.00"),
+        "status": record.status,
+        "is_manually_adjusted": record.is_manually_adjusted,
+        "manual_note": record.manual_note,
+        "settlement_result": record.settlement_result,
+        "profit_units": (
+            _format_decimal(record.profit_units, "0.000")
+            if record.profit_units is not None
+            else None
+        ),
+        "settled_at": _format_datetime(record.settled_at),
+    }
+
+
+def build_paper_summary_payload(summary) -> dict[str, Any]:
+    return {
+        "total_records": summary.total_records,
+        "pending_records": summary.pending_records,
+        "settled_records": summary.settled_records,
+        "void_records": summary.void_records,
+        "candidate_count": summary.candidate_count,
+        "total_stake_units": _format_decimal(summary.total_stake_units, "0.00"),
+        "total_profit_units": _format_decimal(summary.total_profit_units, "0.000"),
+        "hit_rate": _format_decimal(summary.hit_rate, "0.0000"),
+        "roi": _format_decimal(summary.roi, "0.0000"),
+    }
+
+
+def build_paper_group_payload(group) -> dict[str, Any]:
+    return {
+        "group_name": group.group_name,
+        "record_count": group.record_count,
+        "settled_records": group.settled_records,
+        "total_stake_units": _format_decimal(group.total_stake_units, "0.00"),
+        "total_profit_units": _format_decimal(group.total_profit_units, "0.000"),
+        "hit_rate": _format_decimal(group.hit_rate, "0.0000"),
+        "roi": _format_decimal(group.roi, "0.0000"),
+    }
+
+
 def build_training_workspace_payload(
     *,
     baseline_dataset_path: Path,
@@ -770,6 +1197,63 @@ def build_training_workspace_payload(
         "qa": qa_payload,
         "market_baseline": market_payload,
     }
+
+
+def _run_match_list_fixtures_results_sync(days: int) -> dict[str, int]:
+    upcoming_summary = run_sync_upcoming(days)
+    today = now_beijing().date()
+    results_summary = run_sync_results(today - timedelta(days=days), today + timedelta(days=days))
+    upcoming_counts = _parse_sync_summary(upcoming_summary)
+    results_counts = _parse_sync_summary(results_summary)
+    return {
+        "created": upcoming_counts["created"] + results_counts["created"],
+        "updated": upcoming_counts["updated"] + results_counts["updated"],
+        "skipped": upcoming_counts["skipped"] + results_counts["skipped"],
+        "requests": upcoming_counts["requests"] + results_counts["requests"],
+    }
+
+
+def _run_match_list_odds_sync(days: int) -> dict[str, int]:
+    return _parse_sync_summary(run_sync_odds(days))
+
+
+def _normalize_match_list_sync_result(result: dict[str, Any] | str) -> dict[str, int]:
+    if isinstance(result, str):
+        parsed = _parse_sync_summary(result)
+        return {
+            "created_count": parsed["created"],
+            "updated_count": parsed["updated"],
+            "skipped_count": parsed["skipped"],
+            "requests_used": parsed["requests"],
+        }
+    return {
+        "created_count": int(result.get("created", result.get("created_count", 0))),
+        "updated_count": int(result.get("updated", result.get("updated_count", 0))),
+        "skipped_count": int(result.get("skipped", result.get("skipped_count", 0))),
+        "requests_used": int(result.get("requests", result.get("requests_used", 0))),
+    }
+
+
+def _parse_sync_summary(summary: str) -> dict[str, int]:
+    values = {"created": 0, "updated": 0, "skipped": 0, "requests": 0}
+    for part in summary.replace(",", "").split():
+        if "=" not in part:
+            continue
+        key, raw_value = part.split("=", 1)
+        if key in values:
+            try:
+                values[key] = int(raw_value)
+            except ValueError:
+                values[key] = 0
+    return values
+
+
+def _parse_optional_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value))
 
 
 def _build_training_dataset_file_payload(path: Path) -> dict[str, Any]:
@@ -883,6 +1367,12 @@ def _format_optional_decimal(value: Decimal | None, pattern: str) -> str | None:
     if value is None:
         return None
     return _format_decimal(value, pattern)
+
+
+def _split_tags(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item for item in value.split(",") if item]
 
 
 def _format_datetime(value: datetime | None) -> str | None:

@@ -12,6 +12,9 @@
   - Match winner
 - Earlier old-format odds data lacked match-winner odds and may have selected non-main lines. Most old-format leagues have now been rerun.
 - UTC storage/parsing is fine; user-facing display should use Beijing time.
+- Web console should default to local real API data. Mock data is only a fallback when local API data is unavailable, preferably scoped to the failed section rather than replacing the whole dashboard.
+- Paper/formal recommendation strategies should have a memorable Chinese display name, with English keys/model names allowed as secondary technical identifiers.
+- Paper recommendation records are independent tracking records. Missed queue candidates can be backfilled from historical paper queue reports, but should be marked as manual/backfill rather than pretending they were automatic clicks.
 
 ## Oddspapi Backfill Learnings
 
@@ -65,4 +68,3 @@ Focused verification at that time: `90 passed`.
 
 - `Superettan` should be called 瑞典超甲, not 瑞典甲.
 - 德丙 has been removed from the desired whitelist direction because odds coverage was 0 in the current stable window.
-

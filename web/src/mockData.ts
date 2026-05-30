@@ -1,8 +1,11 @@
 import type {
   DashboardData,
+  MatchDetail,
+  MatchListWorkspace,
   MatchOddsTrends,
   ModelTrainingOverview,
   OddspapiBackfillAudit,
+  PaperRecommendationWorkspace,
   TeamDisplayNameWorkspace,
   TrainingWorkspace
 } from "./types";
@@ -384,6 +387,215 @@ export const mockTrainingWorkspace: TrainingWorkspace = {
   }
 };
 
+export const mockPaperRecommendationWorkspace: PaperRecommendationWorkspace = {
+  strategies: [
+    {
+      strategy_key: "asian_away_cover_hgb_edge_v1",
+      display_name: "亚盘客队方向 · HGB边际 v1",
+      market_type: "asian_handicap",
+      side: "away_cover",
+      edge_threshold: "0.1000",
+      model_name: "raw_hgb_team_form_plus_all_markets",
+      signal_version: "v1"
+    }
+  ],
+  candidates: [
+    {
+      match_id: 17446,
+      source_match_id: "17446",
+      kickoff_time: "2026-05-30T02:45:00+08:00",
+      league_name: "Premier Division",
+      league_display_name: "爱超",
+      home_team_name: "Drogheda United",
+      home_team_display_name: "德罗赫达联",
+      away_team_name: "Waterford",
+      away_team_display_name: "沃特福德联",
+      status: "candidate",
+      market_type: "asian_handicap",
+      side: "away_cover",
+      recommended_handicap: "客队 +0.50",
+      line: "-0.50",
+      odds: "1.930",
+      model_probability: "0.6500",
+      market_probability: "0.5000",
+      edge: "0.1500",
+      line_bucket: "away_underdog",
+      risk_tags: ["line_bucket:away_underdog"],
+      strategy_key: "asian_away_cover_hgb_edge_v1",
+      strategy_display_name: "亚盘客队方向 · HGB边际 v1",
+      is_recordable: true
+    }
+  ],
+  records: [
+    {
+      id: 1,
+      match_id: 17446,
+      source_match_id: "17446",
+      created_at: "2026-05-30T01:00:00+08:00",
+      updated_at: "2026-05-30T01:10:00+08:00",
+      kickoff_time: "2026-05-30T02:45:00+08:00",
+      league_name: "Premier Division",
+      league_display_name: "爱超",
+      home_team_name: "Drogheda United",
+      home_team_display_name: "德罗赫达联",
+      away_team_name: "Waterford",
+      away_team_display_name: "沃特福德联",
+      strategy_key: "asian_away_cover_hgb_edge_v1",
+      strategy_display_name: "亚盘客队方向 · HGB边际 v1",
+      model_name: "raw_hgb_team_form_plus_all_markets",
+      signal_version: "v1",
+      market_type: "asian_handicap",
+      side: "away_cover",
+      recommended_handicap: "客队 +0.25",
+      original_recommended_handicap: "客队 +0.50",
+      line_bucket: "away_underdog",
+      risk_tags: ["line_bucket:away_underdog"],
+      original_market_line: "-0.50",
+      original_odds: "1.930",
+      current_market_line: "-0.25",
+      current_odds: "1.880",
+      model_probability: "0.6500",
+      market_probability: "0.5000",
+      edge: "0.1500",
+      stake_units: "1.00",
+      status: "settled",
+      is_manually_adjusted: true,
+      manual_note: "临场退盘",
+      settlement_result: "half_win",
+      profit_units: "0.440",
+      settled_at: "2026-05-30T05:00:00+08:00"
+    }
+  ],
+  summary: {
+    total_records: 1,
+    pending_records: 0,
+    settled_records: 1,
+    void_records: 0,
+    candidate_count: 1,
+    total_stake_units: "1.00",
+    total_profit_units: "0.440",
+    hit_rate: "1.0000",
+    roi: "0.4400"
+  },
+  groups: {
+    by_strategy: [
+      {
+        group_name: "亚盘客队方向 · HGB边际 v1",
+        record_count: 1,
+        settled_records: 1,
+        total_stake_units: "1.00",
+        total_profit_units: "0.440",
+        hit_rate: "1.0000",
+        roi: "0.4400"
+      }
+    ],
+    by_league: [
+      {
+        group_name: "爱超",
+        record_count: 1,
+        settled_records: 1,
+        total_stake_units: "1.00",
+        total_profit_units: "0.440",
+        hit_rate: "1.0000",
+        roi: "0.4400"
+      }
+    ],
+    by_line_bucket: [
+      {
+        group_name: "away_underdog",
+        record_count: 1,
+        settled_records: 1,
+        total_stake_units: "1.00",
+        total_profit_units: "0.440",
+        hit_rate: "1.0000",
+        roi: "0.4400"
+      }
+    ],
+    by_manual_adjustment: [
+      {
+        group_name: "人工调整",
+        record_count: 1,
+        settled_records: 1,
+        total_stake_units: "1.00",
+        total_profit_units: "0.440",
+        hit_rate: "1.0000",
+        roi: "0.4400"
+      }
+    ]
+  }
+};
+
+export const mockMatchListWorkspace: MatchListWorkspace = {
+  filters: {
+    time_preset: "next_24h",
+    league_name: null,
+    status_filter: "all",
+    odds_filter: "all",
+    search: null
+  },
+  freshness: {
+    latest_fixtures_results_sync: "2026-05-30T10:12:00+08:00",
+    latest_odds_sync: "2026-05-30T10:16:00+08:00",
+    latest_kickoff_time: "2026-06-02T03:00:00+08:00",
+    latest_odds_snapshot_time: "2026-05-30T10:15:00+08:00"
+  },
+  leagues: ["J1 League", "K League 1"],
+  total_matches: 2,
+  matches: [
+    {
+      match_id: 16356,
+      kickoff_time: "2026-05-30T13:00:00+08:00",
+      league_name: "J1 League",
+      league_display_name: "日职联",
+      home_team_name: "Sanfrecce Hiroshima",
+      home_team_display_name: "广岛三箭",
+      home_team_logo_url: "home.png",
+      away_team_name: "Kawasaki Frontale",
+      away_team_display_name: "川崎前锋",
+      away_team_logo_url: "away.png",
+      status: "scheduled",
+      status_group: "not_started",
+      home_score: null,
+      away_score: null,
+      has_odds: true,
+      odds_summary: {
+        asian_handicap: "客队 +0.50 @ 1.950",
+        total_goals: null,
+        match_winner: null
+      }
+    },
+    {
+      match_id: 16357,
+      kickoff_time: "2026-05-30T13:00:00+08:00",
+      league_name: "J1 League",
+      league_display_name: "日职联",
+      home_team_name: "Nagoya Grampus",
+      home_team_display_name: "名古屋鲸鱼",
+      home_team_logo_url: null,
+      away_team_name: "Machida Zelvia",
+      away_team_display_name: "町田泽维亚",
+      away_team_logo_url: null,
+      status: "scheduled",
+      status_group: "not_started",
+      home_score: null,
+      away_score: null,
+      has_odds: false,
+      odds_summary: {
+        asian_handicap: null,
+        total_goals: null,
+        match_winner: null
+      }
+    }
+  ]
+};
+
+export const mockMatchDetail: MatchDetail = {
+  ...mockMatchListWorkspace.matches[0],
+  team_data_note: "待接入",
+  paper_recommendation_summary: { count: 0, label: "暂无纸面推荐记录" },
+  formal_recommendation_summary: { count: 0, label: "暂无正式推荐记录" }
+};
+
 export const mockOddspapiBackfillAudit: OddspapiBackfillAudit = {
   season: 2025,
   log_dir: "logs/odds",
@@ -555,6 +767,8 @@ export const mockDashboardData: DashboardData = {
   doneDisplayTranslationKeys: ["78-2025"],
   modelTraining: mockModelTrainingOverview,
   trainingWorkspace: mockTrainingWorkspace,
+  paperRecommendations: mockPaperRecommendationWorkspace,
+  matchList: mockMatchListWorkspace,
   recommendationRecords: [
     {
       id: 1,

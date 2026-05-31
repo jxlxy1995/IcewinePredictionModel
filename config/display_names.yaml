@@ -70,6 +70,8 @@ leagues:
   1. Division (Norway): 挪甲
   1. Division (Denmark): 丹麦甲
   Liga 1 (Indonesia): 印尼超
+  Liga MX: 墨西超
+  Liga MX (Mexico): 墨西超
   3. Liga: 德丙
   3. Liga (Germany): 德丙
   J1 League: 日职联
@@ -163,8 +165,10 @@ teams:
   Atalanta: 亚特兰大
   Athletic Club: 毕尔巴鄂竞技
   Atlanta United FC: 亚特兰大联
+  Atlas: 阿特拉斯
   Atletico Madrid: 马德里竞技
   Atletico Paranaense: 巴拉纳竞技
+  Atletico San Luis: 圣路易斯竞技
   Atletico Tucuman: 图库曼竞技
   Atletico-MG: 米内罗竞技
   Atromitos: 阿特罗米托斯
@@ -224,6 +228,7 @@ teams:
   Burton Albion: 伯顿
   Busan I Park: 釜山偶像
   CF Montreal: 蒙特利尔FC
+  CF Pachuca: 帕丘卡
   CFR 1907 Cluj: 克卢日
   CSKA Moscow: 莫斯科中央陆军
   Cadiz: 加的斯
@@ -255,7 +260,10 @@ teams:
   Chindia Targoviste: 赤尼达塔高维斯
   Chongqing Tongliang Long: 重庆铜梁龙
   Clermont Foot: 克莱蒙
+  Club America: 墨西哥美洲
   Club Brugge KV: 布鲁日
+  Club Queretaro: 克雷塔罗
+  Club Tijuana: 蒂华纳
   Cobresal: 科布雷萨尔
   Colo Colo: 科洛科洛
   Colorado Rapids: 科罗拉多急流
@@ -269,6 +277,7 @@ teams:
   Coventry: 考文垂
   Cracovia Krakow: 克拉科维亚
   Cremonese: 克雷莫纳
+  Cruz Azul: 蓝十字
   Cruzeiro: 克鲁塞罗
   Crystal Palace: 水晶宫
   Csikszereda: FK米耶尔库雷亚丘克
@@ -338,6 +347,7 @@ teams:
   FC Dallas: 达拉斯FC
   FC Eindhoven: FC埃因霍温
   FC Fredericia: 弗雷德里西亚
+  FC Juarez: 华雷斯
   FC Krasnodar: 克拉斯诺
   FC Lugano: 卢加诺
   FC Luzern: 卢塞恩
@@ -412,6 +422,7 @@ teams:
   Gremio: 格雷米奥
   Grenoble: 格勒诺布尔
   Groningen: 格罗宁根
+  Guadalajara Chivas: 瓜达拉哈拉
   Guimaraes: 吉马良斯
   Guingamp: 甘冈
   Gwangju FC: 光州FC
@@ -523,6 +534,7 @@ teams:
   Legia Warszawa: 华沙莱吉亚
   Leicester: 莱斯特城
   Lens: 朗斯
+  Leon: 莱昂
   Levadiakos: 莱瓦贾克斯
   Levante: 莱万特
   Leyton Orient: 莱顿东方
@@ -558,6 +570,7 @@ teams:
   Mantova: 曼托瓦
   Mariehamn: 玛丽港
   Marseille: 马赛
+  Mazatlán: 马萨特兰
   Meizhou Kejia: 梅州客家
   Melbourne City: 墨尔本城
   Melbourne Victory: 墨尔本胜利
@@ -574,6 +587,7 @@ teams:
   Modena: 摩德纳
   Molde: 莫尔德
   Monaco: 摩纳哥
+  Monterrey: 蒙特雷
   Montpellier: 蒙彼利埃
   Monza: 蒙扎
   Moreirense: 莫雷拉人
@@ -589,6 +603,7 @@ teams:
   Nantes: 南特
   Napoli: 那不勒斯
   Nashville SC: 纳什维尔FC
+  Necaxa: 内卡萨
   New England Revolution: 新英格兰革命
   New York City FC: 纽约城
   New York Red Bulls: 纽约红牛
@@ -666,6 +681,7 @@ teams:
   Portsmouth: 朴茨茅斯
   Preston: 普雷斯顿
   Preußen Münster: 普鲁士明斯特
+  Puebla: 普埃布拉
   Pusamania Borneo: 婆罗洲FC
   QPR: 女王公园
   Qarabag: 卡拉巴克
@@ -733,6 +749,7 @@ teams:
   Sanfrecce Hiroshima: 广岛三箭
   Santa Clara: 圣克拉拉
   Santos: 桑托斯
+  Santos Laguna: 桑托斯拉古纳
   Sao Paulo: 圣保罗
   Sarmiento Junin: 萨米恩托
   Sarpsborg 08 FF: 萨普斯堡
@@ -794,7 +811,9 @@ teams:
   Telstar: 特尔斯达
   Tianjin Teda: 天津津门虎
   Tigre: 提格雷
+  Tigres UANL: 老虎大学
   Tokyo Verdy: 东京绿茵
+  Toluca: 托卢卡
   Tondela: 通德拉
   Torino: 都灵
   Toronto FC: 多伦多FC
@@ -807,6 +826,7 @@ teams:
   Turku PS: TPS图尔库
   Twente: 特温特
   U. Catolica: 天主大学
+  U.N.A.M. - Pumas: 美洲狮
   Udinese: 乌迪内斯
   Ulsan Hyundai FC: 蔚山HD
   Umeå FC: 于默奥

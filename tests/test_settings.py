@@ -97,6 +97,8 @@ def test_default_league_whitelist_contains_mainstream_leagues():
     assert leagues_by_name["Ekstraklasa"].api_football_id == 106
     assert leagues_by_name["Primera División"].api_football_id == 265
 
-    newly_promoted_main_league_ids = {104, 1087, 357, 274, 120}
+    newly_promoted_main_league_ids = {104, 1087, 357, 274, 120, 262}
     assert newly_promoted_main_league_ids <= set(leagues_by_id)
     assert all(leagues_by_id[league_id].enabled for league_id in newly_promoted_main_league_ids)
+    assert leagues_by_id[262].name == "Liga MX"
+    assert leagues_by_id[262].country == "Mexico"

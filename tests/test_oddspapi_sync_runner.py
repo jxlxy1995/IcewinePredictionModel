@@ -917,6 +917,7 @@ def test_api_football_league_mappings_include_new_main_leagues():
     assert mappings["104"] == 22
     assert mappings["120"] == 47
     assert mappings["274"] == 1015
+    assert mappings["262"] == 27466
 
 
 def test_run_oddspapi_sync_for_session_samples_snapshots_before_storing(session):

@@ -48,6 +48,7 @@ Tournament mappings recently added:
 - `293 -> 777` K League 2
 - `197 -> 185` Greek Super League
 - `307 -> 955` Saudi Pro League
+- `262 -> 27466` Liga MX, Clausura
 
 Alias mappings recently added include:
 
@@ -81,3 +82,16 @@ Focused verification at that time: `90 passed`.
 
 - `Superettan` should be called 瑞典超甲, not 瑞典甲.
 - 德丙 has been removed from the desired whitelist direction because odds coverage was 0 in the current stable window.
+
+## Liga MX Addition
+
+- Liga MX / 墨西超 was added as an enabled main league with API-Football id `262`, season `2025`.
+- API-Football `history:262:2025` created `337` local matches. The current cross-year season runs from 2025-07 to 2026-05, so `season=2025` is the right sync/backfill season.
+- Finished/scored matches on or after `2026-01-15`: `154`.
+- OddsPapi tournament mapping uses `262 -> 27466` (`Liga MX, Clausura`) for the stable post-2026-01-15 window. `27464` is the Apertura tournament and should only be considered if backfilling 2025 H2 before the stable boundary.
+- OddsPapi safe worker completed for Liga MX on 2026-05-31:
+  - processed `154/154`, snapshots `20424`, requests `297`, worker summary `failed=1`.
+  - DB final status: success `140`, empty `14`, unmatched/unavailable/fixture_lookup_failed/failed `0`.
+  - The one worker-level failure was a historical-odds timeout for match `18651` Club America vs Tigres UANL; it was retried later in the same worker and did not remain failed in DB.
+  - Complete three-market coverage after the run: `140/154` (`90.9%`).
+  - The `14` empty matches matched fixtures but had no usable pre-match/main-line snapshots, mostly around the 2026-01-15 boundary plus a few February/playoff matches.

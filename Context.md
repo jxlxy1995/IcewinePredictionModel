@@ -863,3 +863,84 @@ npm run build
 ```
 
 Result during implementation: match-list test passed and build succeeded.
+
+## 2026-05-31 Liga MX Addition And OddsPapi Backfill
+
+Work completed in this session:
+
+- Added Liga MX / 墨西超 as an enabled main league:
+  - `config/leagues.yaml`: `Liga MX`, country `Mexico`, API-Football id `262`, priority `50`.
+  - `config/display_names.yaml`: `Liga MX` and `Liga MX (Mexico)` display as `墨西超`.
+  - The user filled the 18 Liga MX team Chinese display names in `config/display_names.yaml`.
+- Added OddsPapi tournament mapping:
+  - `262 -> 27466` (`Liga MX, Clausura`) in `src/icewine_prediction/oddspapi_sync_runner.py`.
+  - Important nuance: Oddspapi also has `27464` for `Liga MX, Apertura`. For the stable window after `2026-01-15`, API-Football fixtures are Clausura, so `27466` is correct. If backfilling 2025 H2 / Apertura later, mapping support may need to become season/round aware instead of one API-Football league id to one tournament id.
+- Synced API-Football schedule/results:
+
+```powershell
+$env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
+C:\ProgramData\anaconda3\python.exe -m icewine_cli sync history --league-id 262 --season 2025
+```
+
+Result: `history:262:2025: created=337, updated=0, skipped=0, requests=1`.
+
+Local DB after sync:
+
+- League row: `Liga MX (Mexico)`, source league id `262`, enabled.
+- Season `2025` total matches: `337`.
+- Finished/scored matches on or after `2026-01-15`: `154`.
+- Teams: Atlas, Atletico San Luis, CF Pachuca, Club America, Club Queretaro, Club Tijuana, Cruz Azul, FC Juarez, Guadalajara Chivas, Leon, Mazatlán, Monterrey, Necaxa, Puebla, Santos Laguna, Tigres UANL, Toluca, U.N.A.M. - Pumas.
+
+OddsPapi worker command used:
+
+```powershell
+$env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
+C:\ProgramData\anaconda3\python.exe -m icewine_cli odds-source oddspapi-worker-start `
+  --season 2025 `
+  --mode safe `
+  --chunk-size 4 `
+  --request-budget-per-league 500 `
+  --timeout-seconds 40 `
+  --max-snapshots-per-match 151 `
+  --max-rounds-per-league 300 `
+  --stop-after-empty-matches 8 `
+  --stop-after-failed-rounds 2 `
+  --round-timeout-seconds 500.0 `
+  --historical-odds-cooldown-seconds 7.5 `
+  --hard-timeout-seconds 28800.0 `
+  --log-dir logs\odds `
+  --league-ids 262 `
+  --from-date 2026-01-15 `
+  --notify-on-complete
+```
+
+Worker final status:
+
+- Process: `pid=19052`, stopped/done.
+- Logs:
+  - `logs\odds\20260531-100540-oddspapi-worker-process.log`
+  - `logs\odds\20260531-100541-pid19052-oddspapi-batch-worker.log`
+- Summary: processed `154/154`, snapshots `20424`, requests `297`, worker summary `failed=1`.
+- DB final status after worker:
+  - success `140`
+  - empty `14`
+  - unmatched `0`
+  - unavailable `0`
+  - fixture_lookup_failed `0`
+  - failed `0`
+- Three-market snapshot coverage:
+  - asian_handicap: `140` matches, `6752` snapshots.
+  - total_goals: `140` matches, `6742` snapshots.
+  - match_winner: `140` matches, `6930` snapshots.
+  - Complete three-market coverage: `140/154` (`90.9%`).
+- The worker-level `failed=1` was a historical-odds timeout for match `18651` Club America vs Tigres UANL. It was retried later by the same worker and did not remain failed in DB.
+- The `14` empty matches matched OddsPapi fixtures but produced no usable pre-match/main-line snapshots. These are not alias problems.
+
+Focused verification run before commit:
+
+```powershell
+$env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'
+C:\ProgramData\anaconda3\python.exe -m pytest tests/test_settings.py tests/test_display_service.py tests/test_oddspapi_sync_runner.py::test_api_football_league_mappings_include_new_main_leagues -q
+```
+
+Result: `9 passed`.

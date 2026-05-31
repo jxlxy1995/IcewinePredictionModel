@@ -229,6 +229,11 @@ leagues:
     api_football_id: 274
     enabled: true
     priority: 50
+  - name: Liga MX
+    country: Mexico
+    api_football_id: 262
+    enabled: true
+    priority: 50
   - name: 1. Division
     country: Denmark
     api_football_id: 120

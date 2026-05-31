@@ -528,8 +528,12 @@ def test_web_console_api_returns_recommendation_records(tmp_path):
     assert payload[0]["match_id"] == seeded["matched_match_id"]
     assert payload[0]["home_team_name"] == "Cardiff"
     assert payload[0]["home_team_display_name"] == "卡迪夫城"
+    assert payload[0]["home_team_logo_url"] is None
     assert payload[0]["away_team_name"] == "Swansea"
     assert payload[0]["away_team_display_name"] == "斯旺西"
+    assert payload[0]["away_team_logo_url"] is None
+    assert payload[0]["home_score"] == 2
+    assert payload[0]["away_score"] == 1
     assert payload[0]["market_type"] == "asian_handicap"
     assert payload[0]["confidence_grade"] == "A-"
 
@@ -711,6 +715,10 @@ def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
     assert settled_workspace["summary"]["roi"] == "0.4400"
     assert settled_workspace["records"][0]["settlement_result"] == "half_win"
     assert settled_workspace["records"][0]["profit_units"] == "0.440"
+    assert settled_workspace["records"][0]["home_team_logo_url"] is None
+    assert settled_workspace["records"][0]["away_team_logo_url"] is None
+    assert settled_workspace["records"][0]["home_score"] == 1
+    assert settled_workspace["records"][0]["away_score"] == 1
 
 
 def test_web_console_api_voids_paper_record(tmp_path):

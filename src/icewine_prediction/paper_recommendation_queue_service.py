@@ -181,6 +181,21 @@ def build_paper_recommendation_queue(
     )
 
 
+def build_paper_recommendation_rows_for_match(
+    match: Match,
+    *,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
+    edge_threshold: str = "0.10",
+    display_name_service: DisplayNameService | None = None,
+) -> list[PaperQueueRow]:
+    return _build_queue_rows(
+        match,
+        scorer=scorer,
+        edge_threshold=_as_decimal(edge_threshold),
+        display_name_service=display_name_service,
+    )
+
+
 def _resolve_feature_csv_path(session: Session, feature_csv_path: Path | None) -> Path:
     if feature_csv_path is not None:
         return feature_csv_path
@@ -660,6 +675,12 @@ def _train_live_scorer(feature_csv_path: Path) -> Callable[[dict[str, str]], Pap
         raise FileNotFoundError(f"feature csv not found: {feature_csv_path}")
     with feature_csv_path.open(encoding="utf-8", newline="") as file:
         rows = list(csv.DictReader(file))
+    return train_paper_queue_scorer_from_rows(rows)
+
+
+def train_paper_queue_scorer_from_rows(
+    rows: list[dict[str, str]],
+) -> Callable[[dict[str, str]], PaperQueueScoreResult]:
     asian_handicap_train_rows = [row for row in rows if _asian_handicap_target_label(row) is not None]
     total_goals_train_rows = [row for row in rows if _total_goals_target_label(row) is not None]
     if not asian_handicap_train_rows:

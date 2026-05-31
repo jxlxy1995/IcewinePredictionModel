@@ -190,6 +190,10 @@ from icewine_prediction.paper_recommendation_queue_service import (
     build_paper_recommendation_queue,
     write_paper_recommendation_queue_report,
 )
+from icewine_prediction.paper_recommendation_replay_service import (
+    build_walk_forward_replay_scorer_factory,
+    replay_finished_matches_as_paper_recommendations,
+)
 from icewine_prediction.recommendation_service import (
     Recommendation,
     build_model_recommendations_from_features,
@@ -209,6 +213,7 @@ from icewine_prediction.sample_report_service import (
     build_training_sample_report,
 )
 from icewine_prediction.config import BEIJING_TIMEZONE
+from icewine_prediction.models import TrainingRun
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.skellam_model_service import SkellamMarginModel
 from icewine_prediction.sync_runner import (
@@ -1261,6 +1266,47 @@ def recommendations_paper_queue(
     )
 
 
+@recommendations_app.command("paper-replay")
+def recommendations_paper_replay(
+    from_time: str = typer.Option(..., "--from-time"),
+    to_time: str | None = typer.Option(None, "--to-time"),
+    edge_threshold: str = typer.Option("0.10", "--edge-threshold"),
+    feature_csv_path: str | None = typer.Option(None, "--feature-csv-path"),
+    settle: bool = typer.Option(True, "--settle/--no-settle"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        resolved_feature_path = (
+            Path(feature_csv_path)
+            if feature_csv_path is not None
+            else _latest_successful_dynamic_feature_path(session)
+        )
+        resolved_feature_path = Path(resolved_feature_path)
+        scorer_factory = build_walk_forward_replay_scorer_factory(resolved_feature_path)
+        result = replay_finished_matches_as_paper_recommendations(
+            session,
+            from_time=datetime.fromisoformat(from_time),
+            to_time=datetime.fromisoformat(to_time) if to_time is not None else now_beijing(),
+            scorer_factory=scorer_factory,
+            recorded_at=now_beijing(),
+            edge_threshold=edge_threshold,
+            settle=settle,
+            display_name_service=DisplayNameService(),
+        )
+    typer.echo(
+        "paper replay "
+        f"scanned {result.scanned_matches} matches "
+        f"candidates {result.candidate_rows} "
+        f"created {result.created_records} "
+        f"duplicates {result.duplicate_records} "
+        f"settled {result.settled_records} "
+        f"skipped {result.skipped_settlement_records} "
+        f"unsettleable {result.unsettleable_records}"
+    )
+
+
 @recommendations_app.command("record")
 def recommendations_record(
     hours: int = typer.Option(24, "--hours"),
@@ -1292,6 +1338,20 @@ def recommendations_record(
                 recorded_at=recorded_at,
             )
     typer.echo(f"录入推荐 {total_inserted}")
+
+
+def _latest_successful_dynamic_feature_path(session) -> Path:
+    run = (
+        session.query(TrainingRun)
+        .filter(TrainingRun.run_type == "full_refresh")
+        .filter(TrainingRun.status == "success")
+        .filter(TrainingRun.dynamic_feature_path.isnot(None))
+        .order_by(TrainingRun.started_at.desc(), TrainingRun.id.desc())
+        .first()
+    )
+    if run is None or not run.dynamic_feature_path:
+        raise typer.BadParameter("未找到成功训练运行的动态特征 CSV，请使用 --feature-csv-path 指定")
+    return Path(run.dynamic_feature_path)
 
 
 @records_app.command("pending")

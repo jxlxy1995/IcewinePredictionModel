@@ -77,8 +77,12 @@ export type UnmatchedMatch = {
   league_display_name?: string;
   home_team_name: string;
   home_team_display_name?: string;
+  home_team_logo_url?: string | null;
   away_team_name: string;
   away_team_display_name?: string;
+  away_team_logo_url?: string | null;
+  home_score?: number | null;
+  away_score?: number | null;
   kickoff_time: string;
   source_name?: string;
   match_reason: string;
@@ -313,8 +317,12 @@ export type PaperRecord = {
   league_display_name?: string | null;
   home_team_name: string;
   home_team_display_name?: string | null;
+  home_team_logo_url?: string | null;
   away_team_name: string;
   away_team_display_name?: string | null;
+  away_team_logo_url?: string | null;
+  home_score?: number | null;
+  away_score?: number | null;
   strategy_key: string;
   strategy_display_name: string;
   model_name: string;

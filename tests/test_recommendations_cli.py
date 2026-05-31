@@ -96,6 +96,78 @@ def test_recommendations_paper_queue_command_writes_report(monkeypatch):
     assert "candidates 1/3" in result.stdout
 
 
+def test_recommendations_paper_replay_command_records_and_settles(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_latest_feature_path(session):
+        captured["feature_session"] = session
+        return "local_data/training/latest.csv"
+
+    def fake_scorer_factory(path):
+        captured["feature_path"] = str(path)
+        return "scorer-factory"
+
+    def fake_replay(
+        session,
+        *,
+        from_time,
+        to_time,
+        scorer_factory,
+        recorded_at,
+        edge_threshold,
+        settle,
+        display_name_service,
+    ):
+        captured["from_time"] = from_time.isoformat()
+        captured["to_time"] = to_time.isoformat()
+        captured["scorer_factory"] = scorer_factory
+        captured["edge_threshold"] = edge_threshold
+        captured["settle"] = settle
+        captured["recorded_at"] = recorded_at
+        captured["display_name_service"] = display_name_service
+        return SimpleNamespace(
+            scanned_matches=8,
+            candidate_rows=3,
+            created_records=2,
+            duplicate_records=1,
+            settled_records=2,
+            skipped_settlement_records=0,
+            unsettleable_records=0,
+        )
+
+    monkeypatch.setattr("icewine_prediction.cli._latest_successful_dynamic_feature_path", fake_latest_feature_path)
+    monkeypatch.setattr("icewine_prediction.cli.build_walk_forward_replay_scorer_factory", fake_scorer_factory)
+    monkeypatch.setattr("icewine_prediction.cli.replay_finished_matches_as_paper_recommendations", fake_replay)
+
+    result = runner.invoke(
+        app,
+        [
+            "recommendations",
+            "paper-replay",
+            "--from-time",
+            "2026-05-30T00:00:00+08:00",
+            "--to-time",
+            "2026-05-31T00:00:00+08:00",
+            "--edge-threshold",
+            "0.10",
+            "--settle",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["from_time"] == "2026-05-30T00:00:00+08:00"
+    assert captured["to_time"] == "2026-05-31T00:00:00+08:00"
+    assert captured["feature_path"] == "local_data\\training\\latest.csv"
+    assert captured["scorer_factory"] == "scorer-factory"
+    assert captured["edge_threshold"] == "0.10"
+    assert captured["settle"] is True
+    assert isinstance(captured["display_name_service"], DisplayNameService)
+    assert "paper replay scanned 8 matches" in result.stdout
+    assert "created 2" in result.stdout
+    assert "settled 2" in result.stdout
+
+
 def test_format_recommendation_line_uses_chinese_match_and_recommendation_text():
     display_service = DisplayNameService(
         DisplayNames(

@@ -1,49 +1,66 @@
 import type { RecommendationRecord } from "../types";
 import { formatSettlementResult } from "../recordReportWorkspace";
+import {
+  MatchCell,
+  ProfitCell,
+  RecordPagination,
+  SettlementBadge,
+  useSortedPaginatedRecords
+} from "./RecommendationRecordDisplay";
 
 type RecommendationRecordTableProps = {
   records: RecommendationRecord[];
 };
 
 export function RecommendationRecordTable({ records }: RecommendationRecordTableProps) {
+  const { pageRecords, pagination, setPage } = useSortedPaginatedRecords(records, 20);
+
   if (records.length === 0) {
     return <div className="empty-state">暂无推荐记录</div>;
   }
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>比赛</th>
-          <th>盘口</th>
-          <th>赔率</th>
-          <th>信心</th>
-          <th>手数</th>
-          <th>状态</th>
-          <th>赛果</th>
-          <th>收益</th>
-        </tr>
-      </thead>
-      <tbody>
-        {records.map((record) => (
-          <tr key={record.id}>
-            <td>
-              {record.league_display_name ?? record.league_name}{" "}
-              {record.home_team_display_name ?? record.home_team_name} vs{" "}
-              {record.away_team_display_name ?? record.away_team_name}
-            </td>
-            <td>
-              {formatMarket(record.market_type)} {record.market_line} {formatSide(record.side)}
-            </td>
-            <td>{record.odds}</td>
-            <td>{record.confidence_grade}</td>
-            <td>{record.stake_units}</td>
-            <td>{formatStatus(record.status)}</td>
-            <td>{formatSettlementResult(record.settlement_result)}</td>
-            <td>{record.profit_units ?? "-"}</td>
+    <>
+      <RecordPagination pagination={pagination} onPageChange={setPage} />
+      <table>
+        <thead>
+          <tr>
+            <th>比赛</th>
+            <th>盘口</th>
+            <th>赔率</th>
+            <th>信心</th>
+            <th>手数</th>
+            <th>状态</th>
+            <th>赛果</th>
+            <th>收益</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {pageRecords.map((record) => (
+            <tr key={record.id}>
+              <td className="record-match-cell">
+                <MatchCell record={record} />
+              </td>
+              <td>
+                {formatMarket(record.market_type)} {record.market_line} {formatSide(record.side)}
+              </td>
+              <td>{record.odds}</td>
+              <td>{record.confidence_grade}</td>
+              <td>{record.stake_units}</td>
+              <td>{formatStatus(record.status)}</td>
+              <td>
+                <SettlementBadge
+                  label={formatSettlementResult(record.settlement_result)}
+                  result={record.settlement_result}
+                />
+              </td>
+              <td>
+                <ProfitCell value={record.profit_units} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
 

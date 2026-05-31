@@ -756,6 +756,147 @@ th {
   width: 42px;
 }
 
+.record-match-cell {
+  min-width: 320px;
+}
+
+.record-match {
+  display: grid;
+  gap: 6px;
+}
+
+.record-match-meta {
+  color: #64748b;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.record-scoreline {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(96px, 1fr) auto minmax(96px, 1fr);
+}
+
+.record-score {
+  background: #f1f5f9;
+  border-radius: 6px;
+  color: #0f172a;
+  font-weight: 700;
+  min-width: 42px;
+  padding: 4px 8px;
+  text-align: center;
+}
+
+.team-mini-badge {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.team-mini-badge.right {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.team-mini-badge img {
+  border-radius: 999px;
+  flex: 0 0 auto;
+  height: 22px;
+  object-fit: contain;
+  width: 22px;
+}
+
+.team-mini-badge span:last-child {
+  overflow-wrap: anywhere;
+}
+
+.settlement-badge {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  justify-content: center;
+  min-width: 40px;
+  padding: 5px 9px;
+}
+
+.settlement-badge.win {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.settlement-badge.half-win {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.settlement-badge.push,
+.settlement-badge.pending {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.settlement-badge.half-loss {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.settlement-badge.loss {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.profit-value {
+  font-weight: 700;
+}
+
+.profit-value.win {
+  color: #15803d;
+}
+
+.profit-value.loss {
+  color: #b91c1c;
+}
+
+.profit-value.push,
+.profit-value.pending {
+  color: #64748b;
+}
+
+.record-pagination {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.record-pagination span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.record-pagination-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.page-input {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  font: inherit;
+  min-height: 30px;
+  padding: 0 8px;
+  width: 72px;
+}
+
 .versus-text {
   color: #94a3b8;
   margin: 0 6px;

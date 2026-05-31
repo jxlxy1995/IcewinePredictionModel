@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from icewine_prediction.alias_service import list_external_aliases
 from icewine_prediction.database import create_database_engine, create_session_factory, initialize_database
@@ -43,6 +44,7 @@ SOCCER_SPORT_ID = 10
 SELECTED_BOOKMAKERS = "pinnacle"
 TERMINAL_HISTORICAL_ODDS_STATUSES = {"empty", "unavailable", "unmatched"}
 HISTORICAL_ODDS_TIMEOUT_ATTEMPTS = 2
+COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT = 100
 
 API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "39": 17,
@@ -155,6 +157,7 @@ class HistoricalOddsStoreSummary:
     asian_handicap_count: int
     total_goals_count: int
     match_winner_count: int = 0
+    skipped_protected_count: int = 0
 
 
 class OddsPapiRequestLimiter:
@@ -677,7 +680,9 @@ def run_oddspapi_sync_for_session(
                 _mark_historical_odds_status(
                     session,
                     match.id,
-                    "success" if store_summary.inserted_count > 0 else "empty",
+                    "success"
+                    if store_summary.inserted_count > 0 or store_summary.skipped_protected_count > 0
+                    else "empty",
                     None,
                 )
                 inserted += store_summary.inserted_count
@@ -803,7 +808,9 @@ def run_oddspapi_sync_for_session(
             _mark_historical_odds_status(
                 session,
                 match.id,
-                "success" if store_summary.inserted_count > 0 else "empty",
+                "success"
+                if store_summary.inserted_count > 0 or store_summary.skipped_protected_count > 0
+                else "empty",
                 None,
             )
             inserted += store_summary.inserted_count
@@ -1013,6 +1020,31 @@ def _fetch_and_store_historical_odds(
         kickoff_time=match.kickoff_time,
     )
     snapshots = main_snapshots
+    existing_24h_snapshot_count = _historical_odds_snapshot_count(
+        session,
+        match.id,
+        kickoff_time=match.kickoff_time,
+    )
+    if len(main_snapshots) < existing_24h_snapshot_count:
+        _emit_progress(
+            progress_callback,
+            (
+                "  skip_store_fewer_main_snapshots "
+                f"match_id={match.id} "
+                f"new_main={len(main_snapshots)} "
+                f"existing_24h={existing_24h_snapshot_count} "
+                f"raw={raw_snapshot_count} "
+                f"raw_summary={len(raw_summary_snapshots)}"
+            ),
+        )
+        return HistoricalOddsStoreSummary(
+            inserted_count=0,
+            skipped_duplicate_count=existing_24h_snapshot_count,
+            asian_handicap_count=0,
+            total_goals_count=0,
+            match_winner_count=0,
+            skipped_protected_count=existing_24h_snapshot_count,
+        )
     _emit_progress(
         progress_callback,
         f"  写入历史赔率 match_id={match.id} raw={raw_snapshot_count} main={len(main_snapshots)} raw_summary={len(raw_summary_snapshots)}",
@@ -1235,7 +1267,7 @@ def select_oddspapi_candidate_matches(
             continue
         if league_ids is not None and str(match.league.source_league_id) not in league_ids:
             continue
-        if _has_historical_odds(session, match.id):
+        if _has_complete_historical_odds(session, match.id, match.kickoff_time):
             skipped_existing_odds += 1
             continue
         if not match_ids and _has_terminal_historical_odds_status(session, match.id):
@@ -1262,12 +1294,39 @@ def _load_league_priority_by_source_id() -> dict[str, int]:
 
 
 def _has_historical_odds(session: Session, match_id: int) -> bool:
+    return _historical_odds_snapshot_count(session, match_id) > 0
+
+
+def _has_complete_historical_odds(
+    session: Session,
+    match_id: int,
+    kickoff_time: datetime,
+) -> bool:
     return (
-        session.query(HistoricalOddsSnapshot)
-        .filter_by(match_id=match_id, source_name=ODDSPAPI_SOURCE_NAME)
-        .first()
-        is not None
+        _historical_odds_snapshot_count(
+            session,
+            match_id,
+            kickoff_time=kickoff_time,
+        )
+        >= COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT
     )
+
+
+def _historical_odds_snapshot_count(
+    session: Session,
+    match_id: int,
+    *,
+    kickoff_time: datetime | None = None,
+) -> int:
+    query = session.query(func.count(HistoricalOddsSnapshot.id)).filter_by(
+        match_id=match_id,
+        source_name=ODDSPAPI_SOURCE_NAME,
+    )
+    if kickoff_time is not None:
+        kickoff_utc = _as_utc(kickoff_time)
+        query = query.filter(HistoricalOddsSnapshot.snapshot_time >= kickoff_utc - timedelta(hours=24))
+        query = query.filter(HistoricalOddsSnapshot.snapshot_time <= kickoff_utc)
+    return int(query.scalar() or 0)
 
 
 def _get_odds_source_match(session: Session, match_id: int) -> OddsSourceMatch | None:

@@ -44,6 +44,7 @@ from icewine_prediction.models import (
     League,
     Match,
     OddsSourceMatch,
+    OddsSnapshot,
     RecommendationRecord,
     Team,
     TrainingRun,
@@ -55,6 +56,7 @@ from icewine_prediction.oddspapi_backfill_audit_service import (
 from icewine_prediction.oddspapi_worker_process_service import _is_process_running
 from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScore,
+    PaperQueueScoreResult,
     build_paper_recommendation_queue,
 )
 from icewine_prediction.match_list_workspace_service import (
@@ -72,10 +74,11 @@ from icewine_prediction.paper_recommendation_tracking_service import (
     void_paper_record,
 )
 from icewine_prediction.oddspapi_sync_runner import run_oddspapi_sync_result
+from icewine_prediction.sources.api_football_client import ApiFootballApiError
 from icewine_prediction.sources.api_football_mapper import map_fixtures
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.sync_runner import build_api_football_provider
-from icewine_prediction.sync_service import upsert_fixtures
+from icewine_prediction.sync_service import upsert_fixtures, upsert_odds_snapshots
 from icewine_prediction.time_utils import now_beijing
 from icewine_prediction.training_orchestration_service import (
     TrainingRunAlreadyRunning,
@@ -103,7 +106,7 @@ def create_web_app(
     baseline_market_report_path: Path = Path(
         "docs/模型实验/20260529-close-market-baseline-evaluation.md"
     ),
-    paper_queue_scorer: Callable[[dict[str, str]], PaperQueueScore | None] | None = None,
+    paper_queue_scorer: Callable[[dict[str, str]], PaperQueueScoreResult] | None = None,
     match_list_fixtures_results_syncer: Callable[[list[int]], dict[str, Any] | str] | None = None,
     match_list_odds_syncer: Callable[[list[int]], dict[str, Any] | str] | None = None,
     training_full_refresh_runner: Callable[[int], None] | None = None,
@@ -841,7 +844,7 @@ def _build_paper_recommendation_workspace_response(
     hours: int,
     near_start_hours: int,
     edge_threshold: str,
-    scorer: Callable[[dict[str, str]], PaperQueueScore | None] | None,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult] | None,
     display_name_service: DisplayNameService,
 ) -> dict[str, Any]:
     queue_report = build_paper_recommendation_queue(
@@ -1464,7 +1467,10 @@ def _build_match_sync_items(
                 match,
                 status=str(row_payload.get("status") or default_status),
                 message=str(row_payload.get("message") or ""),
-                diagnostic=diagnostic_by_match_id.get(match.id, {}),
+                diagnostic={
+                    **diagnostic_by_match_id.get(match.id, {}),
+                    **(row_payload.get("diagnostic") or {}),
+                },
                 created_count=int(row_payload.get("created_count", row_payload.get("created", 0)) or 0),
                 updated_count=int(row_payload.get("updated_count", row_payload.get("updated", 0)) or 0),
                 skipped_count=int(row_payload.get("skipped_count", row_payload.get("skipped", 0)) or 0),
@@ -1532,14 +1538,33 @@ def _build_match_sync_diagnostics(session: Session, match_ids) -> dict[int, dict
         .group_by(HistoricalOddsSnapshot.match_id)
         .all()
     )
+    live_snapshot_counts = dict(
+        session.query(
+            OddsSnapshot.match_id,
+            func.count(OddsSnapshot.id),
+        )
+        .filter(OddsSnapshot.match_id.in_(ids))
+        .group_by(OddsSnapshot.match_id)
+        .all()
+    )
     diagnostics = {}
     for match_id in ids:
         source_row = source_rows.get(match_id)
+        historical_snapshot_count = int(snapshot_counts.get(match_id, 0) or 0)
+        live_snapshot_count = int(live_snapshot_counts.get(match_id, 0) or 0)
         diagnostics[match_id] = {
             "source_fixture_id": source_row.source_fixture_id if source_row else None,
-            "diagnostic_status": source_row.historical_odds_status if source_row else None,
-            "diagnostic_error": source_row.historical_odds_error if source_row else None,
-            "snapshot_count": int(snapshot_counts.get(match_id, 0) or 0),
+            "diagnostic_status": (
+                source_row.historical_odds_status
+                if source_row and historical_snapshot_count > 0
+                else ("live_odds_fallback" if live_snapshot_count > 0 else source_row.historical_odds_status if source_row else None)
+            ),
+            "diagnostic_error": (
+                None
+                if live_snapshot_count > 0 and historical_snapshot_count == 0
+                else source_row.historical_odds_error if source_row else None
+            ),
+            "snapshot_count": historical_snapshot_count or live_snapshot_count,
         }
     return diagnostics
 
@@ -2009,6 +2034,7 @@ def _run_match_list_odds_sync(match_ids: list[int]) -> dict[str, Any]:
     success_ids: set[int] = set()
     failed_ids: set[int] = set()
     skipped = []
+    fallback_errors: dict[int, str] = {}
     requests_used = 0
     for season in seasons:
         season_match_ids = {
@@ -2027,14 +2053,42 @@ def _run_match_list_odds_sync(match_ids: list[int]) -> dict[str, Any]:
         )
         requests_used += result.requests_used
         with _open_session_for_web_sync() as session:
+            missing_live_odds_fixture_ids = _select_live_odds_fallback_fixture_ids(
+                session,
+                season_match_ids,
+            )
+        if missing_live_odds_fixture_ids:
+            provider = build_api_football_provider(load_project_settings())
+            with _open_session_for_web_sync() as session:
+                for fixture_id in missing_live_odds_fixture_ids:
+                    try:
+                        snapshots = provider.fetch_odds_for_fixtures([fixture_id])
+                    except ApiFootballApiError as exc:
+                        match_id = _match_id_for_source_fixture_id(
+                            session,
+                            fixture_id,
+                            season_match_ids,
+                        )
+                        if match_id is not None:
+                            fallback_errors[match_id] = str(exc)
+                        continue
+                    upsert_odds_snapshots(session, snapshots)
+            requests_used += provider.client.request_count
+        with _open_session_for_web_sync() as session:
             for match_id in season_match_ids:
-                has_odds = (
+                has_historical_odds = (
                     session.query(HistoricalOddsSnapshot)
                     .filter_by(match_id=match_id, source_name="oddspapi")
                     .first()
                     is not None
                 )
-                if has_odds:
+                has_live_odds = (
+                    session.query(OddsSnapshot)
+                    .filter_by(match_id=match_id)
+                    .first()
+                    is not None
+                )
+                if has_historical_odds or has_live_odds:
                     success_ids.add(match_id)
                 else:
                     failed_ids.add(match_id)
@@ -2044,12 +2098,62 @@ def _run_match_list_odds_sync(match_ids: list[int]) -> dict[str, Any]:
             for match_id in sorted(success_ids)
         ],
         "failed": [
-            {"match_id": match_id, "message": "未获取到可用赔率"}
+            {"match_id": match_id, "message": fallback_errors.get(match_id) or "未获取到可用赔率"}
             for match_id in sorted(failed_ids - success_ids)
         ],
         "skipped": skipped,
         "requests": requests_used,
     }
+
+
+def _match_id_for_source_fixture_id(
+    session: Session,
+    source_fixture_id: str,
+    match_ids: set[int],
+) -> int | None:
+    row = (
+        session.query(Match.id)
+        .filter(Match.id.in_(match_ids))
+        .filter(Match.source_match_id == source_fixture_id)
+        .one_or_none()
+    )
+    return int(row[0]) if row is not None else None
+
+
+def _select_live_odds_fallback_fixture_ids(session: Session, match_ids: set[int]) -> list[str]:
+    if not match_ids:
+        return []
+    matches = (
+        session.query(Match)
+        .filter(Match.id.in_(match_ids))
+        .order_by(Match.kickoff_time.asc(), Match.id.asc())
+        .all()
+    )
+    fixture_ids = []
+    for match in matches:
+        if match.source_match_id is None:
+            continue
+        if not _is_not_started_match(match):
+            continue
+        has_historical_odds = (
+            session.query(HistoricalOddsSnapshot)
+            .filter_by(match_id=match.id, source_name="oddspapi")
+            .first()
+            is not None
+        )
+        if has_historical_odds:
+            continue
+        fixture_ids.append(match.source_match_id)
+    return fixture_ids
+
+
+def _is_not_started_match(match: Match) -> bool:
+    values = {
+        str(value).strip().lower()
+        for value in (match.status, match.status_short, match.status_long)
+        if value
+    }
+    return not values or bool(values & {"scheduled", "ns", "not started"})
 
 
 def _open_session_for_web_sync():

@@ -8,6 +8,8 @@ ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY = "asian_away_cover_hgb_edge_v1"
 ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME = "亚盘客队方向 · HGB边际 v1"
 ASIAN_AWAY_COVER_HGB_BUCKET_V2_KEY = "asian_away_cover_hgb_bucket_v2"
 ASIAN_AWAY_COVER_HGB_BUCKET_V2_NAME = "亚盘客队方向 · HGB分盘口桶 v2"
+TOTAL_GOALS_HGB_BUCKET_V2_KEY = "total_goals_hgb_bucket_v2"
+TOTAL_GOALS_HGB_BUCKET_V2_NAME = "大小球方向 · HGB分盘口桶 v2"
 DEFAULT_MODEL_NAME = "raw_hgb_team_form_plus_all_markets"
 DEFAULT_SIGNAL_VERSION = "v1"
 
@@ -17,7 +19,7 @@ class PaperStrategy:
     strategy_key: str
     display_name: str
     market_type: str
-    side: str
+    side: str | None
     edge_threshold: Decimal
     model_name: str
     signal_version: str
@@ -48,7 +50,21 @@ BUCKET_V2_STRATEGY = PaperStrategy(
     },
     risk_tag="strategy:bucket_v2",
 )
-STRATEGIES = (DEFAULT_STRATEGY, BUCKET_V2_STRATEGY)
+TOTAL_GOALS_BUCKET_V2_STRATEGY = PaperStrategy(
+    strategy_key=TOTAL_GOALS_HGB_BUCKET_V2_KEY,
+    display_name=TOTAL_GOALS_HGB_BUCKET_V2_NAME,
+    market_type="total_goals",
+    side=None,
+    edge_threshold=Decimal("0.0800"),
+    model_name=DEFAULT_MODEL_NAME,
+    signal_version="v2",
+    line_bucket_thresholds={
+        "over@mid_2.75": Decimal("0.0800"),
+        "under@mid_2.75": Decimal("0.0800"),
+    },
+    risk_tag="strategy:total_goals_bucket_v2",
+)
+STRATEGIES = (DEFAULT_STRATEGY, BUCKET_V2_STRATEGY, TOTAL_GOALS_BUCKET_V2_STRATEGY)
 
 
 def strategy_for_key(strategy_key: str) -> PaperStrategy | None:

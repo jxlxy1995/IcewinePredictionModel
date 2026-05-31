@@ -57,6 +57,35 @@ def test_create_paper_record_from_v2_candidate_preserves_strategy(session):
     assert record.signal_version == "v2"
 
 
+def test_create_paper_record_from_total_goals_bucket_candidate_preserves_strategy(session):
+    match = _seed_match(session)
+    row = _queue_row(
+        match,
+        status="candidate",
+        line=Decimal("2.75"),
+        market_type="total_goals",
+        side="under",
+        recommended_handicap="小 2.75",
+        odds=Decimal("2.000"),
+        line_bucket="mid_2.75",
+        risk_tags=("line_bucket:mid_2.75", "strategy:total_goals_bucket_v2"),
+        strategy_key="total_goals_hgb_bucket_v2",
+        strategy_display_name="大小球方向 · HGB分盘口桶 v2",
+        signal_version="v2",
+    )
+
+    record = create_paper_record_from_queue_row(session, row, recorded_at=_now())
+
+    assert record.strategy_key == "total_goals_hgb_bucket_v2"
+    assert record.strategy_display_name == "大小球方向 · HGB分盘口桶 v2"
+    assert record.market_type == "total_goals"
+    assert record.side == "under"
+    assert record.recommended_handicap == "小 2.75"
+    assert record.current_market_line == Decimal("2.75")
+    assert record.current_odds == Decimal("2.000")
+    assert record.signal_version == "v2"
+
+
 def test_create_paper_record_allows_parallel_strategy_records_for_same_match(session):
     match = _seed_match(session)
     v1_row = _queue_row(match, status="candidate", line=Decimal("-0.50"))
@@ -216,6 +245,37 @@ def test_settle_paper_records_uses_current_line_and_odds(session):
     assert workspace.by_manual_adjustment[0].group_name == "人工调整"
 
 
+def test_settle_paper_records_supports_total_goals_records(session):
+    match = _seed_match(session, home_score=1, away_score=1, status="finished")
+    record = create_paper_record_from_queue_row(
+        session,
+        _queue_row(
+            match,
+            status="candidate",
+            line=Decimal("2.75"),
+            market_type="total_goals",
+            side="under",
+            recommended_handicap="小 2.75",
+            odds=Decimal("2.000"),
+            line_bucket="mid_2.75",
+            risk_tags=("line_bucket:mid_2.75", "strategy:total_goals_bucket_v2"),
+            strategy_key="total_goals_hgb_bucket_v2",
+            strategy_display_name="大小球方向 · HGB分盘口桶 v2",
+            signal_version="v2",
+        ),
+        recorded_at=_now(),
+    )
+
+    result = settle_paper_records(session, settled_at=_now())
+
+    session.refresh(record)
+    assert result.settled_count == 1
+    assert result.unsettleable_count == 0
+    assert record.status == "settled"
+    assert record.settlement_result == "win"
+    assert record.profit_units == Decimal("1.000")
+
+
 def _seed_match(
     session,
     *,
@@ -247,6 +307,12 @@ def _queue_row(
     *,
     status: str,
     line: Decimal,
+    market_type: str = "asian_handicap",
+    side: str = "away_cover",
+    recommended_handicap: str = "客队 +0.50",
+    odds: Decimal = Decimal("1.930"),
+    line_bucket: str = "away_underdog",
+    risk_tags: tuple[str, ...] = ("line_bucket:away_underdog",),
     strategy_key: str = ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
     strategy_display_name: str = ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
     signal_version: str = "v1",
@@ -262,16 +328,16 @@ def _queue_row(
         away_team_name=match.away_team.canonical_name,
         away_team_display_name="沃特福德联",
         status=status,
-        market_type="asian_handicap",
+        market_type=market_type,
         line=line,
-        side="away_cover",
-        recommended_handicap="客队 +0.50",
-        odds=Decimal("1.930"),
+        side=side,
+        recommended_handicap=recommended_handicap,
+        odds=odds,
         model_probability=Decimal("0.6044"),
         market_probability=Decimal("0.4880"),
         edge=Decimal("0.1164"),
-        line_bucket="away_underdog",
-        risk_tags=("line_bucket:away_underdog",),
+        line_bucket=line_bucket,
+        risk_tags=risk_tags,
         strategy_key=strategy_key,
         strategy_display_name=strategy_display_name,
         signal_version=signal_version,

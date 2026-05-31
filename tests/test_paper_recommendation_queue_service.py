@@ -355,6 +355,190 @@ def test_build_paper_recommendation_queue_adds_v2_bucket_strategy_candidate(sess
     assert v2.risk_tags == ("line_bucket:away_underdog", "strategy:bucket_v2")
 
 
+def test_build_paper_recommendation_queue_adds_total_goals_bucket_strategy_candidate(session):
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="priced-total",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=now,
+            data_source="api_football",
+            bookmaker="Bet365",
+            asian_handicap=Decimal("-0.50"),
+            home_odds=Decimal("1.95"),
+            away_odds=Decimal("1.95"),
+            total_line=Decimal("2.75"),
+            over_odds=Decimal("1.90"),
+            under_odds=Decimal("2.00"),
+            match_winner_home_odds=Decimal("2.10"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("3.40"),
+        )
+    )
+    session.commit()
+
+    def fake_scorer(row):
+        return [
+            PaperQueueScore(
+                market_type="total_goals",
+                side="under",
+                model_probability=Decimal("0.5900"),
+                market_probability=Decimal("0.5000"),
+                edge=Decimal("0.0900"),
+                model_name="fake_hgb",
+            )
+        ]
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=fake_scorer,
+    )
+
+    candidate = next(row for row in report.rows if row.strategy_key == "total_goals_hgb_bucket_v2")
+    assert candidate.status == "candidate"
+    assert candidate.market_type == "total_goals"
+    assert candidate.side == "under"
+    assert candidate.line == Decimal("2.75")
+    assert candidate.odds == Decimal("2.000")
+    assert candidate.recommended_handicap == "小 2.75"
+    assert candidate.line_bucket == "mid_2.75"
+    assert candidate.risk_tags == ("line_bucket:mid_2.75", "strategy:total_goals_bucket_v2")
+
+
+def test_build_paper_recommendation_queue_keeps_total_goals_candidate_without_asian_odds(session):
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="priced-total-only",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=now,
+            data_source="api_football",
+            bookmaker="Bet365",
+            total_line=Decimal("2.75"),
+            over_odds=Decimal("1.90"),
+            under_odds=Decimal("2.00"),
+            match_winner_home_odds=Decimal("2.10"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("3.40"),
+        )
+    )
+    session.commit()
+
+    def fake_scorer(row):
+        return PaperQueueScore(
+            market_type="total_goals",
+            side="under",
+            model_probability=Decimal("0.5900"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.0900"),
+            model_name="fake_hgb",
+        )
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=fake_scorer,
+    )
+
+    assert any(row.status == "no_odds" for row in report.rows)
+    candidate = next(row for row in report.rows if row.strategy_key == "total_goals_hgb_bucket_v2")
+    assert candidate.status == "candidate"
+    assert candidate.market_type == "total_goals"
+
+
+def test_build_paper_recommendation_queue_does_not_candidate_total_goals_outside_bucket(session):
+    league = League(name="Allsvenskan", country_or_region="Sweden", level=1, is_enabled=True)
+    home = Team(canonical_name="Mjallby AIF")
+    away = Team(canonical_name="Djurgardens IF")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 31, 20, 39, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 31, 22, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="1494190",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=now,
+            data_source="api_football",
+            bookmaker="Bet365",
+            total_line=Decimal("2.50"),
+            over_odds=Decimal("1.78"),
+            under_odds=Decimal("1.98"),
+            match_winner_home_odds=Decimal("2.40"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("2.70"),
+        )
+    )
+    session.commit()
+
+    def fake_scorer(row):
+        return PaperQueueScore(
+            market_type="total_goals",
+            side="over",
+            model_probability=Decimal("0.6593"),
+            market_probability=Decimal("0.5266"),
+            edge=Decimal("0.1327"),
+            model_name="fake_hgb",
+        )
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=fake_scorer,
+    )
+
+    total_rows = [row for row in report.rows if row.market_type == "total_goals"]
+    assert len(total_rows) == 1
+    assert total_rows[0].line == Decimal("2.50")
+    assert total_rows[0].line_bucket == "mid_2.50"
+    assert total_rows[0].status == "unsupported_bucket"
+    assert not any(row.strategy_key == "total_goals_hgb_bucket_v2" for row in report.rows)
+    assert report.candidate_count == 0
+
+
 def test_format_paper_recommendation_queue_report_includes_candidate_detail(session):
     report = build_paper_recommendation_queue(
         session,

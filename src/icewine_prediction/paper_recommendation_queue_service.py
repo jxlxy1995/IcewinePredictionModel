@@ -16,11 +16,16 @@ from icewine_prediction.baseline_edge_backtest_service import (
     _raw_model,
 )
 from icewine_prediction.baseline_asian_handicap_model_service import (
-    SIDE_LABELS,
-    _align_probabilities,
-    _target_label,
+    SIDE_LABELS as ASIAN_HANDICAP_SIDE_LABELS,
+    _align_probabilities as _align_asian_handicap_probabilities,
+    _target_label as _asian_handicap_target_label,
 )
 from icewine_prediction.baseline_match_winner_model_service import _matrix
+from icewine_prediction.baseline_total_goals_model_service import (
+    SIDE_LABELS as TOTAL_GOALS_SIDE_LABELS,
+    _align_probabilities as _align_total_goals_probabilities,
+    _target_label as _total_goals_target_label,
+)
 from icewine_prediction.config import BEIJING_TIMEZONE
 from icewine_prediction.display_service import DisplayNameService
 from icewine_prediction.feature_service import build_match_odds_features
@@ -28,6 +33,7 @@ from icewine_prediction.models import League, Match, TrainingRun
 from icewine_prediction.paper_strategy_registry import (
     BUCKET_V2_STRATEGY,
     DEFAULT_STRATEGY,
+    TOTAL_GOALS_BUCKET_V2_STRATEGY,
 )
 
 
@@ -42,6 +48,11 @@ ASIAN_HANDICAP_PROBABILITY_FIELDS = (
     "asian_handicap_away_implied_probability",
 )
 ASIAN_HANDICAP_ODDS_FIELDS = ("asian_handicap_home_odds", "asian_handicap_away_odds")
+TOTAL_GOALS_PROBABILITY_FIELDS = (
+    "total_goals_over_implied_probability",
+    "total_goals_under_implied_probability",
+)
+TOTAL_GOALS_ODDS_FIELDS = ("total_goals_over_odds", "total_goals_under_odds")
 MAX_CANDIDATE_ODDS_LEAD_TIME = timedelta(hours=3)
 
 
@@ -52,6 +63,10 @@ class PaperQueueScore:
     market_probability: Decimal
     edge: Decimal
     model_name: str
+    market_type: str = "asian_handicap"
+
+
+PaperQueueScoreResult = PaperQueueScore | list[PaperQueueScore] | tuple[PaperQueueScore, ...] | None
 
 
 @dataclass(frozen=True)
@@ -122,7 +137,7 @@ def build_paper_recommendation_queue(
     edge_threshold: str = "0.10",
     prefetch_odds: bool = False,
     odds_prefetcher: Callable[[list[str]], dict[str, Any] | object] | None = None,
-    scorer: Callable[[dict[str, str]], PaperQueueScore | None] | None = None,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult] | None = None,
     display_name_service: DisplayNameService | None = None,
     feature_csv_path: Path | None = None,
 ) -> PaperRecommendationQueueReport:
@@ -276,56 +291,66 @@ def _near_start_fixture_ids(session: Session, *, now: datetime, near_start_hours
 def _build_queue_rows(
     match: Match,
     *,
-    scorer: Callable[[dict[str, str]], PaperQueueScore | None],
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
     edge_threshold: Decimal,
     display_name_service: DisplayNameService | None = None,
 ) -> list[PaperQueueRow]:
     feature_row = _live_feature_row(match)
-    line = _decimal_from_row(feature_row, "asian_handicap_close_line")
-    odds = _decimal_from_row(feature_row, "asian_handicap_away_odds")
-    if line is None or odds is None:
-        return [
+    diagnostic_rows = []
+    asian_line = _decimal_from_row(feature_row, "asian_handicap_close_line")
+    asian_odds = _decimal_from_row(feature_row, "asian_handicap_away_odds")
+    if asian_line is None or asian_odds is None:
+        diagnostic_rows.append(
             _row(
                 match,
                 status="no_odds",
-                line=line,
-                odds=odds,
+                line=asian_line,
+                odds=asian_odds,
                 feature_row=feature_row,
                 display_name_service=display_name_service,
             )
-        ]
-    if not _has_candidate_fresh_odds(match):
-        return [
+        )
+    elif not _has_candidate_fresh_odds(match):
+        diagnostic_rows.append(
             _row(
                 match,
                 status="stale_odds",
-                line=line,
-                odds=odds,
+                line=asian_line,
+                odds=asian_odds,
                 feature_row=feature_row,
                 display_name_service=display_name_service,
             )
-        ]
-    score = scorer(feature_row)
-    if score is None:
+        )
+    scores = _normalize_scores(scorer(feature_row))
+    if not scores:
+        if diagnostic_rows:
+            return diagnostic_rows
         return [
             _row(
                 match,
                 status="unscored",
-                line=line,
-                odds=odds,
+                line=asian_line,
+                odds=asian_odds,
                 feature_row=feature_row,
                 display_name_service=display_name_service,
             )
         ]
-    v1_row = _scored_row(
-        match,
-        score=score,
-        edge_threshold=edge_threshold,
-        feature_row=feature_row,
-        display_name_service=display_name_service,
-    )
-    v2_row = _v2_row(v1_row)
-    return [row for row in (v1_row, v2_row) if row is not None]
+    rows = list(diagnostic_rows)
+    for score in scores:
+        if score.market_type == "asian_handicap" and diagnostic_rows:
+            continue
+        scored = _scored_row(
+            match,
+            score=score,
+            edge_threshold=edge_threshold,
+            feature_row=feature_row,
+            display_name_service=display_name_service,
+        )
+        if scored is None:
+            continue
+        rows.append(scored)
+        rows.extend(row for row in (_bucket_strategy_row(scored),) if row is not None)
+    return rows or diagnostic_rows
 
 
 def _scored_row(
@@ -335,25 +360,46 @@ def _scored_row(
     edge_threshold: Decimal,
     feature_row: dict[str, str],
     display_name_service: DisplayNameService | None,
-) -> PaperQueueRow:
-    line = _decimal_from_row(feature_row, "asian_handicap_close_line")
-    status = _status_for_score(score, edge_threshold)
-    return _row(
-        match,
-        status=status,
-        line=line,
-        side=score.side,
-        odds=(
+) -> PaperQueueRow | None:
+    if score.market_type == "total_goals":
+        line = _decimal_from_row(feature_row, "total_goals_close_line")
+        if line is None or not _has_fresh_market_odds(match, market_type="total_goals"):
+            return None
+        odds = (
+            _decimal_from_row(feature_row, "total_goals_over_odds")
+            if score.side == "over"
+            else _decimal_from_row(feature_row, "total_goals_under_odds")
+        )
+        line_bucket = _total_line_bucket(line)
+    else:
+        line = _decimal_from_row(feature_row, "asian_handicap_close_line")
+        odds = (
             _decimal_from_row(feature_row, "asian_handicap_away_odds")
             if score.side == "away_cover"
             else _decimal_from_row(feature_row, "asian_handicap_home_odds")
-        ),
+        )
+        line_bucket = _line_bucket(line)
+    status = _status_for_score(score, edge_threshold, line_bucket=line_bucket)
+    return _row(
+        match,
+        status=status,
+        market_type=score.market_type,
+        line=line,
+        side=score.side,
+        odds=odds,
         model_probability=score.model_probability,
         market_probability=score.market_probability,
         edge=score.edge,
+        line_bucket=line_bucket,
         feature_row=feature_row,
         display_name_service=display_name_service,
     )
+
+
+def _bucket_strategy_row(row: PaperQueueRow) -> PaperQueueRow | None:
+    if row.market_type == "total_goals":
+        return _total_goals_bucket_v2_row(row)
+    return _v2_row(row)
 
 
 def _v2_row(row: PaperQueueRow) -> PaperQueueRow | None:
@@ -382,7 +428,46 @@ def _v2_row(row: PaperQueueRow) -> PaperQueueRow | None:
     )
 
 
-def _status_for_score(score: PaperQueueScore, edge_threshold: Decimal) -> str:
+def _total_goals_bucket_v2_row(row: PaperQueueRow) -> PaperQueueRow | None:
+    if row.market_type != "total_goals" or row.side is None or row.edge is None:
+        return None
+    bucket_thresholds = TOTAL_GOALS_BUCKET_V2_STRATEGY.line_bucket_thresholds or {}
+    threshold = bucket_thresholds.get(f"{row.side}@{row.line_bucket}")
+    if threshold is None or row.edge < threshold:
+        return None
+    return PaperQueueRow(
+        **{
+            **row.__dict__,
+            "status": "candidate",
+            "risk_tags": (
+                *row.risk_tags,
+                *(
+                    (TOTAL_GOALS_BUCKET_V2_STRATEGY.risk_tag,)
+                    if TOTAL_GOALS_BUCKET_V2_STRATEGY.risk_tag is not None
+                    else ()
+                ),
+            ),
+            "strategy_key": TOTAL_GOALS_BUCKET_V2_STRATEGY.strategy_key,
+            "strategy_display_name": TOTAL_GOALS_BUCKET_V2_STRATEGY.display_name,
+            "signal_version": TOTAL_GOALS_BUCKET_V2_STRATEGY.signal_version,
+        }
+    )
+
+
+def _status_for_score(
+    score: PaperQueueScore,
+    edge_threshold: Decimal,
+    *,
+    line_bucket: str,
+) -> str:
+    if score.market_type == "total_goals":
+        if score.side not in {"over", "under"}:
+            return "unsupported_side"
+        if _total_goals_bucket_threshold(score, line_bucket=line_bucket) is None:
+            return "unsupported_bucket"
+        if score.edge < edge_threshold:
+            return "below_threshold"
+        return "candidate"
     if score.side != "away_cover":
         return "non_away_cover"
     if score.edge < edge_threshold:
@@ -390,21 +475,40 @@ def _status_for_score(score: PaperQueueScore, edge_threshold: Decimal) -> str:
     return "candidate"
 
 
+def _total_goals_bucket_threshold(
+    score: PaperQueueScore,
+    *,
+    line_bucket: str,
+) -> Decimal | None:
+    bucket_thresholds = TOTAL_GOALS_BUCKET_V2_STRATEGY.line_bucket_thresholds or {}
+    return bucket_thresholds.get(f"{score.side}@{line_bucket}")
+
+
+def _normalize_scores(result: PaperQueueScoreResult) -> list[PaperQueueScore]:
+    if result is None:
+        return []
+    if isinstance(result, PaperQueueScore):
+        return [result]
+    return list(result)
+
+
 def _row(
     match: Match,
     *,
     status: str,
+    market_type: str = "asian_handicap",
     line: Decimal | None,
     odds: Decimal | None,
     side: str | None = None,
     model_probability: Decimal | None = None,
     market_probability: Decimal | None = None,
     edge: Decimal | None = None,
+    line_bucket: str | None = None,
     feature_row: dict[str, str] | None = None,
     display_name_service: DisplayNameService | None = None,
 ) -> PaperQueueRow:
     display_name_service = display_name_service or DisplayNameService()
-    line_bucket = _line_bucket(line)
+    line_bucket = line_bucket or (_total_line_bucket(line) if market_type == "total_goals" else _line_bucket(line))
     risk_tags = _risk_tags(line_bucket, feature_row or {})
     league_name = match.league.name
     home_team_name = match.home_team.canonical_name
@@ -420,10 +524,10 @@ def _row(
         away_team_name=away_team_name,
         away_team_display_name=display_name_service.display_team(away_team_name),
         status=status,
-        market_type="asian_handicap",
+        market_type=market_type,
         line=line,
         side=side,
-        recommended_handicap=_recommended_handicap(side, line),
+        recommended_handicap=_recommended_for_market(market_type, side, line),
         odds=odds,
         model_probability=model_probability,
         market_probability=market_probability,
@@ -470,6 +574,8 @@ def _live_feature_row(match: Match) -> dict[str, str]:
             "asian_handicap_away_implied_probability": _implied_probability(odds_features.away_odds.mean),
             "asian_handicap_overround": _overround(odds_features.home_odds.mean, odds_features.away_odds.mean),
             "total_goals_close_line": _format_decimal(odds_features.total_line.mean, LINE_QUANT),
+            "total_goals_over_odds": _format_decimal(odds_features.over_odds.mean, ODDS_QUANT),
+            "total_goals_under_odds": _format_decimal(odds_features.under_odds.mean, ODDS_QUANT),
             "total_goals_over_implied_probability": _implied_probability(odds_features.over_odds.mean),
             "total_goals_under_implied_probability": _implied_probability(odds_features.under_odds.mean),
             "total_goals_overround": _overround(odds_features.over_odds.mean, odds_features.under_odds.mean),
@@ -549,39 +655,85 @@ def _team_feature_values(
     }
 
 
-def _train_live_scorer(feature_csv_path: Path) -> Callable[[dict[str, str]], PaperQueueScore | None]:
+def _train_live_scorer(feature_csv_path: Path) -> Callable[[dict[str, str]], PaperQueueScoreResult]:
     if not feature_csv_path.exists():
         raise FileNotFoundError(f"feature csv not found: {feature_csv_path}")
     with feature_csv_path.open(encoding="utf-8", newline="") as file:
         rows = list(csv.DictReader(file))
-    train_rows = [row for row in rows if _target_label(row) is not None]
-    if not train_rows:
+    asian_handicap_train_rows = [row for row in rows if _asian_handicap_target_label(row) is not None]
+    total_goals_train_rows = [row for row in rows if _total_goals_target_label(row) is not None]
+    if not asian_handicap_train_rows:
         raise ValueError("paper queue scorer requires asian handicap training rows")
-    model = _raw_model()
-    model.fit(_matrix(train_rows, FEATURES), [_target_label(row) for row in train_rows])
+    asian_handicap_model = _raw_model()
+    asian_handicap_model.fit(
+        _matrix(asian_handicap_train_rows, FEATURES),
+        [_asian_handicap_target_label(row) for row in asian_handicap_train_rows],
+    )
+    total_goals_model = None
+    if total_goals_train_rows:
+        total_goals_model = _raw_model()
+        total_goals_model.fit(
+            _matrix(total_goals_train_rows, FEATURES),
+            [_total_goals_target_label(row) for row in total_goals_train_rows],
+        )
 
-    def score(row: dict[str, str]) -> PaperQueueScore | None:
-        market_probabilities = _market_probabilities(row, ASIAN_HANDICAP_PROBABILITY_FIELDS)
-        if market_probabilities is None:
-            return None
-        probabilities = model.predict_proba(_matrix([row], FEATURES))
-        classes = list(model.named_steps["classifier"].classes_)
-        probability_row = _align_probabilities(probabilities, classes)[0]
-        side_index = max(
-            range(len(SIDE_LABELS)),
-            key=lambda index: Decimal(str(probability_row[index])) - market_probabilities[index],
+    def score(row: dict[str, str]) -> list[PaperQueueScore]:
+        scores = []
+        asian_handicap_score = _score_market(
+            row,
+            model=asian_handicap_model,
+            probability_fields=ASIAN_HANDICAP_PROBABILITY_FIELDS,
+            side_labels=ASIAN_HANDICAP_SIDE_LABELS,
+            align_probabilities=_align_asian_handicap_probabilities,
+            market_type="asian_handicap",
         )
-        model_probability = _quantize(Decimal(str(probability_row[side_index])))
-        market_probability = _quantize(market_probabilities[side_index])
-        return PaperQueueScore(
-            side=SIDE_LABELS[side_index],
-            model_probability=model_probability,
-            market_probability=market_probability,
-            edge=_quantize(model_probability - market_probability),
-            model_name="raw_hgb_team_form_plus_all_markets",
-        )
+        if asian_handicap_score is not None:
+            scores.append(asian_handicap_score)
+        if total_goals_model is not None:
+            total_goals_score = _score_market(
+                row,
+                model=total_goals_model,
+                probability_fields=TOTAL_GOALS_PROBABILITY_FIELDS,
+                side_labels=TOTAL_GOALS_SIDE_LABELS,
+                align_probabilities=_align_total_goals_probabilities,
+                market_type="total_goals",
+            )
+            if total_goals_score is not None:
+                scores.append(total_goals_score)
+        return scores
 
     return score
+
+
+def _score_market(
+    row: dict[str, str],
+    *,
+    model,
+    probability_fields: tuple[str, str],
+    side_labels: tuple[str, str],
+    align_probabilities,
+    market_type: str,
+) -> PaperQueueScore | None:
+    market_probabilities = _market_probabilities(row, probability_fields)
+    if market_probabilities is None:
+        return None
+    probabilities = model.predict_proba(_matrix([row], FEATURES))
+    classes = list(model.named_steps["classifier"].classes_)
+    probability_row = align_probabilities(probabilities, classes)[0]
+    side_index = max(
+        range(len(side_labels)),
+        key=lambda index: Decimal(str(probability_row[index])) - market_probabilities[index],
+    )
+    model_probability = _quantize(Decimal(str(probability_row[side_index])))
+    market_probability = _quantize(market_probabilities[side_index])
+    return PaperQueueScore(
+        market_type=market_type,
+        side=side_labels[side_index],
+        model_probability=model_probability,
+        market_probability=market_probability,
+        edge=_quantize(model_probability - market_probability),
+        model_name="raw_hgb_team_form_plus_all_markets",
+    )
 
 
 def _line_bucket(line: Decimal | None) -> str:
@@ -601,6 +753,26 @@ def _recommended_handicap(side: str | None, line: Decimal | None) -> str | None:
         return f"主队 {_format_signed_line(line)}"
     if side == "away_cover":
         return f"客队 {_format_signed_line(-line)}"
+    return None
+
+
+def _recommended_for_market(
+    market_type: str,
+    side: str | None,
+    line: Decimal | None,
+) -> str | None:
+    if market_type == "total_goals":
+        return _recommended_total_goals(side, line)
+    return _recommended_handicap(side, line)
+
+
+def _recommended_total_goals(side: str | None, line: Decimal | None) -> str | None:
+    if side is None or line is None:
+        return None
+    if side == "over":
+        return f"大 {_format_optional(line)}"
+    if side == "under":
+        return f"小 {_format_optional(line)}"
     return None
 
 
@@ -627,13 +799,15 @@ def _risk_tags(line_bucket: str, feature_row: dict[str, str]) -> tuple[str, ...]
 
 
 def _has_candidate_fresh_odds(match: Match) -> bool:
+    return _has_fresh_market_odds(match, market_type="asian_handicap")
+
+
+def _has_fresh_market_odds(match: Match, *, market_type: str) -> bool:
     latest_captured_at = max(
         (
             snapshot.captured_at
             for snapshot in match.odds_snapshots
-            if snapshot.asian_handicap is not None
-            and snapshot.home_odds is not None
-            and snapshot.away_odds is not None
+            if _snapshot_has_market_odds(snapshot, market_type=market_type)
         ),
         default=None,
     )
@@ -641,6 +815,32 @@ def _has_candidate_fresh_odds(match: Match) -> bool:
         return False
     lead_time = _naive_datetime(match.kickoff_time) - _naive_datetime(latest_captured_at)
     return timedelta(0) <= lead_time <= MAX_CANDIDATE_ODDS_LEAD_TIME
+
+
+def _snapshot_has_market_odds(snapshot, *, market_type: str) -> bool:
+    if market_type == "total_goals":
+        return (
+            snapshot.total_line is not None
+            and snapshot.over_odds is not None
+            and snapshot.under_odds is not None
+        )
+    return (
+        snapshot.asian_handicap is not None
+        and snapshot.home_odds is not None
+        and snapshot.away_odds is not None
+    )
+
+
+def _total_line_bucket(line: Decimal | None) -> str:
+    if line is None:
+        return "unknown"
+    if line <= Decimal("2.25"):
+        return "low_<=2.25"
+    if line == Decimal("2.50"):
+        return "mid_2.50"
+    if line == Decimal("2.75"):
+        return "mid_2.75"
+    return "high_>=3.00"
 
 
 def _normalize_prefetch_result(result: dict[str, Any] | object) -> dict[str, Any]:

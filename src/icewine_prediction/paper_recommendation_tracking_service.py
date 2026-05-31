@@ -17,7 +17,7 @@ from icewine_prediction.paper_strategy_registry import (
     strategy_for_key,
 )
 from icewine_prediction.record_service import profit_units_for_result
-from icewine_prediction.settlement_service import settle_asian_handicap
+from icewine_prediction.settlement_service import settle_asian_handicap, settle_total_goals
 
 
 ACTIVE_STATUSES = ("pending", "settled", "unsettleable")
@@ -179,7 +179,11 @@ def edit_paper_record(
         raise ValueError("only pending or unsettleable paper records can be edited")
     record.current_market_line = current_market_line
     record.current_odds = current_odds
-    record.recommended_handicap = recommended_handicap(record.side, current_market_line)
+    record.recommended_handicap = recommended_for_market(
+        record.market_type,
+        record.side,
+        current_market_line,
+    )
     record.manual_note = manual_note
     record.is_manually_adjusted = True
     record.updated_at = datetime.now(tz=record.created_at.tzinfo)
@@ -212,16 +216,24 @@ def settle_paper_records(session: Session, *, settled_at: datetime) -> PaperSett
                 record.status = "unsettleable"
                 unsettleable_count += 1
             continue
-        if record.market_type != "asian_handicap":
+        if record.market_type == "asian_handicap":
+            settlement_result = settle_asian_handicap(
+                match.home_score,
+                match.away_score,
+                record.current_market_line,
+                _settlement_side(record.side),
+            )
+        elif record.market_type == "total_goals":
+            settlement_result = settle_total_goals(
+                match.home_score,
+                match.away_score,
+                record.current_market_line,
+                record.side,
+            )
+        else:
             record.status = "unsettleable"
             unsettleable_count += 1
             continue
-        settlement_result = settle_asian_handicap(
-            match.home_score,
-            match.away_score,
-            record.current_market_line,
-            _settlement_side(record.side),
-        )
         record.settlement_result = settlement_result
         record.profit_units = profit_units_for_result(
             settlement_result,
@@ -275,13 +287,35 @@ def recommended_handicap(side: str | None, line: Decimal | None) -> str | None:
     return None
 
 
+def recommended_for_market(
+    market_type: str,
+    side: str | None,
+    line: Decimal | None,
+) -> str | None:
+    if market_type == "total_goals":
+        return recommended_total_goals(side, line)
+    return recommended_handicap(side, line)
+
+
+def recommended_total_goals(side: str | None, line: Decimal | None) -> str | None:
+    if side is None or line is None:
+        return None
+    if side == "over":
+        return f"大 {_format_line(line)}"
+    if side == "under":
+        return f"小 {_format_line(line)}"
+    return None
+
+
 def _validate_recordable_candidate(row: PaperQueueRow) -> None:
     if row.status != "candidate":
         raise ValueError("paper record can only be created from candidate rows")
     strategy = strategy_for_key(row.strategy_key)
     if strategy is None:
         raise ValueError("paper record strategy is not open")
-    if row.market_type != strategy.market_type or row.side != strategy.side:
+    if row.market_type != strategy.market_type or (
+        strategy.side is not None and row.side != strategy.side
+    ):
         raise ValueError("paper record does not match the open strategy")
     if row.edge is None or row.edge < strategy.edge_threshold:
         raise ValueError("paper record edge is below strategy threshold")

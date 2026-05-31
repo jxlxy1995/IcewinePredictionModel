@@ -905,6 +905,84 @@ def test_web_console_api_records_v2_paper_candidate_by_strategy_key(tmp_path):
     assert payload["signal_version"] == "v2"
 
 
+def test_web_console_api_paper_workspace_cache_varies_by_latest_training_run(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    calls = []
+
+    def fake_scorer(row):
+        calls.append(row["match_id"])
+        return None
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            paper_queue_scorer=fake_scorer,
+            clock=lambda: datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+    with session_factory() as session:
+        league = League(name="Premier Division", country_or_region="Ireland", level=1)
+        home = Team(canonical_name="Drogheda United")
+        away = Team(canonical_name="Waterford")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 2, 45, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+            source_name="api_football",
+            source_match_id="17446",
+        )
+        session.add_all([league, home, away, match])
+        session.flush()
+        session.add(
+            OddsSnapshot(
+                match=match,
+                captured_at=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                data_source="api_football",
+                bookmaker="Pinnacle",
+                asian_handicap=Decimal("-0.50"),
+                home_odds=Decimal("1.990"),
+                away_odds=Decimal("1.930"),
+                total_line=Decimal("2.50"),
+                over_odds=Decimal("1.90"),
+                under_odds=Decimal("2.00"),
+                match_winner_home_odds=Decimal("2.10"),
+                match_winner_draw_odds=Decimal("3.25"),
+                match_winner_away_odds=Decimal("3.40"),
+            )
+        )
+        session.commit()
+
+    first_response = client.get("/api/paper-recommendations/workspace?hours=6")
+    second_response = client.get("/api/paper-recommendations/workspace?hours=6")
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert len(calls) == 1
+
+    with session_factory() as session:
+        session.add(
+            TrainingRun(
+                run_type="full_refresh",
+                status="success",
+                started_at=datetime(2026, 5, 30, 1, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+                finished_at=datetime(2026, 5, 30, 1, 40, tzinfo=ZoneInfo("Asia/Shanghai")),
+                snapshot_tag="20260530-0130",
+                current_step="finalize",
+                dynamic_feature_path="local_data/training/new.csv",
+            )
+        )
+        session.commit()
+
+    third_response = client.get("/api/paper-recommendations/workspace?hours=6")
+
+    assert third_response.status_code == 200
+    assert len(calls) == 2
+
+
 def test_web_console_api_backfills_paper_record_from_historical_candidate(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

@@ -24,7 +24,11 @@ from icewine_prediction.baseline_match_winner_model_service import _matrix
 from icewine_prediction.config import BEIJING_TIMEZONE
 from icewine_prediction.display_service import DisplayNameService
 from icewine_prediction.feature_service import build_match_odds_features
-from icewine_prediction.models import League, Match
+from icewine_prediction.models import League, Match, TrainingRun
+from icewine_prediction.paper_strategy_registry import (
+    BUCKET_V2_STRATEGY,
+    DEFAULT_STRATEGY,
+)
 
 
 METRIC_QUANT = Decimal("0.0001")
@@ -39,14 +43,6 @@ ASIAN_HANDICAP_PROBABILITY_FIELDS = (
 )
 ASIAN_HANDICAP_ODDS_FIELDS = ("asian_handicap_home_odds", "asian_handicap_away_odds")
 MAX_CANDIDATE_ODDS_LEAD_TIME = timedelta(hours=3)
-V1_STRATEGY_KEY = "asian_away_cover_hgb_edge_v1"
-V1_STRATEGY_DISPLAY_NAME = "亚盘客队方向 · HGB边际 v1"
-V2_STRATEGY_KEY = "asian_away_cover_hgb_bucket_v2"
-V2_STRATEGY_DISPLAY_NAME = "亚盘客队方向 · HGB分盘口桶 v2"
-V2_BUCKET_THRESHOLDS = {
-    "away_underdog": Decimal("0.2000"),
-    "pickem": Decimal("0.0800"),
-}
 
 
 @dataclass(frozen=True)
@@ -80,9 +76,9 @@ class PaperQueueRow:
     edge: Decimal | None
     line_bucket: str
     risk_tags: tuple[str, ...]
-    strategy_key: str = V1_STRATEGY_KEY
-    strategy_display_name: str = V1_STRATEGY_DISPLAY_NAME
-    signal_version: str = "v1"
+    strategy_key: str = DEFAULT_STRATEGY.strategy_key
+    strategy_display_name: str = DEFAULT_STRATEGY.display_name
+    signal_version: str = DEFAULT_STRATEGY.signal_version
 
 
 @dataclass(frozen=True)
@@ -128,7 +124,7 @@ def build_paper_recommendation_queue(
     odds_prefetcher: Callable[[list[str]], dict[str, Any] | object] | None = None,
     scorer: Callable[[dict[str, str]], PaperQueueScore | None] | None = None,
     display_name_service: DisplayNameService | None = None,
-    feature_csv_path: Path = DEFAULT_FEATURE_CSV_PATH,
+    feature_csv_path: Path | None = None,
 ) -> PaperRecommendationQueueReport:
     threshold = _as_decimal(edge_threshold)
     near_start_fixture_ids = _near_start_fixture_ids(
@@ -139,7 +135,8 @@ def build_paper_recommendation_queue(
     prefetch_result = None
     if prefetch_odds and odds_prefetcher is not None and near_start_fixture_ids:
         prefetch_result = _normalize_prefetch_result(odds_prefetcher(near_start_fixture_ids))
-    model_scorer = scorer or _train_live_scorer(feature_csv_path)
+    resolved_feature_csv_path = _resolve_feature_csv_path(session, feature_csv_path)
+    model_scorer = scorer or _train_live_scorer(resolved_feature_csv_path)
     rows = [
         row
         for match in _list_upcoming_matches(session, now=now, hours=hours)
@@ -167,6 +164,22 @@ def build_paper_recommendation_queue(
         prefetch_result=prefetch_result,
         rows=rows,
     )
+
+
+def _resolve_feature_csv_path(session: Session, feature_csv_path: Path | None) -> Path:
+    if feature_csv_path is not None:
+        return feature_csv_path
+    latest_successful_run = (
+        session.query(TrainingRun)
+        .filter(TrainingRun.run_type == "full_refresh")
+        .filter(TrainingRun.status == "success")
+        .filter(TrainingRun.dynamic_feature_path.isnot(None))
+        .order_by(TrainingRun.started_at.desc(), TrainingRun.id.desc())
+        .first()
+    )
+    if latest_successful_run is None or not latest_successful_run.dynamic_feature_path:
+        return DEFAULT_FEATURE_CSV_PATH
+    return Path(latest_successful_run.dynamic_feature_path)
 
 
 def write_paper_recommendation_queue_report(
@@ -346,17 +359,25 @@ def _scored_row(
 def _v2_row(row: PaperQueueRow) -> PaperQueueRow | None:
     if row.side != "away_cover" or row.edge is None:
         return None
-    threshold = V2_BUCKET_THRESHOLDS.get(row.line_bucket)
+    bucket_thresholds = BUCKET_V2_STRATEGY.line_bucket_thresholds or {}
+    threshold = bucket_thresholds.get(row.line_bucket)
     if threshold is None or row.edge < threshold:
         return None
     return PaperQueueRow(
         **{
             **row.__dict__,
             "status": "candidate",
-            "risk_tags": (*row.risk_tags, "strategy:bucket_v2"),
-            "strategy_key": V2_STRATEGY_KEY,
-            "strategy_display_name": V2_STRATEGY_DISPLAY_NAME,
-            "signal_version": "v2",
+            "risk_tags": (
+                *row.risk_tags,
+                *(
+                    (BUCKET_V2_STRATEGY.risk_tag,)
+                    if BUCKET_V2_STRATEGY.risk_tag is not None
+                    else ()
+                ),
+            ),
+            "strategy_key": BUCKET_V2_STRATEGY.strategy_key,
+            "strategy_display_name": BUCKET_V2_STRATEGY.display_name,
+            "signal_version": BUCKET_V2_STRATEGY.signal_version,
         }
     )
 

@@ -8,28 +8,19 @@ from sqlalchemy.orm import Session
 
 from icewine_prediction.models import Match, PaperRecommendationRecord
 from icewine_prediction.paper_recommendation_queue_service import PaperQueueRow
+from icewine_prediction.paper_strategy_registry import (
+    ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
+    ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
+    DEFAULT_STRATEGY,
+    STRATEGIES,
+    PaperStrategy,
+    strategy_for_key,
+)
 from icewine_prediction.record_service import profit_units_for_result
 from icewine_prediction.settlement_service import settle_asian_handicap
 
 
-ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY = "asian_away_cover_hgb_edge_v1"
-ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME = "亚盘客队方向 · HGB边际 v1"
-ASIAN_AWAY_COVER_HGB_BUCKET_V2_KEY = "asian_away_cover_hgb_bucket_v2"
-ASIAN_AWAY_COVER_HGB_BUCKET_V2_NAME = "亚盘客队方向 · HGB分盘口桶 v2"
-DEFAULT_MODEL_NAME = "raw_hgb_team_form_plus_all_markets"
-DEFAULT_SIGNAL_VERSION = "v1"
 ACTIVE_STATUSES = ("pending", "settled", "unsettleable")
-
-
-@dataclass(frozen=True)
-class PaperStrategy:
-    strategy_key: str
-    display_name: str
-    market_type: str
-    side: str
-    edge_threshold: Decimal
-    model_name: str
-    signal_version: str
 
 
 @dataclass(frozen=True)
@@ -73,27 +64,6 @@ class PaperTrackingWorkspace:
     by_league: list[PaperTrackingGroupSummary]
     by_line_bucket: list[PaperTrackingGroupSummary]
     by_manual_adjustment: list[PaperTrackingGroupSummary]
-
-
-DEFAULT_STRATEGY = PaperStrategy(
-    strategy_key=ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
-    display_name=ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
-    market_type="asian_handicap",
-    side="away_cover",
-    edge_threshold=Decimal("0.1000"),
-    model_name=DEFAULT_MODEL_NAME,
-    signal_version=DEFAULT_SIGNAL_VERSION,
-)
-V2_STRATEGY = PaperStrategy(
-    strategy_key=ASIAN_AWAY_COVER_HGB_BUCKET_V2_KEY,
-    display_name=ASIAN_AWAY_COVER_HGB_BUCKET_V2_NAME,
-    market_type="asian_handicap",
-    side="away_cover",
-    edge_threshold=Decimal("0.0800"),
-    model_name=DEFAULT_MODEL_NAME,
-    signal_version="v2",
-)
-STRATEGIES = (DEFAULT_STRATEGY, V2_STRATEGY)
 
 
 def create_paper_record_from_queue_row(
@@ -308,7 +278,7 @@ def recommended_handicap(side: str | None, line: Decimal | None) -> str | None:
 def _validate_recordable_candidate(row: PaperQueueRow) -> None:
     if row.status != "candidate":
         raise ValueError("paper record can only be created from candidate rows")
-    strategy = _strategy_for_key(row.strategy_key)
+    strategy = strategy_for_key(row.strategy_key)
     if strategy is None:
         raise ValueError("paper record strategy is not open")
     if row.market_type != strategy.market_type or row.side != strategy.side:
@@ -350,10 +320,6 @@ def _has_duplicate_active_record(session: Session, row: PaperQueueRow) -> bool:
         .first()
         is not None
     )
-
-
-def _strategy_for_key(strategy_key: str) -> PaperStrategy | None:
-    return next((strategy for strategy in STRATEGIES if strategy.strategy_key == strategy_key), None)
 
 
 def _get_record(session: Session, record_id: int) -> PaperRecommendationRecord:

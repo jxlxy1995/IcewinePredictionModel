@@ -3,7 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from icewine_prediction.models import League, Match, OddsSnapshot, Team
+from icewine_prediction.models import League, Match, OddsSnapshot, Team, TrainingRun
 from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScore,
     build_paper_recommendation_queue,
@@ -138,6 +138,96 @@ def test_build_paper_recommendation_queue_marks_candidate_no_odds_and_prefetch(s
     assert candidate.line_bucket == "away_favorite"
     assert candidate.risk_tags == ("line_bucket:away_favorite",)
     assert candidate.recommended_handicap == "客队 -0.25"
+
+
+def test_build_paper_recommendation_queue_uses_latest_successful_training_features(
+    session,
+    monkeypatch,
+):
+    older_success = TrainingRun(
+        run_type="full_refresh",
+        status="success",
+        started_at=datetime(2026, 5, 29, 8, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        finished_at=datetime(2026, 5, 29, 8, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+        snapshot_tag="20260529-0800",
+        current_step="finalize",
+        dynamic_feature_path="local_data/training/older.csv",
+    )
+    latest_success = TrainingRun(
+        run_type="full_refresh",
+        status="success",
+        started_at=datetime(2026, 5, 31, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        finished_at=datetime(2026, 5, 31, 12, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+        snapshot_tag="20260531-1200",
+        current_step="finalize",
+        dynamic_feature_path="local_data/training/latest.csv",
+    )
+    failed_later = TrainingRun(
+        run_type="full_refresh",
+        status="failed",
+        started_at=datetime(2026, 5, 31, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        finished_at=datetime(2026, 5, 31, 13, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+        snapshot_tag="20260531-1300",
+        current_step="dynamic_feature_set",
+        dynamic_feature_path="local_data/training/failed.csv",
+    )
+    session.add_all([older_success, latest_success, failed_later])
+    session.commit()
+    captured = []
+
+    def fake_train_live_scorer(path):
+        captured.append(path)
+        return lambda row: None
+
+    monkeypatch.setattr(
+        "icewine_prediction.paper_recommendation_queue_service._train_live_scorer",
+        fake_train_live_scorer,
+    )
+
+    build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 31, 14, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        hours=1,
+    )
+
+    assert captured == [Path("local_data/training/latest.csv")]
+
+
+def test_build_paper_recommendation_queue_allows_explicit_feature_path_override(
+    session,
+    monkeypatch,
+):
+    session.add(
+        TrainingRun(
+            run_type="full_refresh",
+            status="success",
+            started_at=datetime(2026, 5, 31, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            finished_at=datetime(2026, 5, 31, 12, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+            snapshot_tag="20260531-1200",
+            current_step="finalize",
+            dynamic_feature_path="local_data/training/latest.csv",
+        )
+    )
+    session.commit()
+    captured = []
+
+    def fake_train_live_scorer(path):
+        captured.append(path)
+        return lambda row: None
+
+    monkeypatch.setattr(
+        "icewine_prediction.paper_recommendation_queue_service._train_live_scorer",
+        fake_train_live_scorer,
+    )
+
+    build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 31, 14, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        hours=1,
+        feature_csv_path=Path("local_data/training/manual.csv"),
+    )
+
+    assert captured == [Path("local_data/training/manual.csv")]
 
 
 def test_build_paper_recommendation_queue_requires_odds_within_three_hours_before_kickoff(session):

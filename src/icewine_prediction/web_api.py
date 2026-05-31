@@ -569,8 +569,15 @@ def create_web_app(
         near_start_hours: int = 6,
         edge_threshold: str = "0.10",
     ) -> dict[str, Any]:
+        training_fingerprint = _latest_successful_training_fingerprint(session_factory)
         return cached_response(
-            ("paper-recommendation-workspace", hours, near_start_hours, edge_threshold),
+            (
+                "paper-recommendation-workspace",
+                hours,
+                near_start_hours,
+                edge_threshold,
+                training_fingerprint,
+            ),
             lambda: _with_session(
                 session_factory,
                 lambda session: _build_paper_recommendation_workspace_response(
@@ -1648,6 +1655,21 @@ def build_data_sync_run_payload(run: DataSyncRun) -> dict[str, Any]:
         "requests_used": run.requests_used,
         "error_message": run.error_message,
     }
+
+
+def _latest_successful_training_fingerprint(session_factory: Callable[[], Session]) -> tuple[int, str] | None:
+    with session_factory() as session:
+        run = (
+            session.query(TrainingRun)
+            .filter(TrainingRun.run_type == "full_refresh")
+            .filter(TrainingRun.status == "success")
+            .filter(TrainingRun.dynamic_feature_path.isnot(None))
+            .order_by(TrainingRun.started_at.desc(), TrainingRun.id.desc())
+            .first()
+        )
+        if run is None or not run.dynamic_feature_path:
+            return None
+        return (run.id, run.dynamic_feature_path)
 
 
 def build_paper_tracking_workspace_payload(workspace) -> dict[str, Any]:

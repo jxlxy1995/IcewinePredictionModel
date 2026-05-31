@@ -5,6 +5,7 @@ __pycache__/
 .worktrees/
 .worktrees
 .web/
+noti.txt
 *.pyc
 *.db
 *.sqlite
@@ -17,3 +18,7 @@ logs/
 web/node_modules/
 web/dist/
 本地数据/
+数据审计/
+模型实验/
+
+docs/数据审计/20260529-baseline-training-dataset.md

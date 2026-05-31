@@ -233,6 +233,7 @@ export type TrainingRunStep =
   | "away_cover_bucket_threshold_v2"
   | "away_cover_bucket_sandbox_v2"
   | "total_goals_edge_stability_v1"
+  | "total_goals_bucket_sandbox_v2"
   | "finalize";
 
 export type TrainingRun = {

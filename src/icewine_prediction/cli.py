@@ -75,6 +75,11 @@ from icewine_prediction.baseline_total_goals_edge_stability_service import (
     build_baseline_total_goals_edge_stability_report,
     write_baseline_total_goals_edge_stability_report,
 )
+from icewine_prediction.baseline_total_goals_bucket_sandbox_service import (
+    BaselineTotalGoalsBucketSandboxReport,
+    build_baseline_total_goals_bucket_sandbox_report,
+    write_baseline_total_goals_bucket_sandbox_report,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     BaselineAsianHandicapModelReport,
     build_baseline_asian_handicap_model_report,
@@ -980,6 +985,24 @@ def format_baseline_total_goals_edge_stability_command_result(
     return "\n".join(lines)
 
 
+def format_baseline_total_goals_bucket_sandbox_command_result(
+    *,
+    report_path: str,
+    report: BaselineTotalGoalsBucketSandboxReport,
+) -> str:
+    lines = [
+        "baseline total-goals bucket sandbox written",
+        f"report: {report_path}",
+    ]
+    for summary in report.strategy_summaries:
+        lines.append(
+            f"{summary.strategy_key} bets {summary.candidate_count} "
+            f"positive {summary.positive_roi_folds}/{report.fold_count} "
+            f"roi {summary.roi if summary.roi is not None else '-'}"
+        )
+    return "\n".join(lines)
+
+
 def format_paper_recommendation_queue_command_result(
     *,
     report_path: str,
@@ -1683,6 +1706,19 @@ def _parse_str_set(value: str) -> set[str] | None:
     return {item.strip() for item in value.split(",") if item.strip()}
 
 
+def _parse_threshold_map(value: str) -> dict[str, str]:
+    thresholds: dict[str, str] = {}
+    for item in value.split(","):
+        text = item.strip()
+        if not text:
+            continue
+        key, separator, threshold = text.partition("=")
+        if not separator or not key.strip() or not threshold.strip():
+            raise typer.BadParameter("threshold map items must use key=value")
+        thresholds[key.strip()] = threshold.strip()
+    return thresholds
+
+
 def _parse_beijing_datetime(value: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value)
@@ -2354,6 +2390,42 @@ def samples_baseline_total_goals_edge_stability(
     write_baseline_total_goals_edge_stability_report(report, Path(report_path))
     typer.echo(
         format_baseline_total_goals_edge_stability_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-total-goals-bucket-sandbox")
+def samples_baseline_total_goals_bucket_sandbox(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/模型实验/20260529-baseline-total-goals-bucket-sandbox-v2.md",
+        "--report-path",
+    ),
+    v1_edge_threshold: str = typer.Option("0.10", "--v1-edge-threshold"),
+    bucket_thresholds: str = typer.Option(
+        "over@mid_2.75=0.08,under@mid_2.75=0.08",
+        "--bucket-thresholds",
+    ),
+    train_ratio: str = typer.Option("0.60", "--train-ratio"),
+    validation_ratio: str = typer.Option("0.10", "--validation-ratio"),
+    fold_count: int = typer.Option(5, "--fold-count"),
+):
+    report = build_baseline_total_goals_bucket_sandbox_report(
+        Path(csv_path),
+        v1_edge_threshold=v1_edge_threshold,
+        bucket_thresholds=_parse_threshold_map(bucket_thresholds),
+        train_ratio=train_ratio,
+        validation_ratio=validation_ratio,
+        fold_count=fold_count,
+    )
+    write_baseline_total_goals_bucket_sandbox_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_total_goals_bucket_sandbox_command_result(
             report_path=report_path,
             report=report,
         )

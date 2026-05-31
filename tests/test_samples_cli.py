@@ -71,6 +71,10 @@ from icewine_prediction.baseline_total_goals_edge_stability_service import (
     TotalGoalsStabilitySummary,
     TotalGoalsThresholdSummary,
 )
+from icewine_prediction.baseline_total_goals_bucket_sandbox_service import (
+    BaselineTotalGoalsBucketSandboxReport,
+    TotalGoalsBucketSandboxStrategySummary,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     AsianHandicapModelEvaluation,
     BaselineAsianHandicapModelReport,
@@ -1189,6 +1193,68 @@ def test_samples_baseline_total_goals_edge_stability_command_writes_report(monke
     assert "total_goals raw_hgb_team_form_plus_all_markets thresholds 1" in result.stdout
 
 
+def test_samples_baseline_total_goals_bucket_sandbox_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path, *, v1_edge_threshold, bucket_thresholds, train_ratio, validation_ratio, fold_count):
+        captured["csv_path"] = str(csv_path)
+        captured["v1_edge_threshold"] = v1_edge_threshold
+        captured["bucket_thresholds"] = bucket_thresholds
+        captured["train_ratio"] = train_ratio
+        captured["validation_ratio"] = validation_ratio
+        captured["fold_count"] = fold_count
+        return _baseline_total_goals_bucket_sandbox_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_total_goals_bucket_sandbox_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_total_goals_bucket_sandbox_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-total-goals-bucket-sandbox",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/妯″瀷瀹為獙/total-goals-bucket.md",
+            "--v1-edge-threshold",
+            "0.10",
+            "--bucket-thresholds",
+            "over@mid_2.75=0.08,under@mid_2.75=0.08",
+            "--train-ratio",
+            "0.50",
+            "--validation-ratio",
+            "0.20",
+            "--fold-count",
+            "3",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\妯″瀷瀹為獙\\total-goals-bucket.md")
+    assert captured["v1_edge_threshold"] == "0.10"
+    assert captured["bucket_thresholds"] == {
+        "over@mid_2.75": "0.08",
+        "under@mid_2.75": "0.08",
+    }
+    assert captured["train_ratio"] == "0.50"
+    assert captured["validation_ratio"] == "0.20"
+    assert captured["fold_count"] == 3
+    assert "baseline total-goals bucket sandbox written" in result.stdout
+    assert "total_goals_hgb_bucket_v2 bets 4 positive 2/2 roi 0.1000" in result.stdout
+
+
 def test_format_training_sample_line_uses_match_result_and_weight():
     display_service = DisplayNameService(
         DisplayNames(
@@ -2171,6 +2237,48 @@ def _baseline_total_goals_edge_stability_report() -> BaselineTotalGoalsEdgeStabi
         ],
         league_summaries=[],
         line_bucket_summaries=[],
+    )
+
+
+def _baseline_total_goals_bucket_sandbox_report() -> BaselineTotalGoalsBucketSandboxReport:
+    return BaselineTotalGoalsBucketSandboxReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=10,
+        fold_count=2,
+        train_ratio=Decimal("0.5000"),
+        validation_ratio=Decimal("0.2000"),
+        v1_edge_threshold=Decimal("0.1000"),
+        bucket_thresholds={
+            "over@mid_2.75": Decimal("0.0800"),
+            "under@mid_2.75": Decimal("0.0800"),
+        },
+        market_type="total_goals",
+        model_name="raw_hgb_team_form_plus_all_markets",
+        strategy_summaries=[
+            TotalGoalsBucketSandboxStrategySummary(
+                strategy_key="total_goals_hgb_edge_v1",
+                display_name="澶у皬鐞冩柟鍚? 路 HGB杈归檯 v1",
+                candidate_count=5,
+                positive_roi_folds=1,
+                profit=Decimal("0.2500"),
+                roi=Decimal("0.0500"),
+                bucket_thresholds={"all": Decimal("0.1000")},
+            ),
+            TotalGoalsBucketSandboxStrategySummary(
+                strategy_key="total_goals_hgb_bucket_v2",
+                display_name="澶у皬鐞冩柟鍚? 路 HGB鍒嗙洏鍙ｆ《 v2",
+                candidate_count=4,
+                positive_roi_folds=2,
+                profit=Decimal("0.4000"),
+                roi=Decimal("0.1000"),
+                bucket_thresholds={
+                    "over@mid_2.75": Decimal("0.0800"),
+                    "under@mid_2.75": Decimal("0.0800"),
+                },
+            ),
+        ],
+        fold_reports=[],
+        bucket_summaries=[],
     )
 
 

@@ -91,6 +91,7 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
             "away_cover_bucket_threshold_report_path": "VARCHAR(255)",
             "away_cover_bucket_sandbox_report_path": "VARCHAR(255)",
             "total_goals_edge_stability_report_path": "VARCHAR(255)",
+            "total_goals_bucket_sandbox_report_path": "VARCHAR(255)",
         },
     }
     with engine.begin() as connection:

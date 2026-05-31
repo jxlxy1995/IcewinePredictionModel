@@ -133,6 +133,9 @@ def test_build_training_snapshot_paths_uses_snapshot_tag(tmp_path):
     assert paths.experiment_report_paths["total_goals_edge_stability_v1"].name == (
         "20260530-1323-baseline-total-goals-edge-stability-v1.md"
     )
+    assert paths.experiment_report_paths["total_goals_bucket_sandbox_v2"].name == (
+        "20260530-1323-baseline-total-goals-bucket-sandbox-v2.md"
+    )
 
 
 def test_extract_last_trained_match_summary_uses_latest_kickoff_and_display_names(tmp_path):

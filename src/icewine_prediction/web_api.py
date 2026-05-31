@@ -1880,6 +1880,7 @@ def build_training_run_payload(run: TrainingRun | None) -> dict[str, Any] | None
         "away_cover_bucket_threshold_report_path": run.away_cover_bucket_threshold_report_path,
         "away_cover_bucket_sandbox_report_path": run.away_cover_bucket_sandbox_report_path,
         "total_goals_edge_stability_report_path": run.total_goals_edge_stability_report_path,
+        "total_goals_bucket_sandbox_report_path": run.total_goals_bucket_sandbox_report_path,
     }
     return {
         "id": run.id,

@@ -109,6 +109,7 @@ export function formatTrainingRunStep(step: string | null): string {
     finalize: "收尾",
     market_baseline: "市场基准",
     queued: "排队中",
+    total_goals_bucket_sandbox_v2: "大小球分桶沙盒",
     total_goals_edge_stability_v1: "大小球稳定性"
   };
   return names[step] ?? step;

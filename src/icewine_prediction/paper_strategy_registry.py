@@ -45,6 +45,7 @@ BUCKET_V2_STRATEGY = PaperStrategy(
     model_name=DEFAULT_MODEL_NAME,
     signal_version="v2",
     line_bucket_thresholds={
+        "away_favorite": Decimal("0.1500"),
         "away_underdog": Decimal("0.2000"),
         "pickem": Decimal("0.0800"),
     },

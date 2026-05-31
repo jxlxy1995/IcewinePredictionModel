@@ -105,9 +105,9 @@ def test_build_paper_recommendation_queue_marks_candidate_no_odds_and_prefetch(s
         assert row["match_winner_overround"] == "1.0780"
         return PaperQueueScore(
             side="away_cover",
-            model_probability=Decimal("0.6500"),
+            model_probability=Decimal("0.6400"),
             market_probability=Decimal("0.5000"),
-            edge=Decimal("0.1500"),
+            edge=Decimal("0.1400"),
             model_name="fake_hgb",
         )
 
@@ -353,6 +353,66 @@ def test_build_paper_recommendation_queue_adds_v2_bucket_strategy_candidate(sess
     assert v2.strategy_display_name == "亚盘客队方向 · HGB分盘口桶 v2"
     assert v2.line_bucket == "away_underdog"
     assert v2.risk_tags == ("line_bucket:away_underdog", "strategy:bucket_v2")
+
+
+def test_build_paper_recommendation_queue_adds_v2_away_favorite_candidate(session):
+    league = League(name="Allsvenskan", country_or_region="Sweden", level=1, is_enabled=True)
+    home = Team(canonical_name="Orgryte IS")
+    away = Team(canonical_name="IF Elfsborg")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="away-favorite",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=now,
+            data_source="api_football",
+            bookmaker="Bet365",
+            asian_handicap=Decimal("0.50"),
+            home_odds=Decimal("1.95"),
+            away_odds=Decimal("1.95"),
+            total_line=Decimal("2.75"),
+            over_odds=Decimal("1.90"),
+            under_odds=Decimal("2.00"),
+            match_winner_home_odds=Decimal("2.10"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("3.40"),
+        )
+    )
+    session.commit()
+
+    def fake_scorer(row):
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6600"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1600"),
+            model_name="fake_hgb",
+        )
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=fake_scorer,
+    )
+
+    v2 = next(row for row in report.rows if row.strategy_key == "asian_away_cover_hgb_bucket_v2")
+    assert v2.status == "candidate"
+    assert v2.line_bucket == "away_favorite"
+    assert v2.recommended_handicap == "客队 -0.50"
+    assert v2.risk_tags == ("line_bucket:away_favorite", "strategy:bucket_v2")
 
 
 def test_build_paper_recommendation_queue_adds_total_goals_bucket_strategy_candidate(session):

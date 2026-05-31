@@ -60,6 +60,16 @@ from icewine_prediction.baseline_away_cover_stability_service import (
     build_baseline_away_cover_stability_report,
     write_baseline_away_cover_stability_report,
 )
+from icewine_prediction.baseline_away_cover_bucket_threshold_service import (
+    BaselineAwayCoverBucketThresholdReport,
+    build_baseline_away_cover_bucket_threshold_report,
+    write_baseline_away_cover_bucket_threshold_report,
+)
+from icewine_prediction.baseline_away_cover_bucket_sandbox_service import (
+    BaselineAwayCoverBucketSandboxReport,
+    build_baseline_away_cover_bucket_sandbox_report,
+    write_baseline_away_cover_bucket_sandbox_report,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     BaselineAsianHandicapModelReport,
     build_baseline_asian_handicap_model_report,
@@ -900,6 +910,45 @@ def format_baseline_away_cover_stability_command_result(
         summary = report.threshold_summaries[0]
         lines.append(
             f"first-threshold {summary.threshold} bets {summary.candidate_count} "
+            f"positive {summary.positive_roi_folds}/{report.fold_count} "
+            f"roi {summary.roi if summary.roi is not None else '-'}"
+        )
+    return "\n".join(lines)
+
+
+def format_baseline_away_cover_bucket_threshold_command_result(
+    *,
+    report_path: str,
+    report: BaselineAwayCoverBucketThresholdReport,
+) -> str:
+    lines = [
+        "baseline away-cover bucket threshold written",
+        f"report: {report_path}",
+        (
+            f"{report.market_type} {report.model_name} {report.side} "
+            f"buckets {len(report.selected_thresholds)}"
+        ),
+    ]
+    for selection in report.selected_thresholds:
+        lines.append(
+            f"{selection.line_bucket} threshold {selection.threshold} "
+            f"bets {selection.candidate_count} roi {selection.roi if selection.roi is not None else '-'}"
+        )
+    return "\n".join(lines)
+
+
+def format_baseline_away_cover_bucket_sandbox_command_result(
+    *,
+    report_path: str,
+    report: BaselineAwayCoverBucketSandboxReport,
+) -> str:
+    lines = [
+        "baseline away-cover bucket sandbox written",
+        f"report: {report_path}",
+    ]
+    for summary in report.strategy_summaries:
+        lines.append(
+            f"{summary.strategy_key} bets {summary.candidate_count} "
             f"positive {summary.positive_roi_folds}/{report.fold_count} "
             f"roi {summary.roi if summary.roi is not None else '-'}"
         )
@@ -2175,6 +2224,79 @@ def samples_baseline_away_cover_stability(
     write_baseline_away_cover_stability_report(report, Path(report_path))
     typer.echo(
         format_baseline_away_cover_stability_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-away-cover-bucket-threshold")
+def samples_baseline_away_cover_bucket_threshold(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/妯″瀷瀹為獙/20260529-baseline-away-cover-bucket-threshold-v2.md",
+        "--report-path",
+    ),
+    thresholds: str = typer.Option("0.08,0.10,0.12,0.15,0.20", "--thresholds"),
+    train_ratio: str = typer.Option("0.60", "--train-ratio"),
+    validation_ratio: str = typer.Option("0.10", "--validation-ratio"),
+    fold_count: int = typer.Option(5, "--fold-count"),
+):
+    threshold_values = tuple(value.strip() for value in thresholds.split(",") if value.strip())
+    report = build_baseline_away_cover_bucket_threshold_report(
+        Path(csv_path),
+        thresholds=threshold_values,
+        train_ratio=train_ratio,
+        validation_ratio=validation_ratio,
+        fold_count=fold_count,
+    )
+    write_baseline_away_cover_bucket_threshold_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_away_cover_bucket_threshold_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-away-cover-bucket-sandbox")
+def samples_baseline_away_cover_bucket_sandbox(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/妯″瀷瀹為獙/20260529-baseline-away-cover-bucket-sandbox-v2.md",
+        "--report-path",
+    ),
+    v1_edge_threshold: str = typer.Option("0.10", "--v1-edge-threshold"),
+    away_underdog_threshold: str = typer.Option("0.20", "--away-underdog-threshold"),
+    pickem_threshold: str = typer.Option("0.08", "--pickem-threshold"),
+    away_favorite_threshold: str | None = typer.Option(None, "--away-favorite-threshold"),
+    train_ratio: str = typer.Option("0.60", "--train-ratio"),
+    validation_ratio: str = typer.Option("0.10", "--validation-ratio"),
+    fold_count: int = typer.Option(5, "--fold-count"),
+):
+    bucket_thresholds = {
+        "away_underdog": away_underdog_threshold,
+        "pickem": pickem_threshold,
+    }
+    if away_favorite_threshold is not None:
+        bucket_thresholds["away_favorite"] = away_favorite_threshold
+    report = build_baseline_away_cover_bucket_sandbox_report(
+        Path(csv_path),
+        v1_edge_threshold=v1_edge_threshold,
+        bucket_thresholds=bucket_thresholds,
+        train_ratio=train_ratio,
+        validation_ratio=validation_ratio,
+        fold_count=fold_count,
+    )
+    write_baseline_away_cover_bucket_sandbox_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_away_cover_bucket_sandbox_command_result(
             report_path=report_path,
             report=report,
         )

@@ -45,6 +45,7 @@ const workspace: PaperRecommendationWorkspace = {
       risk_tags: ["line_bucket:away_underdog"],
       strategy_key: "asian_away_cover_hgb_edge_v1",
       strategy_display_name: "亚盘客队方向 · HGB边际 v1",
+      signal_version: "v1",
       is_recordable: true
     }
   ],

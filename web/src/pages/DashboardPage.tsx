@@ -604,7 +604,11 @@ export function DashboardPage() {
               setPaperAction("batch-record");
               setPaperError(null);
               setPaperMessage(null);
-              Promise.all(candidates.map((candidate) => recordPaperCandidate(candidate.match_id)))
+              Promise.all(
+                candidates.map((candidate) =>
+                  recordPaperCandidate(candidate.match_id, candidate.strategy_key)
+                )
+              )
                 .then(() => refreshPaperWorkspace(setData))
                 .then(() => setPaperMessage(`已记录 ${candidates.length} 条纸面观察`))
                 .catch(() => setPaperError("批量记录纸面观察失败"))
@@ -624,7 +628,7 @@ export function DashboardPage() {
               setPaperAction(`record-${candidate.match_id}`);
               setPaperError(null);
               setPaperMessage(null);
-              recordPaperCandidate(candidate.match_id)
+              recordPaperCandidate(candidate.match_id, candidate.strategy_key)
                 .then(() => refreshPaperWorkspace(setData))
                 .then(() => setPaperMessage("已记录纸面观察"))
                 .catch(() => setPaperError("记录纸面观察失败"))

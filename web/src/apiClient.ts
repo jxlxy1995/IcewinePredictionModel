@@ -262,8 +262,14 @@ export async function loadMatchSyncRunDetail(runId: number): Promise<MatchSyncRu
   return await getJson<MatchSyncRunDetail>(`/api/data-sync-runs/${runId}/items`);
 }
 
-export async function recordPaperCandidate(matchId: number): Promise<unknown> {
-  return await postJson("/api/paper-recommendations/records", { match_id: matchId });
+export async function recordPaperCandidate(
+  matchId: number,
+  strategyKey?: string
+): Promise<unknown> {
+  return await postJson("/api/paper-recommendations/records", {
+    match_id: matchId,
+    strategy_key: strategyKey
+  });
 }
 
 export async function editPaperRecord(

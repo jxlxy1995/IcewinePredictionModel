@@ -281,10 +281,10 @@ def _line_bucket(candidate: SandboxCandidate) -> str:
     if line is None:
         return "unknown"
     if line > 0:
-        return "away_underdog"
+        return "away_favorite"
     if line == 0:
         return "pickem"
-    return "away_favorite"
+    return "away_underdog"
 
 
 def _segment_lines(summaries: list[AwayCoverStabilitySummary]) -> list[str]:

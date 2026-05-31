@@ -39,6 +39,14 @@ ASIAN_HANDICAP_PROBABILITY_FIELDS = (
 )
 ASIAN_HANDICAP_ODDS_FIELDS = ("asian_handicap_home_odds", "asian_handicap_away_odds")
 MAX_CANDIDATE_ODDS_LEAD_TIME = timedelta(hours=3)
+V1_STRATEGY_KEY = "asian_away_cover_hgb_edge_v1"
+V1_STRATEGY_DISPLAY_NAME = "亚盘客队方向 · HGB边际 v1"
+V2_STRATEGY_KEY = "asian_away_cover_hgb_bucket_v2"
+V2_STRATEGY_DISPLAY_NAME = "亚盘客队方向 · HGB分盘口桶 v2"
+V2_BUCKET_THRESHOLDS = {
+    "away_underdog": Decimal("0.2000"),
+    "pickem": Decimal("0.0800"),
+}
 
 
 @dataclass(frozen=True)
@@ -72,6 +80,9 @@ class PaperQueueRow:
     edge: Decimal | None
     line_bucket: str
     risk_tags: tuple[str, ...]
+    strategy_key: str = V1_STRATEGY_KEY
+    strategy_display_name: str = V1_STRATEGY_DISPLAY_NAME
+    signal_version: str = "v1"
 
 
 @dataclass(frozen=True)
@@ -130,13 +141,14 @@ def build_paper_recommendation_queue(
         prefetch_result = _normalize_prefetch_result(odds_prefetcher(near_start_fixture_ids))
     model_scorer = scorer or _train_live_scorer(feature_csv_path)
     rows = [
-        _build_queue_row(
+        row
+        for match in _list_upcoming_matches(session, now=now, hours=hours)
+        for row in _build_queue_rows(
             match,
             scorer=model_scorer,
             edge_threshold=threshold,
             display_name_service=display_name_service,
         )
-        for match in _list_upcoming_matches(session, now=now, hours=hours)
     ]
     status_counts = _count_statuses(rows)
     return PaperRecommendationQueueReport(
@@ -248,56 +260,104 @@ def _near_start_fixture_ids(session: Session, *, now: datetime, near_start_hours
     return [source_match_id for (source_match_id,) in rows if source_match_id]
 
 
-def _build_queue_row(
+def _build_queue_rows(
     match: Match,
     *,
     scorer: Callable[[dict[str, str]], PaperQueueScore | None],
     edge_threshold: Decimal,
     display_name_service: DisplayNameService | None = None,
-) -> PaperQueueRow:
+) -> list[PaperQueueRow]:
     feature_row = _live_feature_row(match)
     line = _decimal_from_row(feature_row, "asian_handicap_close_line")
     odds = _decimal_from_row(feature_row, "asian_handicap_away_odds")
     if line is None or odds is None:
-        return _row(
-            match,
-            status="no_odds",
-            line=line,
-            odds=odds,
-            feature_row=feature_row,
-            display_name_service=display_name_service,
-        )
+        return [
+            _row(
+                match,
+                status="no_odds",
+                line=line,
+                odds=odds,
+                feature_row=feature_row,
+                display_name_service=display_name_service,
+            )
+        ]
     if not _has_candidate_fresh_odds(match):
-        return _row(
-            match,
-            status="stale_odds",
-            line=line,
-            odds=odds,
-            feature_row=feature_row,
-            display_name_service=display_name_service,
-        )
+        return [
+            _row(
+                match,
+                status="stale_odds",
+                line=line,
+                odds=odds,
+                feature_row=feature_row,
+                display_name_service=display_name_service,
+            )
+        ]
     score = scorer(feature_row)
     if score is None:
-        return _row(
-            match,
-            status="unscored",
-            line=line,
-            odds=odds,
-            feature_row=feature_row,
-            display_name_service=display_name_service,
-        )
+        return [
+            _row(
+                match,
+                status="unscored",
+                line=line,
+                odds=odds,
+                feature_row=feature_row,
+                display_name_service=display_name_service,
+            )
+        ]
+    v1_row = _scored_row(
+        match,
+        score=score,
+        edge_threshold=edge_threshold,
+        feature_row=feature_row,
+        display_name_service=display_name_service,
+    )
+    v2_row = _v2_row(v1_row)
+    return [row for row in (v1_row, v2_row) if row is not None]
+
+
+def _scored_row(
+    match: Match,
+    *,
+    score: PaperQueueScore,
+    edge_threshold: Decimal,
+    feature_row: dict[str, str],
+    display_name_service: DisplayNameService | None,
+) -> PaperQueueRow:
+    line = _decimal_from_row(feature_row, "asian_handicap_close_line")
     status = _status_for_score(score, edge_threshold)
     return _row(
         match,
         status=status,
         line=line,
         side=score.side,
-        odds=odds if score.side == "away_cover" else _decimal_from_row(feature_row, "asian_handicap_home_odds"),
+        odds=(
+            _decimal_from_row(feature_row, "asian_handicap_away_odds")
+            if score.side == "away_cover"
+            else _decimal_from_row(feature_row, "asian_handicap_home_odds")
+        ),
         model_probability=score.model_probability,
         market_probability=score.market_probability,
         edge=score.edge,
         feature_row=feature_row,
         display_name_service=display_name_service,
+    )
+
+
+def _v2_row(row: PaperQueueRow) -> PaperQueueRow | None:
+    if row.side != "away_cover" or row.edge is None:
+        return None
+    threshold = V2_BUCKET_THRESHOLDS.get(row.line_bucket)
+    if threshold is None or row.edge < threshold:
+        return None
+    return PaperQueueRow(
+        **{
+            **row.__dict__,
+            "status": "candidate",
+            "risk_tags": (*row.risk_tags, "strategy:bucket_v2"),
+            "strategy_key": V2_STRATEGY_KEY,
+            "strategy_display_name": V2_STRATEGY_DISPLAY_NAME,
+            "signal_version": "v2",
+        }
     )
 
 

@@ -197,6 +197,74 @@ def test_build_paper_recommendation_queue_requires_odds_within_three_hours_befor
     assert report.rows[0].status == "stale_odds"
 
 
+def test_build_paper_recommendation_queue_adds_v2_bucket_strategy_candidate(session):
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="priced",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=now,
+            data_source="api_football",
+            bookmaker="Bet365",
+            asian_handicap=Decimal("-0.50"),
+            home_odds=Decimal("1.95"),
+            away_odds=Decimal("1.95"),
+            total_line=Decimal("2.75"),
+            over_odds=Decimal("1.90"),
+            under_odds=Decimal("2.00"),
+            match_winner_home_odds=Decimal("2.10"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("3.40"),
+        )
+    )
+    session.commit()
+
+    def fake_scorer(row):
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.7100"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.2100"),
+            model_name="fake_hgb",
+        )
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=fake_scorer,
+    )
+
+    candidate_keys = {
+        row.strategy_key
+        for row in report.rows
+        if row.status == "candidate"
+    }
+    assert candidate_keys == {
+        "asian_away_cover_hgb_edge_v1",
+        "asian_away_cover_hgb_bucket_v2",
+    }
+    v2 = next(row for row in report.rows if row.strategy_key == "asian_away_cover_hgb_bucket_v2")
+    assert v2.strategy_display_name == "亚盘客队方向 · HGB分盘口桶 v2"
+    assert v2.line_bucket == "away_underdog"
+    assert v2.risk_tags == ("line_bucket:away_underdog", "strategy:bucket_v2")
+
+
 def test_format_paper_recommendation_queue_report_includes_candidate_detail(session):
     report = build_paper_recommendation_queue(
         session,

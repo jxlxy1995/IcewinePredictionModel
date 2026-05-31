@@ -3,7 +3,9 @@ from decimal import Decimal
 from icewine_prediction.baseline_away_cover_stability_service import (
     build_baseline_away_cover_stability_report,
     format_baseline_away_cover_stability_report,
+    _line_bucket,
 )
+from icewine_prediction.baseline_recommendation_sandbox_service import SandboxCandidate
 
 
 def test_build_baseline_away_cover_stability_report_summarizes_thresholds(tmp_path):
@@ -45,6 +47,31 @@ def test_format_baseline_away_cover_stability_report_includes_core_tables(tmp_pa
     assert "| Threshold | Bets | Positive ROI folds | Profit | ROI | Worst fold ROI |" in text
     assert "| League | Bets | Positive ROI folds | Profit | ROI | Worst fold ROI |" in text
     assert "| Line bucket | Bets | Positive ROI folds | Profit | ROI | Worst fold ROI |" in text
+
+
+def test_line_bucket_uses_home_perspective_handicap_for_away_cover():
+    assert _line_bucket(_candidate_with_line(Decimal("0.25"))) == "away_favorite"
+    assert _line_bucket(_candidate_with_line(Decimal("0.00"))) == "pickem"
+    assert _line_bucket(_candidate_with_line(Decimal("-0.50"))) == "away_underdog"
+
+
+def _candidate_with_line(line: Decimal) -> SandboxCandidate:
+    return SandboxCandidate(
+        match_id="1",
+        kickoff_time="2026-05-30T20:00:00",
+        league_name="Premier League",
+        home_team_name="Home",
+        away_team_name="Away",
+        market_type="asian_handicap",
+        line=line,
+        side="away_cover",
+        odds=Decimal("1.900"),
+        model_probability=Decimal("0.6000"),
+        market_probability=Decimal("0.5000"),
+        edge=Decimal("0.1000"),
+        actual_side="away_cover",
+        profit=Decimal("0.9000"),
+    )
 
 
 def _away_cover_feature_csv() -> str:

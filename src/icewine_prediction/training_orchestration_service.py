@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from decimal import Decimal
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -13,6 +13,14 @@ from sqlalchemy.orm import Session
 from icewine_prediction.baseline_away_cover_stability_service import (
     build_baseline_away_cover_stability_report,
     write_baseline_away_cover_stability_report,
+)
+from icewine_prediction.baseline_away_cover_bucket_threshold_service import (
+    build_baseline_away_cover_bucket_threshold_report,
+    write_baseline_away_cover_bucket_threshold_report,
+)
+from icewine_prediction.baseline_away_cover_bucket_sandbox_service import (
+    build_baseline_away_cover_bucket_sandbox_report,
+    write_baseline_away_cover_bucket_sandbox_report,
 )
 from icewine_prediction.baseline_dynamic_feature_set_service import (
     build_baseline_dynamic_feature_set,
@@ -52,6 +60,30 @@ class TrainingSnapshotPaths:
     dynamic_feature_path: Path
     dynamic_feature_report_path: Path
     away_cover_stability_report_path: Path
+    experiment_report_paths: dict[str, Path] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.experiment_report_paths:
+            return
+        object.__setattr__(
+            self,
+            "experiment_report_paths",
+            {
+                "away_cover_stability": self.away_cover_stability_report_path,
+                "away_cover_bucket_threshold_v2": self.away_cover_stability_report_path.with_name(
+                    self.away_cover_stability_report_path.name.replace(
+                        "baseline-away-cover-stability-v1.md",
+                        "baseline-away-cover-bucket-threshold-v2.md",
+                    )
+                ),
+                "away_cover_bucket_sandbox_v2": self.away_cover_stability_report_path.with_name(
+                    self.away_cover_stability_report_path.name.replace(
+                        "baseline-away-cover-stability-v1.md",
+                        "baseline-away-cover-bucket-sandbox-v2.md",
+                    )
+                ),
+            },
+        )
 
 
 @dataclass(frozen=True)
@@ -62,13 +94,20 @@ class LastTrainedMatchSummary:
 
 
 @dataclass(frozen=True)
+class TrainingExperiment:
+    key: str
+    report_filename: str
+    runner: Callable[[TrainingSnapshotPaths, Path], None]
+
+
+@dataclass(frozen=True)
 class TrainingOrchestrationSteps:
     write_dataset: Callable[..., dict[str, Any] | None]
     write_qa: Callable[..., None]
     write_market_baseline: Callable[..., None]
     write_feature_set: Callable[..., None]
     write_dynamic_feature_set: Callable[..., None]
-    write_away_cover_stability: Callable[..., None]
+    experiments: tuple[TrainingExperiment, ...]
 
 
 class TrainingRunAlreadyRunning(Exception):
@@ -172,13 +211,21 @@ def run_training_full_refresh(
             paths,
             with_session=True,
         )
-        _run_step(
-            session_factory,
-            run_id,
-            "away_cover_stability",
-            steps.write_away_cover_stability,
-            paths,
-        )
+        for experiment in steps.experiments:
+            output_path = paths.experiment_report_paths.get(
+                experiment.key,
+                paths.away_cover_stability_report_path.with_name(experiment.report_filename),
+            )
+            _run_step(
+                session_factory,
+                run_id,
+                experiment.key,
+                lambda current_paths, item=experiment, report_path=output_path: item.runner(
+                    current_paths,
+                    report_path,
+                ),
+                paths,
+            )
     except Exception as error:  # noqa: BLE001 - persisted for Web inspection.
         _mark_failed(session_factory, run_id, str(error), clock=clock)
         return
@@ -210,7 +257,27 @@ def build_default_training_orchestration_steps() -> TrainingOrchestrationSteps:
         write_market_baseline=_write_market_baseline,
         write_feature_set=_write_feature_set,
         write_dynamic_feature_set=_write_dynamic_feature_set,
-        write_away_cover_stability=_write_away_cover_stability,
+        experiments=build_default_training_experiments(),
+    )
+
+
+def build_default_training_experiments() -> tuple[TrainingExperiment, ...]:
+    return (
+        TrainingExperiment(
+            key="away_cover_stability",
+            report_filename="baseline-away-cover-stability-v1.md",
+            runner=_write_away_cover_stability,
+        ),
+        TrainingExperiment(
+            key="away_cover_bucket_threshold_v2",
+            report_filename="baseline-away-cover-bucket-threshold-v2.md",
+            runner=_write_away_cover_bucket_threshold,
+        ),
+        TrainingExperiment(
+            key="away_cover_bucket_sandbox_v2",
+            report_filename="baseline-away-cover-bucket-sandbox-v2.md",
+            runner=_write_away_cover_bucket_sandbox,
+        ),
     )
 
 
@@ -311,6 +378,12 @@ def _apply_paths(run: TrainingRun, paths: TrainingSnapshotPaths) -> None:
     run.dynamic_feature_path = str(paths.dynamic_feature_path)
     run.dynamic_feature_report_path = str(paths.dynamic_feature_report_path)
     run.away_cover_stability_report_path = str(paths.away_cover_stability_report_path)
+    run.away_cover_bucket_threshold_report_path = str(
+        paths.experiment_report_paths["away_cover_bucket_threshold_v2"]
+    )
+    run.away_cover_bucket_sandbox_report_path = str(
+        paths.experiment_report_paths["away_cover_bucket_sandbox_v2"]
+    )
 
 
 def _count_csv_rows(path: Path) -> int:
@@ -359,9 +432,19 @@ def _write_dynamic_feature_set(session: Session, paths: TrainingSnapshotPaths) -
     )
 
 
-def _write_away_cover_stability(paths: TrainingSnapshotPaths) -> None:
+def _write_away_cover_stability(paths: TrainingSnapshotPaths, output_path: Path) -> None:
     report = build_baseline_away_cover_stability_report(paths.dynamic_feature_path)
-    write_baseline_away_cover_stability_report(report, paths.away_cover_stability_report_path)
+    write_baseline_away_cover_stability_report(report, output_path)
+
+
+def _write_away_cover_bucket_threshold(paths: TrainingSnapshotPaths, output_path: Path) -> None:
+    report = build_baseline_away_cover_bucket_threshold_report(paths.dynamic_feature_path)
+    write_baseline_away_cover_bucket_threshold_report(report, output_path)
+
+
+def _write_away_cover_bucket_sandbox(paths: TrainingSnapshotPaths, output_path: Path) -> None:
+    report = build_baseline_away_cover_bucket_sandbox_report(paths.dynamic_feature_path)
+    write_baseline_away_cover_bucket_sandbox_report(report, output_path)
 
 
 def _parse_datetime(value: str) -> datetime:

@@ -87,6 +87,10 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
             "match_winner_draw_odds": "NUMERIC(6, 3)",
             "match_winner_away_odds": "NUMERIC(6, 3)",
         },
+        "training_runs": {
+            "away_cover_bucket_threshold_report_path": "VARCHAR(255)",
+            "away_cover_bucket_sandbox_report_path": "VARCHAR(255)",
+        },
     }
     with engine.begin() as connection:
         for table_name, columns in missing_columns_by_table.items():

@@ -12,6 +12,7 @@ from icewine_prediction.training_orchestration_service import (
     build_training_snapshot_paths,
     extract_last_trained_match_summary,
     TrainingRunAlreadyRunning,
+    TrainingExperiment,
     TrainingOrchestrationSteps,
     create_training_run,
     get_latest_training_run,
@@ -123,6 +124,12 @@ def test_build_training_snapshot_paths_uses_snapshot_tag(tmp_path):
     assert paths.away_cover_stability_report_path == (
         tmp_path / "docs/模型实验/20260530-1323-baseline-away-cover-stability-v1.md"
     )
+    assert paths.experiment_report_paths["away_cover_bucket_threshold_v2"].name == (
+        "20260530-1323-baseline-away-cover-bucket-threshold-v2.md"
+    )
+    assert paths.experiment_report_paths["away_cover_bucket_sandbox_v2"].name == (
+        "20260530-1323-baseline-away-cover-bucket-sandbox-v2.md"
+    )
 
 
 def test_extract_last_trained_match_summary_uses_latest_kickoff_and_display_names(tmp_path):
@@ -169,6 +176,14 @@ def test_run_training_full_refresh_records_step_order_and_success(tmp_path):
 
         return step
 
+    def touch_experiment(name):
+        def step(paths, output_path):
+            calls.append(name)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text("experiment report\n", encoding="utf-8")
+
+        return step
+
     with session_factory() as session:
         run = create_training_run(
             session,
@@ -183,7 +198,13 @@ def test_run_training_full_refresh_records_step_order_and_success(tmp_path):
         write_market_baseline=touch("market_baseline"),
         write_feature_set=touch("feature_set"),
         write_dynamic_feature_set=touch("dynamic_feature_set"),
-        write_away_cover_stability=touch("away_cover_stability"),
+        experiments=(
+            TrainingExperiment(
+                key="away_cover_stability",
+                report_filename="baseline-away-cover-stability-v1.md",
+                runner=touch_experiment("away_cover_stability"),
+            ),
+        ),
     )
 
     run_training_full_refresh(
@@ -217,6 +238,71 @@ def test_run_training_full_refresh_records_step_order_and_success(tmp_path):
     assert saved.coverage_ratio == Decimal("0.1000")
     assert saved.last_trained_match_id == 7
     assert saved.last_trained_match_summary == "日职联 神户胜利船 1-0 鹿岛鹿角"
+
+
+def test_run_training_full_refresh_runs_registered_experiments(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    calls: list[str] = []
+
+    def write_dataset(session, paths):
+        calls.append("baseline_dataset")
+        paths.dataset_path.parent.mkdir(parents=True, exist_ok=True)
+        paths.dataset_path.write_text(
+            "match_id,kickoff_time,league_name,home_team_name,away_team_name,home_score,away_score\n"
+            "7,2026-05-30T18:00:00+08:00,J1 League,Kobe,Kashima,1,0\n",
+            encoding="utf-8",
+        )
+        return {"eligible_matches": 10, "complete_matches": 1, "coverage_ratio": "0.1000"}
+
+    def noop(*args):
+        return None
+
+    def write_experiment(paths, output_path):
+        calls.append(output_path.name)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("experiment report\n", encoding="utf-8")
+
+    with session_factory() as session:
+        run = create_training_run(
+            session,
+            clock=lambda: datetime(2026, 5, 30, 13, 23, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+        session.commit()
+        run_id = run.id
+
+    steps = TrainingOrchestrationSteps(
+        write_dataset=write_dataset,
+        write_qa=noop,
+        write_market_baseline=noop,
+        write_feature_set=noop,
+        write_dynamic_feature_set=noop,
+        experiments=(
+            TrainingExperiment(
+                key="custom_experiment",
+                report_filename="custom-experiment.md",
+                runner=write_experiment,
+            ),
+        ),
+    )
+
+    run_training_full_refresh(
+        session_factory,
+        run_id,
+        base_dir=tmp_path,
+        steps=steps,
+        display_league=lambda value: value,
+        display_team=lambda value: value,
+        clock=lambda: datetime(2026, 5, 30, 13, 24, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+
+    with session_factory() as session:
+        saved = session.get(TrainingRun, run_id)
+
+    assert "custom-experiment.md" in calls
+    assert saved.status == "success"
+    assert any(path.name == "custom-experiment.md" for path in tmp_path.rglob("*.md"))
 
 
 def test_run_training_full_refresh_records_failed_step(tmp_path):
@@ -253,7 +339,7 @@ def test_run_training_full_refresh_records_failed_step(tmp_path):
         write_market_baseline=noop,
         write_feature_set=fail_feature_set,
         write_dynamic_feature_set=noop,
-        write_away_cover_stability=noop,
+        experiments=(),
     )
 
     run_training_full_refresh(

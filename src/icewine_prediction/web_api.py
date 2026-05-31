@@ -588,6 +588,7 @@ def create_web_app(
     @app.post("/api/paper-recommendations/records")
     def create_paper_recommendation_record(payload: dict[str, Any]) -> dict[str, Any]:
         match_id = int(payload["match_id"])
+        strategy_key = payload.get("strategy_key")
         with session_factory() as session:
             queue_report = build_paper_recommendation_queue(
                 session,
@@ -598,7 +599,15 @@ def create_web_app(
                 scorer=paper_queue_scorer,
                 display_name_service=display_name_service,
             )
-            row = next((item for item in queue_report.rows if item.match_id == match_id), None)
+            row = next(
+                (
+                    item
+                    for item in queue_report.rows
+                    if item.match_id == match_id
+                    and (strategy_key is None or item.strategy_key == strategy_key)
+                ),
+                None,
+            )
             if row is None:
                 raise HTTPException(status_code=404, detail="纸面候选不存在")
             try:
@@ -1255,6 +1264,9 @@ def build_paper_recommendation_queue_payload(
                 "edge": _format_optional_decimal(row.edge, "0.0000"),
                 "line_bucket": row.line_bucket,
                 "risk_tags": list(row.risk_tags),
+                "strategy_key": row.strategy_key,
+                "strategy_display_name": row.strategy_display_name,
+                "signal_version": row.signal_version,
             }
             for row in report.rows
         ],
@@ -1674,8 +1686,9 @@ def build_paper_tracking_workspace_payload(workspace) -> dict[str, Any]:
                 "edge": _format_optional_decimal(row.edge, "0.0000"),
                 "line_bucket": row.line_bucket,
                 "risk_tags": list(row.risk_tags),
-                "strategy_key": workspace.strategies[0].strategy_key,
-                "strategy_display_name": workspace.strategies[0].display_name,
+                "strategy_key": row.strategy_key,
+                "strategy_display_name": row.strategy_display_name,
+                "signal_version": row.signal_version,
                 "is_recordable": row.status == "candidate",
             }
             for row in workspace.candidates
@@ -1842,6 +1855,8 @@ def build_training_run_payload(run: TrainingRun | None) -> dict[str, Any] | None
         "dynamic_feature_path": run.dynamic_feature_path,
         "dynamic_feature_report_path": run.dynamic_feature_report_path,
         "away_cover_stability_report_path": run.away_cover_stability_report_path,
+        "away_cover_bucket_threshold_report_path": run.away_cover_bucket_threshold_report_path,
+        "away_cover_bucket_sandbox_report_path": run.away_cover_bucket_sandbox_report_path,
     }
     return {
         "id": run.id,

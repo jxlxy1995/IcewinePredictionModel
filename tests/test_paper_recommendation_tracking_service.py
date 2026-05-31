@@ -39,6 +39,42 @@ def test_create_paper_record_from_valid_candidate_locks_original_market(session)
     assert record.is_manually_adjusted is False
 
 
+def test_create_paper_record_from_v2_candidate_preserves_strategy(session):
+    match = _seed_match(session)
+    row = _queue_row(
+        match,
+        status="candidate",
+        line=Decimal("-0.50"),
+        strategy_key="asian_away_cover_hgb_bucket_v2",
+        strategy_display_name="亚盘客队方向 · HGB分盘口桶 v2",
+        signal_version="v2",
+    )
+
+    record = create_paper_record_from_queue_row(session, row, recorded_at=_now())
+
+    assert record.strategy_key == "asian_away_cover_hgb_bucket_v2"
+    assert record.strategy_display_name == "亚盘客队方向 · HGB分盘口桶 v2"
+    assert record.signal_version == "v2"
+
+
+def test_create_paper_record_allows_parallel_strategy_records_for_same_match(session):
+    match = _seed_match(session)
+    v1_row = _queue_row(match, status="candidate", line=Decimal("-0.50"))
+    create_paper_record_from_queue_row(session, v1_row, recorded_at=_now())
+    v2_row = _queue_row(
+        match,
+        status="candidate",
+        line=Decimal("-0.50"),
+        strategy_key="asian_away_cover_hgb_bucket_v2",
+        strategy_display_name="亚盘客队方向 · HGB分盘口桶 v2",
+        signal_version="v2",
+    )
+
+    record = create_paper_record_from_queue_row(session, v2_row, recorded_at=_now())
+
+    assert record.strategy_key == "asian_away_cover_hgb_bucket_v2"
+
+
 def test_create_paper_record_rejects_non_candidate_and_duplicate_active(session):
     match = _seed_match(session)
     row = _queue_row(match, status="below_threshold", line=Decimal("-0.50"))
@@ -206,7 +242,15 @@ def _seed_match(
     return match
 
 
-def _queue_row(match: Match, *, status: str, line: Decimal) -> PaperQueueRow:
+def _queue_row(
+    match: Match,
+    *,
+    status: str,
+    line: Decimal,
+    strategy_key: str = ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
+    strategy_display_name: str = ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
+    signal_version: str = "v1",
+) -> PaperQueueRow:
     return PaperQueueRow(
         match_id=match.id,
         source_match_id=match.source_match_id,
@@ -228,6 +272,9 @@ def _queue_row(match: Match, *, status: str, line: Decimal) -> PaperQueueRow:
         edge=Decimal("0.1164"),
         line_bucket="away_underdog",
         risk_tags=("line_bucket:away_underdog",),
+        strategy_key=strategy_key,
+        strategy_display_name=strategy_display_name,
+        signal_version=signal_version,
     )
 
 

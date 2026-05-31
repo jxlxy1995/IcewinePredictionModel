@@ -58,6 +58,14 @@ from icewine_prediction.baseline_away_cover_stability_service import (
     AwayCoverThresholdSummary,
     BaselineAwayCoverStabilityReport,
 )
+from icewine_prediction.baseline_away_cover_bucket_threshold_service import (
+    BaselineAwayCoverBucketThresholdReport,
+    BucketThresholdSelection,
+)
+from icewine_prediction.baseline_away_cover_bucket_sandbox_service import (
+    BaselineAwayCoverBucketSandboxReport,
+    BucketSandboxStrategySummary,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     AsianHandicapModelEvaluation,
     BaselineAsianHandicapModelReport,
@@ -994,6 +1002,133 @@ def test_samples_baseline_away_cover_stability_command_writes_report(monkeypatch
     assert "asian_handicap raw_hgb_team_form_plus_all_markets away_cover thresholds 2" in result.stdout
 
 
+def test_samples_baseline_away_cover_bucket_threshold_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path, *, thresholds, train_ratio, validation_ratio, fold_count):
+        captured["csv_path"] = str(csv_path)
+        captured["thresholds"] = thresholds
+        captured["train_ratio"] = train_ratio
+        captured["validation_ratio"] = validation_ratio
+        captured["fold_count"] = fold_count
+        return _baseline_away_cover_bucket_threshold_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_away_cover_bucket_threshold_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_away_cover_bucket_threshold_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-away-cover-bucket-threshold",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/模型实验/away-cover-bucket.md",
+            "--thresholds",
+            "0.08,0.10",
+            "--train-ratio",
+            "0.50",
+            "--validation-ratio",
+            "0.20",
+            "--fold-count",
+            "3",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\模型实验\\away-cover-bucket.md")
+    assert captured["thresholds"] == ("0.08", "0.10")
+    assert captured["train_ratio"] == "0.50"
+    assert captured["validation_ratio"] == "0.20"
+    assert captured["fold_count"] == 3
+    assert "baseline away-cover bucket threshold written" in result.stdout
+    assert "asian_handicap raw_hgb_team_form_plus_all_markets away_cover buckets 1" in result.stdout
+
+
+def test_samples_baseline_away_cover_bucket_sandbox_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(
+        csv_path,
+        *,
+        v1_edge_threshold,
+        bucket_thresholds,
+        train_ratio,
+        validation_ratio,
+        fold_count,
+    ):
+        captured["csv_path"] = str(csv_path)
+        captured["v1_edge_threshold"] = v1_edge_threshold
+        captured["bucket_thresholds"] = bucket_thresholds
+        captured["train_ratio"] = train_ratio
+        captured["validation_ratio"] = validation_ratio
+        captured["fold_count"] = fold_count
+        return _baseline_away_cover_bucket_sandbox_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_away_cover_bucket_sandbox_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_away_cover_bucket_sandbox_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-away-cover-bucket-sandbox",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/模型实验/away-cover-bucket-sandbox.md",
+            "--v1-edge-threshold",
+            "0.10",
+            "--away-underdog-threshold",
+            "0.20",
+            "--pickem-threshold",
+            "0.08",
+            "--train-ratio",
+            "0.50",
+            "--validation-ratio",
+            "0.20",
+            "--fold-count",
+            "3",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\模型实验\\away-cover-bucket-sandbox.md")
+    assert captured["v1_edge_threshold"] == "0.10"
+    assert captured["bucket_thresholds"] == {
+        "away_underdog": "0.20",
+        "pickem": "0.08",
+    }
+    assert captured["train_ratio"] == "0.50"
+    assert captured["validation_ratio"] == "0.20"
+    assert captured["fold_count"] == 3
+    assert "baseline away-cover bucket sandbox written" in result.stdout
+    assert "asian_away_cover_hgb_bucket_v2 bets 4 positive 2/2 roi 0.1000" in result.stdout
+
+
 def test_format_training_sample_line_uses_match_result_and_weight():
     display_service = DisplayNameService(
         DisplayNames(
@@ -1873,6 +2008,75 @@ def _baseline_away_cover_stability_report() -> BaselineAwayCoverStabilityReport:
                 worst_fold_roi=Decimal("0.0500"),
             )
         ],
+    )
+
+
+def _baseline_away_cover_bucket_threshold_report() -> BaselineAwayCoverBucketThresholdReport:
+    selection = BucketThresholdSelection(
+        line_bucket="away_underdog",
+        threshold=Decimal("0.1000"),
+        candidate_count=4,
+        positive_roi_folds=2,
+        profit=Decimal("0.4000"),
+        roi=Decimal("0.1000"),
+        worst_fold_roi=Decimal("0.0500"),
+    )
+    return BaselineAwayCoverBucketThresholdReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=10,
+        fold_count=2,
+        train_ratio=Decimal("0.5000"),
+        validation_ratio=Decimal("0.2000"),
+        thresholds=(Decimal("0.0800"), Decimal("0.1000")),
+        strategy_key="asian_away_cover_hgb_bucket_v2",
+        strategy_display_name="亚盘客队方向 · HGB分盘口桶 v2",
+        market_type="asian_handicap",
+        model_name="raw_hgb_team_form_plus_all_markets",
+        side="away_cover",
+        selected_thresholds=[selection],
+        bucket_threshold_summaries={"away_underdog": [selection]},
+    )
+
+
+def _baseline_away_cover_bucket_sandbox_report() -> BaselineAwayCoverBucketSandboxReport:
+    return BaselineAwayCoverBucketSandboxReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=10,
+        fold_count=2,
+        train_ratio=Decimal("0.5000"),
+        validation_ratio=Decimal("0.2000"),
+        v1_edge_threshold=Decimal("0.1000"),
+        bucket_thresholds={
+            "away_underdog": Decimal("0.2000"),
+            "pickem": Decimal("0.0800"),
+        },
+        market_type="asian_handicap",
+        model_name="raw_hgb_team_form_plus_all_markets",
+        strategy_summaries=[
+            BucketSandboxStrategySummary(
+                strategy_key="asian_away_cover_hgb_edge_v1",
+                display_name="亚盘客队方向 · HGB边际 v1",
+                candidate_count=5,
+                positive_roi_folds=1,
+                profit=Decimal("0.2500"),
+                roi=Decimal("0.0500"),
+                bucket_thresholds={"all": Decimal("0.1000")},
+            ),
+            BucketSandboxStrategySummary(
+                strategy_key="asian_away_cover_hgb_bucket_v2",
+                display_name="亚盘客队方向 · HGB分盘口桶 v2",
+                candidate_count=4,
+                positive_roi_folds=2,
+                profit=Decimal("0.4000"),
+                roi=Decimal("0.1000"),
+                bucket_thresholds={
+                    "away_underdog": Decimal("0.2000"),
+                    "pickem": Decimal("0.0800"),
+                },
+            ),
+        ],
+        fold_reports=[],
+        bucket_summaries=[],
     )
 
 

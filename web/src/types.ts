@@ -230,6 +230,8 @@ export type TrainingRunStep =
   | "feature_set"
   | "dynamic_feature_set"
   | "away_cover_stability"
+  | "away_cover_bucket_threshold_v2"
+  | "away_cover_bucket_sandbox_v2"
   | "finalize";
 
 export type TrainingRun = {
@@ -294,6 +296,7 @@ export type PaperCandidate = {
   risk_tags: string[];
   strategy_key: string;
   strategy_display_name: string;
+  signal_version: string | null;
   is_recordable: boolean;
 };
 

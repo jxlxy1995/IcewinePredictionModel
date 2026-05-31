@@ -1830,6 +1830,7 @@ def test_web_console_api_returns_latest_training_run(tmp_path):
                 coverage_ratio=Decimal("0.8912"),
                 last_trained_match_summary="日职联 神户胜利船 1-0 鹿岛鹿角",
                 dataset_path="local_data/training/baseline.csv",
+                total_goals_edge_stability_report_path="docs/模型实验/total-goals.md",
             )
         )
         session.commit()
@@ -1845,6 +1846,10 @@ def test_web_console_api_returns_latest_training_run(tmp_path):
     assert payload["coverage_ratio"] == "0.8912"
     assert payload["last_trained_match_summary"] == "日职联 神户胜利船 1-0 鹿岛鹿角"
     assert payload["artifact_paths"]["dataset_path"] == "local_data/training/baseline.csv"
+    assert (
+        payload["artifact_paths"]["total_goals_edge_stability_report_path"]
+        == "docs/模型实验/total-goals.md"
+    )
 
 
 def _seed_console_data(session_factory):

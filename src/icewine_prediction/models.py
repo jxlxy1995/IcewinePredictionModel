@@ -345,6 +345,7 @@ class TrainingRun(Base):
     away_cover_stability_report_path: Mapped[str | None] = mapped_column(String(255))
     away_cover_bucket_threshold_report_path: Mapped[str | None] = mapped_column(String(255))
     away_cover_bucket_sandbox_report_path: Mapped[str | None] = mapped_column(String(255))
+    total_goals_edge_stability_report_path: Mapped[str | None] = mapped_column(String(255))
     dataset_rows: Mapped[int | None] = mapped_column(Integer)
     eligible_matches: Mapped[int | None] = mapped_column(Integer)
     complete_matches: Mapped[int | None] = mapped_column(Integer)

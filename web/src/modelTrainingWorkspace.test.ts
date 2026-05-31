@@ -156,5 +156,6 @@ describe("model training workspace helpers", () => {
     expect(formatTrainingRunStatus("success")).toBe("成功");
     expect(formatTrainingRunStatus("failed")).toBe("失败");
     expect(formatTrainingRunStep("dynamic_feature_set")).toBe("动态特征");
+    expect(formatTrainingRunStep("total_goals_edge_stability_v1")).toBe("大小球稳定性");
   });
 });

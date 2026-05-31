@@ -108,7 +108,8 @@ export function formatTrainingRunStep(step: string | null): string {
     feature_set: "基础特征",
     finalize: "收尾",
     market_baseline: "市场基准",
-    queued: "排队中"
+    queued: "排队中",
+    total_goals_edge_stability_v1: "大小球稳定性"
   };
   return names[step] ?? step;
 }

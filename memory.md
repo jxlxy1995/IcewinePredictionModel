@@ -27,6 +27,7 @@
 - API-Football requests should be gently paced and retried once for transient connection resets.
 - Match sync diagnostics should be persisted per match. Odds diagnostics belong only to odds sync reports, not fixtures/results sync reports.
 - Paper recommendation candidates for `asian_away_cover_hgb_edge_v1` should require a usable Asian handicap odds snapshot within 3 hours before kickoff; stale/no-odds rows stay visible in queue diagnostics but must not enter the recordable paper workspace.
+- The Web model-training page should only show real training workspace/orchestration artifacts. Do not reintroduce mock-only panels for recent model runs, model market coverage, or league training coverage unless a real backend source is added first.
 
 ## Oddspapi Backfill Learnings
 

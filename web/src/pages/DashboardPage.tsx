@@ -56,15 +56,12 @@ import {
   hasMeaningfulDrafts
 } from "../displayNameWorkspace";
 import {
-  buildModelTrainingSummaryCards,
   buildTrainingRunCards,
   buildTrainingWorkspaceCards,
   countTrainingQualityIssues,
-  formatModelTrainingStatus,
   formatMarketType,
   formatTrainingRunStatus,
   formatTrainingRunStep,
-  listRecentModelRuns,
   listTrainingMarketRows
 } from "../modelTrainingWorkspace";
 import {
@@ -1583,8 +1580,6 @@ function ModelTrainingView({
   const latestRun = workspace.latest_run;
   const workflowCards = buildTrainingWorkspaceCards(workspace);
   const runCards = buildTrainingRunCards(latestRun);
-  const summaryCards = buildModelTrainingSummaryCards(data.modelTraining);
-  const recentRuns = listRecentModelRuns(data.modelTraining);
   const marketRows = listTrainingMarketRows(workspace);
   const qualityIssues = countTrainingQualityIssues(workspace);
   const lowSampleLeagueText = formatLowSampleLeagues(workspace.qa.low_sample_leagues);
@@ -1778,80 +1773,6 @@ function ModelTrainingView({
         </table>
       </Panel>
 
-      <section className="metrics compact-metrics">
-        {summaryCards.map((card) => (
-          <MetricCard key={card.label} label={card.label} value={card.value} />
-        ))}
-      </section>
-
-      <section className="grid">
-        <Panel title="最近训练结果">
-          <table>
-            <thead>
-              <tr>
-                <th>模型</th>
-                <th>版本</th>
-                <th>状态</th>
-                <th>样本</th>
-                <th>联赛</th>
-                <th>Log Loss</th>
-                <th>Brier</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentRuns.map((run) => (
-                <tr key={run.model_version}>
-                  <td>{run.model_name}</td>
-                  <td>{run.model_version}</td>
-                  <td>
-                    <span className={`status-pill ${run.status}`}>
-                      {formatModelTrainingStatus(run.status)}
-                    </span>
-                  </td>
-                  <td>{run.sample_count.toLocaleString()}</td>
-                  <td>{run.league_count}</td>
-                  <td>{run.validation_log_loss ?? "-"}</td>
-                  <td>{run.validation_brier_score ?? "-"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Panel>
-        <Panel title="模型盘口覆盖">
-          <div className="model-market-list">
-            {recentRuns.map((run) => (
-              <div className="model-market-item" key={run.model_version}>
-                <strong>{run.model_name}</strong>
-                <span>{run.market_types.map(formatMarketType).join(" / ")}</span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </section>
-      <Panel title="联赛训练覆盖">
-        <table>
-          <thead>
-            <tr>
-              <th>联赛</th>
-              <th>赛季</th>
-              <th>完赛</th>
-              <th>训练样本</th>
-              <th>覆盖率</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.modelTraining.league_training_coverage.map((coverage) => (
-              <tr key={`${coverage.league_name}-${coverage.season}`}>
-                <td>{coverage.league_display_name ?? coverage.league_name}</td>
-                <td>{coverage.season}</td>
-                <td>{coverage.finished_matches.toLocaleString()}</td>
-                <td>{coverage.training_matches.toLocaleString()}</td>
-                <td>{coverage.coverage_ratio}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Panel>
     </section>
   );
 }

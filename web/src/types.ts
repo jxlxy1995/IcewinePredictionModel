@@ -173,37 +173,6 @@ export type DisplayTranslationStatus = {
   done_league_seasons: string[];
 };
 
-export type ModelTrainingStatus = "ready" | "training" | "failed";
-
-export type ModelTrainingRun = {
-  model_name: string;
-  model_version: string;
-  status: ModelTrainingStatus;
-  trained_at: string;
-  sample_count: number;
-  league_count: number;
-  market_types: string[];
-  validation_log_loss: string | null;
-  validation_brier_score: string | null;
-};
-
-export type ModelLeagueTrainingCoverage = {
-  league_name: string;
-  league_display_name?: string;
-  season: number;
-  finished_matches: number;
-  training_matches: number;
-  coverage_ratio: string;
-};
-
-export type ModelTrainingOverview = {
-  generated_at: string;
-  total_training_matches: number;
-  total_training_snapshots: number;
-  model_runs: ModelTrainingRun[];
-  league_training_coverage: ModelLeagueTrainingCoverage[];
-};
-
 export type TrainingFileStatus = {
   exists: boolean;
   path: string;
@@ -535,7 +504,6 @@ export type DashboardData = {
   missingTeamDisplayNames: TeamDisplayNameRow[];
   doneDisplayTranslationKeys: string[];
   recommendationRecords: RecommendationRecord[];
-  modelTraining: ModelTrainingOverview;
   trainingWorkspace: TrainingWorkspace;
   paperRecommendations: PaperRecommendationWorkspace;
   matchList: MatchListWorkspace;

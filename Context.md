@@ -944,3 +944,29 @@ C:\ProgramData\anaconda3\python.exe -m pytest tests/test_settings.py tests/test_
 ```
 
 Result: `9 passed`.
+
+## 2026-05-31 Web Model Training Mock Panel Cleanup
+
+Work completed in this session:
+
+- Cleaned the Web model-training page by removing three mock-only bottom panels:
+  - `最近训练结果`
+  - `模型盘口覆盖`
+  - `联赛训练覆盖`
+- Removed the unused frontend mock/type/helper chain that only supported those panels:
+  - `ModelTrainingOverview`, `ModelTrainingRun`, `ModelLeagueTrainingCoverage`, and `ModelTrainingStatus`.
+  - `mockModelTrainingOverview`.
+  - `buildModelTrainingSummaryCards`, `listRecentModelRuns`, and `formatModelTrainingStatus`.
+- `DashboardData` and `loadDashboardData()` no longer carry the mock model-training overview. The page keeps the real training workspace/orchestration, data quality, and close-market baseline sections.
+- Existing local user changes in `.gitignore` and `docs/数据审计/20260529-baseline-training-dataset.md` were intentionally left untouched.
+
+Frontend verification run:
+
+```powershell
+cd web
+npm test -- modelTrainingWorkspace.test.ts
+npm test
+npm run build
+```
+
+Result: focused helper test `5 passed`; full frontend tests `41 passed`; production build succeeded.

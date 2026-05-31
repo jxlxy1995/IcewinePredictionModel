@@ -3,7 +3,6 @@ import type {
   MatchDetail,
   MatchListWorkspace,
   MatchOddsTrends,
-  ModelTrainingOverview,
   OddspapiBackfillAudit,
   PaperRecommendationWorkspace,
   TeamDisplayNameWorkspace,
@@ -239,81 +238,6 @@ export const mockTeamDisplayNameWorkspaces: TeamDisplayNameWorkspace[] = [
     ]
   }
 ];
-
-export const mockModelTrainingOverview: ModelTrainingOverview = {
-  generated_at: "2026-05-26T11:45:00+08:00",
-  total_training_matches: 1844,
-  total_training_snapshots: 183204,
-  model_runs: [
-    {
-      model_name: "Dixon-Coles 攻防强度",
-      model_version: "dixon-coles-attack-defense-v1",
-      status: "ready",
-      trained_at: "2026-05-25T18:12:00+08:00",
-      sample_count: 1844,
-      league_count: 42,
-      market_types: ["score_distribution", "asian_handicap", "total_goals"],
-      validation_log_loss: "0.6541",
-      validation_brier_score: "0.1988"
-    },
-    {
-      model_name: "Skellam 净胜球",
-      model_version: "skellam-margin-v1",
-      status: "ready",
-      trained_at: "2026-05-25T20:36:00+08:00",
-      sample_count: 1420,
-      league_count: 35,
-      market_types: ["asian_handicap"],
-      validation_log_loss: "0.6812",
-      validation_brier_score: "0.2134"
-    },
-    {
-      model_name: "负二项总进球",
-      model_version: "negative-binomial-total-v1",
-      status: "training",
-      trained_at: "2026-05-26T10:30:00+08:00",
-      sample_count: 1320,
-      league_count: 31,
-      market_types: ["total_goals"],
-      validation_log_loss: null,
-      validation_brier_score: null
-    }
-  ],
-  league_training_coverage: [
-    {
-      league_name: "Premier League",
-      league_display_name: "英超",
-      season: 2025,
-      finished_matches: 380,
-      training_matches: 350,
-      coverage_ratio: "0.9211"
-    },
-    {
-      league_name: "Bundesliga",
-      league_display_name: "德甲",
-      season: 2025,
-      finished_matches: 306,
-      training_matches: 286,
-      coverage_ratio: "0.9346"
-    },
-    {
-      league_name: "Championship",
-      league_display_name: "英冠",
-      season: 2025,
-      finished_matches: 552,
-      training_matches: 494,
-      coverage_ratio: "0.8949"
-    },
-    {
-      league_name: "Liga I",
-      league_display_name: "罗甲",
-      season: 2025,
-      finished_matches: 240,
-      training_matches: 18,
-      coverage_ratio: "0.0750"
-    }
-  ]
-};
 
 export const mockTrainingWorkspace: TrainingWorkspace = {
   dataset: {
@@ -795,7 +719,6 @@ export const mockDashboardData: DashboardData = {
     )
   ],
   doneDisplayTranslationKeys: ["78-2025"],
-  modelTraining: mockModelTrainingOverview,
   trainingWorkspace: mockTrainingWorkspace,
   paperRecommendations: mockPaperRecommendationWorkspace,
   matchList: mockMatchListWorkspace,

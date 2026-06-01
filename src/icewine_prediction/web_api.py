@@ -2164,6 +2164,11 @@ def _select_live_odds_fallback_fixture_ids(session: Session, match_ids: set[int]
             continue
         if not _is_not_started_match(match):
             continue
+        kickoff_time = match.kickoff_time
+        if kickoff_time.tzinfo is None:
+            kickoff_time = kickoff_time.replace(tzinfo=ZoneInfo(BEIJING_TIMEZONE))
+        if kickoff_time <= now_beijing():
+            continue
         has_historical_odds = (
             session.query(HistoricalOddsSnapshot)
             .filter_by(match_id=match.id, source_name="oddspapi")

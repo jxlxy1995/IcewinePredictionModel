@@ -557,7 +557,7 @@ def _add_live_odds_snapshot(session, match: Match, *, captured_at: datetime) -> 
 
 
 def _add_complete_historical_odds(session, match: Match) -> None:
-    snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=30)
+    snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=6)
     markets = [
         ("asian_handicap", Decimal("-0.25"), ("home", "away")),
         ("total_goals", Decimal("2.50"), ("over", "under")),

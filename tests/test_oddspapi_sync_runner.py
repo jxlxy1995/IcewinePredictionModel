@@ -1029,7 +1029,7 @@ def test_run_oddspapi_sync_for_session_refetches_existing_count_complete_but_mar
 
 def test_run_oddspapi_sync_for_session_skips_quality_complete_historical_odds(session):
     match = _match(session)
-    _add_complete_historical_snapshots(session, match, minutes_before_kickoff=150)
+    _add_complete_historical_snapshots(session, match, minutes_before_kickoff=6)
     session.commit()
     raw_client = FakeOddsPapiClient()
     client = OddsPapiSyncClient(raw_client)
@@ -1044,6 +1044,28 @@ def test_run_oddspapi_sync_for_session_skips_quality_complete_historical_odds(se
     assert result.processed_match_count == 0
     assert result.skipped_existing_odds_count == 1
     assert raw_client.calls == []
+
+
+def test_run_oddspapi_sync_for_session_refetches_when_complete_odds_are_not_inside_eight_minutes(session):
+    match = _match(session)
+    _add_complete_historical_snapshots(session, match, minutes_before_kickoff=11)
+    session.commit()
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client)
+
+    result = run_oddspapi_sync_for_session(
+        session=session,
+        client=client,
+        season=2025,
+        max_matches=20,
+    )
+
+    assert result.processed_match_count == 1
+    assert [call[0] for call in raw_client.calls] == [
+        "fixtures",
+        "markets",
+        "historical-odds",
+    ]
 
 
 def test_run_oddspapi_sync_for_session_refetches_requested_match_with_incomplete_historical_odds(session):
@@ -1092,7 +1114,7 @@ def test_run_oddspapi_sync_for_session_refetches_requested_pre_kickoff_match_wit
         away_score=None,
         kickoff_time=datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
     )
-    _add_complete_historical_snapshots(session, match, minutes_before_kickoff=150)
+    _add_complete_historical_snapshots(session, match, minutes_before_kickoff=6)
     session.add(
         OddsSourceMatch(
             match_id=match.id,
@@ -1108,7 +1130,7 @@ def test_run_oddspapi_sync_for_session_refetches_requested_pre_kickoff_match_wit
     monkeypatch.setattr(
         oddspapi_sync_runner,
         "now_beijing",
-        lambda: datetime(2026, 5, 24, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        lambda: datetime(2026, 5, 24, 2, 59, tzinfo=ZoneInfo("Asia/Shanghai")),
     )
     raw_client = FakeOddsPapiClient()
     client = OddsPapiSyncClient(raw_client)
@@ -1131,7 +1153,7 @@ def test_run_oddspapi_sync_for_session_refetches_requested_pre_kickoff_match_wit
 
 def test_run_oddspapi_sync_for_session_skips_requested_match_with_quality_complete_finished_odds(session):
     match = _match(session)
-    _add_complete_historical_snapshots(session, match)
+    _add_complete_historical_snapshots(session, match, minutes_before_kickoff=6)
     session.commit()
     raw_client = FakeOddsPapiClient()
     client = OddsPapiSyncClient(raw_client)

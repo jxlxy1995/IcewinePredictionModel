@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import type { PaperCandidate, PaperRecord } from "../types";
 import {
-  buildPaperCandidateRows,
+  buildPaperCandidateGroups,
   formatPaperRecordStatus,
   formatPaperSettlementResult
 } from "../paperRecommendationWorkspace";
@@ -17,6 +17,7 @@ import {
 
 type PaperCandidateTableProps = {
   isBusy: boolean;
+  onRecordAll: (candidates: PaperCandidate[]) => void;
   onRecord: (candidate: PaperCandidate) => void;
   workspace: PaperRecommendationWorkspace;
 };
@@ -33,52 +34,123 @@ type PaperRecordTableProps = {
 
 export function PaperCandidateTable({
   isBusy,
+  onRecordAll,
   onRecord,
   workspace
 }: PaperCandidateTableProps) {
-  const rows = buildPaperCandidateRows(workspace);
-  if (rows.length === 0) {
+  const [expandedMatches, setExpandedMatches] = useState<Set<string>>(() => new Set());
+  const groups = buildPaperCandidateGroups(workspace);
+  if (groups.length === 0) {
     return <div className="empty-state">暂无纸面候选</div>;
   }
+
+  const toggleExpanded = (groupKey: string) => {
+    setExpandedMatches((current) => {
+      const next = new Set(current);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  };
+
   return (
     <table>
       <thead>
         <tr>
           <th>开赛</th>
           <th>比赛</th>
-          <th>策略</th>
-          <th>推荐</th>
+          <th>主推荐</th>
+          <th>候选</th>
           <th>Edge</th>
           <th>风险</th>
           <th>操作</th>
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <tr key={row.candidate.match_id}>
-            <td>{row.kickoffTime}</td>
-            <td>
-              {row.league} {row.fixture}
-            </td>
-            <td>
-              <strong>{row.strategyLabel}</strong>
-              <span className="muted-text">{row.candidate.strategy_key}</span>
-            </td>
-            <td>{row.recommendation}</td>
-            <td>{row.edge}</td>
-            <td>{row.riskText}</td>
-            <td>
-              <button
-                className="inline-action"
-                disabled={!row.isRecordable || isBusy}
-                onClick={() => onRecord(row.candidate)}
-                type="button"
-              >
-                记录观察
-              </button>
-            </td>
-          </tr>
-        ))}
+        {groups.map((group) => {
+          const isExpanded = expandedMatches.has(group.groupKey);
+          return (
+            <Fragment key={`match-${group.groupKey}`}>
+              <tr className="paper-candidate-match-row">
+                <td>{group.kickoffTime}</td>
+                <td>
+                  <strong>
+                    {group.league} {group.fixture}
+                  </strong>
+                  <span className="muted-text">match #{group.matchId}</span>
+                </td>
+                <td>
+                  <strong>{group.main.recommendation}</strong>
+                  <span className="muted-text">{group.main.strategyLabel}</span>
+                </td>
+                <td>
+                  {group.signalCount} 条
+                  <span className="muted-text">{group.recordableCount} 条可记录</span>
+                </td>
+                <td>{group.main.edge}</td>
+                <td>{group.main.riskText}</td>
+                <td>
+                  <div className="inline-actions">
+                    <button
+                      className="inline-action"
+                      onClick={() => toggleExpanded(group.groupKey)}
+                      type="button"
+                    >
+                      {isExpanded ? "收起" : "展开"}
+                    </button>
+                    <button
+                      className="inline-action"
+                      disabled={!group.main.isRecordable || isBusy}
+                      onClick={() => onRecord(group.main.candidate)}
+                      type="button"
+                    >
+                      记录主推
+                    </button>
+                    <button
+                      className="inline-action"
+                      disabled={group.recordableSignals.length === 0 || isBusy}
+                      onClick={() =>
+                        onRecordAll(group.recordableSignals.map((signal) => signal.candidate))
+                      }
+                      type="button"
+                    >
+                      记录全部
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              {isExpanded &&
+                group.signals.map((signal) => (
+                  <tr key={`signal-${signal.signalKey}`} className="paper-candidate-signal-row">
+                    <td />
+                    <td>
+                      <span className="muted-text">策略信号</span>
+                    </td>
+                    <td>
+                      <strong>{signal.strategyLabel}</strong>
+                      <span className="muted-text">{signal.candidate.strategy_key}</span>
+                    </td>
+                    <td>{signal.recommendation}</td>
+                    <td>{signal.edge}</td>
+                    <td>{signal.riskText}</td>
+                    <td>
+                      <button
+                        className="inline-action"
+                        disabled={!signal.isRecordable || isBusy}
+                        onClick={() => onRecord(signal.candidate)}
+                        type="button"
+                      >
+                        记录观察
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+            </Fragment>
+          );
+        })}
       </tbody>
     </table>
   );

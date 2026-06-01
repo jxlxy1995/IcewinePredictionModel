@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildPaperCandidateGroups,
   buildPaperCandidateRows,
   buildPaperRecordGroups,
   buildPaperSummaryCards,
@@ -136,6 +137,77 @@ describe("paperRecommendationWorkspace", () => {
       recommendation: "客队 +0.50 @ 1.930",
       strategyLabel: "亚盘客队方向 · HGB边际 v1"
     });
+  });
+
+  it("groups candidate signals by match and promotes the strongest recordable signal", () => {
+    const groupedWorkspace: PaperRecommendationWorkspace = {
+      ...workspace,
+      candidates: [
+        {
+          ...workspace.candidates[0],
+          strategy_key: "asian_away_cover_hgb_edge_v1",
+          strategy_display_name: "亚盘客队方向 · HGB边际 v1",
+          market_type: "asian_handicap",
+          side: "away_cover",
+          edge: "0.1500",
+          recommended_handicap: "客队 +0.50"
+        },
+        {
+          ...workspace.candidates[0],
+          strategy_key: "total_over_edge_v1",
+          strategy_display_name: "大小球大球 · Edge v1",
+          market_type: "total_goals",
+          side: "over",
+          edge: "0.2200",
+          recommended_handicap: "大 2.50"
+        },
+        {
+          ...workspace.candidates[0],
+          strategy_key: "home_win_edge_v1",
+          strategy_display_name: "胜平负主胜 · Edge v1",
+          market_type: "match_winner",
+          side: "home",
+          status: "already_recorded",
+          edge: "0.3000",
+          recommended_handicap: "主胜",
+          is_recordable: false
+        },
+        {
+          ...workspace.candidates[0],
+          match_id: 17447,
+          source_match_id: "17447",
+          home_team_name: "Galway United",
+          home_team_display_name: "戈尔韦联",
+          away_team_name: "Shamrock Rovers",
+          away_team_display_name: "沙姆洛克流浪",
+          edge: "0.1200"
+        }
+      ],
+      summary: { ...workspace.summary, candidate_count: 3 }
+    };
+
+    const groups = buildPaperCandidateGroups(groupedWorkspace);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({
+      fixture: "德罗赫达联 vs 沃特福德联",
+      signalCount: 3,
+      recordableCount: 2,
+      main: {
+        edge: "0.2200",
+        recommendation: "大 2.50 @ 1.930",
+        strategyLabel: "大小球大球 · Edge v1"
+      }
+    });
+    expect(groups[0].recordableSignals.map((signal) => signal.signalKey)).toEqual([
+      "17446:asian_away_cover_hgb_edge_v1:asian_handicap:away_cover",
+      "17446:total_over_edge_v1:total_goals:over"
+    ]);
+    expect(groups[0].signals.map((signal) => signal.signalKey)).toEqual([
+      "17446:asian_away_cover_hgb_edge_v1:asian_handicap:away_cover",
+      "17446:total_over_edge_v1:total_goals:over",
+      "17446:home_win_edge_v1:match_winner:home"
+    ]);
   });
 
   it("passes through grouped summaries for review tables", () => {

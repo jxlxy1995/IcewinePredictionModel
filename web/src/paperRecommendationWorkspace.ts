@@ -17,8 +17,22 @@ export type PaperCandidateRow = {
   league: string;
   recommendation: string;
   riskText: string;
+  signalKey: string;
   strategyLabel: string;
   candidate: PaperCandidate;
+};
+
+export type PaperCandidateGroupRow = {
+  fixture: string;
+  groupKey: string;
+  kickoffTime: string;
+  league: string;
+  main: PaperCandidateRow;
+  matchId: number;
+  recordableCount: number;
+  recordableSignals: PaperCandidateRow[];
+  signalCount: number;
+  signals: PaperCandidateRow[];
 };
 
 export type PaperDisplayGroupSummary = {
@@ -62,8 +76,49 @@ export function buildPaperCandidateRows(
     league: candidate.league_display_name ?? candidate.league_name,
     recommendation: formatCandidateRecommendation(candidate),
     riskText: candidate.risk_tags.length > 0 ? candidate.risk_tags.join(", ") : "-",
+    signalKey: paperCandidateSignalKey(candidate),
     strategyLabel: candidate.strategy_display_name
   }));
+}
+
+export function buildPaperCandidateGroups(
+  workspace: PaperRecommendationWorkspace
+): PaperCandidateGroupRow[] {
+  const groups = new Map<number, PaperCandidateRow[]>();
+  for (const row of buildPaperCandidateRows(workspace)) {
+    const current = groups.get(row.candidate.match_id);
+    if (current) {
+      current.push(row);
+    } else {
+      groups.set(row.candidate.match_id, [row]);
+    }
+  }
+
+  return Array.from(groups.entries()).map(([matchId, signals]) => {
+    const main = selectMainSignal(signals);
+    const recordableSignals = signals.filter((signal) => signal.isRecordable);
+    return {
+      fixture: main.fixture,
+      groupKey: String(matchId),
+      kickoffTime: main.kickoffTime,
+      league: main.league,
+      main,
+      matchId,
+      recordableCount: recordableSignals.length,
+      recordableSignals,
+      signalCount: signals.length,
+      signals
+    };
+  });
+}
+
+export function paperCandidateSignalKey(candidate: PaperCandidate): string {
+  return [
+    candidate.match_id,
+    candidate.strategy_key,
+    candidate.market_type,
+    candidate.side ?? "none"
+  ].join(":");
 }
 
 export function buildPaperRecordGroups(
@@ -120,6 +175,20 @@ function formatCandidateRecommendation(candidate: PaperCandidate): string {
   const handicap = candidate.recommended_handicap ?? "-";
   const odds = candidate.odds ?? "-";
   return `${handicap} @ ${odds}`;
+}
+
+function selectMainSignal(signals: PaperCandidateRow[]): PaperCandidateRow {
+  return signals.reduce((best, signal) => {
+    if (signal.isRecordable !== best.isRecordable) {
+      return signal.isRecordable ? signal : best;
+    }
+    return numericEdge(signal) > numericEdge(best) ? signal : best;
+  });
+}
+
+function numericEdge(row: PaperCandidateRow): number {
+  const value = Number(row.candidate.edge);
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
 }
 
 function formatRatioAsPercent(value: string): string {

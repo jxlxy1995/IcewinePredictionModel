@@ -1952,6 +1952,7 @@ function PaperTrackingView({
       <Panel title="候选队列">
         <PaperCandidateTable
           isBusy={isBusy}
+          onRecordAll={onBatchRecord}
           onRecord={onRecord}
           workspace={workspace}
         />

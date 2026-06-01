@@ -192,6 +192,18 @@ th {
   font-weight: 600;
 }
 
+.paper-candidate-match-row {
+  background: #ffffff;
+}
+
+.paper-candidate-signal-row {
+  background: #f8fafc;
+}
+
+.paper-candidate-signal-row td {
+  font-size: 13px;
+}
+
 .team-cell {
   align-items: center;
   display: flex;

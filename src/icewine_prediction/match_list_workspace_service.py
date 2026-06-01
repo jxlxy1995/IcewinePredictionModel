@@ -14,8 +14,17 @@ from icewine_prediction.models import (
     DataSyncRun,
     HistoricalOddsSnapshot,
     Match,
+    OddsSnapshot,
     PaperRecommendationRecord,
     RecommendationRecord,
+)
+from icewine_prediction.oddspapi_sync_runner import (
+    COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT,
+    COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW,
+    COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS,
+    ODDSPAPI_SOURCE_NAME,
+    _as_utc,
+    _historical_snapshot_as_utc,
 )
 
 
@@ -33,6 +42,19 @@ class MatchListFilters:
     status_filter: str
     odds_filter: str
     search: str | None
+
+
+@dataclass(frozen=True)
+class MatchOddsStatus:
+    key: str
+    label: str
+
+
+@dataclass(frozen=True)
+class MatchOddsStatusFacts:
+    complete_historical_match_ids: set[int]
+    latest_odds_time_by_match_id: dict[int, datetime]
+    odds_match_ids: set[int]
 
 
 @dataclass(frozen=True)
@@ -67,6 +89,8 @@ class MatchListRow:
     home_score: int | None
     away_score: int | None
     has_odds: bool
+    odds_status_key: str
+    odds_status_label: str
     odds_summary: MatchOddsSummary
 
 
@@ -102,10 +126,33 @@ class MatchDetail:
     home_score: int | None
     away_score: int | None
     has_odds: bool
+    odds_status_key: str
+    odds_status_label: str
     team_data_note: str
     odds_summary: MatchOddsSummary
     paper_recommendation_summary: RecommendationSummary
     formal_recommendation_summary: RecommendationSummary
+
+
+MATCH_ODDS_STATUS_NONE = MatchOddsStatus("none", "无赔率")
+MATCH_ODDS_STATUS_EARLY = MatchOddsStatus("early", "早盘")
+MATCH_ODDS_STATUS_NEAR = MatchOddsStatus("near", "近盘")
+MATCH_ODDS_STATUS_CLOSE = MatchOddsStatus("close", "临盘")
+MATCH_ODDS_STATUS_PENDING_FILL = MatchOddsStatus("pending_fill", "待回填")
+MATCH_ODDS_STATUS_FILLED = MatchOddsStatus("filled", "已回填")
+MATCH_ODDS_STATUS_BY_KEY = {
+    status.key: status
+    for status in (
+        MATCH_ODDS_STATUS_NONE,
+        MATCH_ODDS_STATUS_EARLY,
+        MATCH_ODDS_STATUS_NEAR,
+        MATCH_ODDS_STATUS_CLOSE,
+        MATCH_ODDS_STATUS_PENDING_FILL,
+        MATCH_ODDS_STATUS_FILLED,
+    )
+}
+LEGACY_ODDS_FILTERS = {"all", "with_odds", "without_odds"}
+EMPTY_ODDS_SUMMARY = MatchOddsSummary(asian_handicap=None, total_goals=None, match_winner=None)
 
 
 def record_sync_run(
@@ -153,16 +200,16 @@ def build_match_list_workspace(
     display_name_service: DisplayNameService | None = None,
 ) -> MatchListWorkspace:
     display_name_service = display_name_service or DisplayNameService()
-    odds_match_ids = _odds_match_ids(session)
+    selected_odds_statuses = _parse_odds_filter_statuses(odds_filter)
     start, end = _time_window(now, start_time=start_time, end_time=end_time)
     query = _match_list_filtered_query(
         session,
         start=start,
         end=end,
         league_name=league_name,
-        odds_filter=odds_filter,
+        odds_filter="all",
         search=search,
-        odds_match_ids=odds_match_ids,
+        odds_match_ids=set(),
     )
     raw_matches = query.all()
     matches = [
@@ -170,7 +217,16 @@ def build_match_list_workspace(
         for match in raw_matches
         if status_filter == "all" or _display_status_group(match, now=now) == status_filter
     ]
+    odds_status_facts = _odds_status_facts(session, matches) if matches else _empty_odds_status_facts()
+    matches = _filter_matches_by_legacy_odds_filter(
+        matches,
+        odds_filter=odds_filter,
+        odds_match_ids=odds_status_facts.odds_match_ids,
+    )
+    odds_status_by_match_id = _odds_statuses_by_match_id(matches, now=now, facts=odds_status_facts)
+    matches = _filter_matches_by_odds_status(matches, selected_statuses=selected_odds_statuses, odds_status_by_match_id=odds_status_by_match_id)
     visible_matches = matches[:limit]
+    odds_summary_by_match_id = _odds_summaries_by_match_id(session, [match.id for match in visible_matches])
     return MatchListWorkspace(
         filters=MatchListFilters(
             start_time=_format_local_beijing_datetime(start),
@@ -188,7 +244,9 @@ def build_match_list_workspace(
                 session,
                 match,
                 now=now,
-                has_odds=match.id in odds_match_ids,
+                has_odds=match.id in odds_status_facts.odds_match_ids,
+                odds_status=odds_status_by_match_id.get(match.id, MATCH_ODDS_STATUS_NONE),
+                odds_summary=odds_summary_by_match_id.get(match.id, EMPTY_ODDS_SUMMARY),
                 display_name_service=display_name_service,
             )
             for match in visible_matches
@@ -207,23 +265,30 @@ def select_match_list_sync_targets(
     odds_filter: str = "all",
     search: str | None = None,
 ) -> list[Match]:
-    odds_match_ids = _odds_match_ids(session)
+    selected_odds_statuses = _parse_odds_filter_statuses(odds_filter)
     start, end = _time_window(now, start_time=start_time, end_time=end_time)
     raw_matches = _match_list_filtered_query(
         session,
         start=start,
         end=end,
         league_name=league_name,
-        odds_filter=odds_filter,
+        odds_filter="all",
         search=search,
-        odds_match_ids=odds_match_ids,
+        odds_match_ids=set(),
     ).all()
     matches = [
         match
         for match in raw_matches
         if status_filter == "all" or _display_status_group(match, now=now) == status_filter
     ]
-    return matches
+    odds_status_facts = _odds_status_facts(session, matches) if matches else _empty_odds_status_facts()
+    matches = _filter_matches_by_legacy_odds_filter(
+        matches,
+        odds_filter=odds_filter,
+        odds_match_ids=odds_status_facts.odds_match_ids,
+    )
+    odds_status_by_match_id = _odds_statuses_by_match_id(matches, now=now, facts=odds_status_facts)
+    return _filter_matches_by_odds_status(matches, selected_statuses=selected_odds_statuses, odds_status_by_match_id=odds_status_by_match_id)
 
 
 def build_match_detail(
@@ -241,11 +306,14 @@ def build_match_detail(
     )
     if match is None:
         return None
+    odds_status_facts = _odds_status_facts(session, [match])
     row = _match_row(
         session,
         match,
         now=datetime.now(ZoneInfo(BEIJING_TIMEZONE)),
-        has_odds=match.id in _odds_match_ids(session),
+        has_odds=match.id in odds_status_facts.odds_match_ids,
+        odds_status=_odds_status(match, facts=odds_status_facts),
+        odds_summary=_odds_summary(session, match.id),
         display_name_service=display_name_service,
     )
     paper_count = (
@@ -276,6 +344,8 @@ def build_match_detail(
         home_score=row.home_score,
         away_score=row.away_score,
         has_odds=row.has_odds,
+        odds_status_key=row.odds_status_key,
+        odds_status_label=row.odds_status_label,
         team_data_note="待接入",
         odds_summary=row.odds_summary,
         paper_recommendation_summary=RecommendationSummary(
@@ -329,6 +399,8 @@ def _match_row(
     *,
     now: datetime,
     has_odds: bool,
+    odds_status: MatchOddsStatus,
+    odds_summary: MatchOddsSummary,
     display_name_service: DisplayNameService,
 ) -> MatchListRow:
     display_status = _display_status(match, now=now)
@@ -348,7 +420,9 @@ def _match_row(
         home_score=match.home_score,
         away_score=match.away_score,
         has_odds=has_odds,
-        odds_summary=_odds_summary(session, match.id),
+        odds_status_key=odds_status.key,
+        odds_status_label=odds_status.label,
+        odds_summary=odds_summary,
     )
 
 
@@ -397,8 +471,171 @@ def _league_options(
 
 
 def _odds_match_ids(session: Session) -> set[int]:
-    rows = session.query(HistoricalOddsSnapshot.match_id).distinct().all()
-    return {match_id for (match_id,) in rows}
+    historical_rows = session.query(HistoricalOddsSnapshot.match_id).distinct().all()
+    live_rows = session.query(OddsSnapshot.match_id).distinct().all()
+    return {match_id for (match_id,) in historical_rows + live_rows}
+
+
+def _empty_odds_status_facts() -> MatchOddsStatusFacts:
+    return MatchOddsStatusFacts(
+        complete_historical_match_ids=set(),
+        latest_odds_time_by_match_id={},
+        odds_match_ids=set(),
+    )
+
+
+def _odds_status_facts(session: Session, matches: list[Match]) -> MatchOddsStatusFacts:
+    match_ids = [match.id for match in matches]
+    if not match_ids:
+        return _empty_odds_status_facts()
+    live_latest = dict(
+        session.query(OddsSnapshot.match_id, func.max(OddsSnapshot.captured_at))
+        .filter(OddsSnapshot.match_id.in_(match_ids))
+        .group_by(OddsSnapshot.match_id)
+        .all()
+    )
+    historical_latest = dict(
+        session.query(HistoricalOddsSnapshot.match_id, func.max(HistoricalOddsSnapshot.snapshot_time))
+        .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
+        .group_by(HistoricalOddsSnapshot.match_id)
+        .all()
+    )
+    latest_odds_time_by_match_id = {
+        match_id: max(times, key=_as_beijing_datetime)
+        for match_id in set(live_latest) | set(historical_latest)
+        if (times := [value for value in (live_latest.get(match_id), historical_latest.get(match_id)) if value is not None])
+    }
+    return MatchOddsStatusFacts(
+        complete_historical_match_ids=_complete_historical_odds_match_ids(session, matches),
+        latest_odds_time_by_match_id=latest_odds_time_by_match_id,
+        odds_match_ids=set(live_latest) | set(historical_latest),
+    )
+
+
+def _complete_historical_odds_match_ids(session: Session, matches: list[Match]) -> set[int]:
+    match_by_id = {match.id: match for match in matches}
+    match_ids = list(match_by_id)
+    if not match_ids:
+        return set()
+    earliest_kickoff_utc = min(_as_utc(match.kickoff_time) for match in matches)
+    latest_kickoff_utc = max(_as_utc(match.kickoff_time) for match in matches)
+    rows = (
+        session.query(
+            HistoricalOddsSnapshot.match_id,
+            HistoricalOddsSnapshot.market_type,
+            HistoricalOddsSnapshot.outcome_side,
+            HistoricalOddsSnapshot.snapshot_time,
+        )
+        .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
+        .filter_by(source_name=ODDSPAPI_SOURCE_NAME)
+        .filter(HistoricalOddsSnapshot.snapshot_time >= earliest_kickoff_utc - timedelta(hours=24))
+        .filter(HistoricalOddsSnapshot.snapshot_time <= latest_kickoff_utc)
+        .all()
+    )
+    snapshots_by_match_id: dict[int, list[tuple[str, str, datetime]]] = {}
+    for match_id, market_type, outcome_side, snapshot_time in rows:
+        snapshots_by_match_id.setdefault(match_id, []).append((market_type, outcome_side, snapshot_time))
+    complete_match_ids: set[int] = set()
+    for match in matches:
+        kickoff_utc = _as_utc(match.kickoff_time)
+        snapshots = [
+            snapshot
+            for snapshot in snapshots_by_match_id.get(match.id, [])
+            if kickoff_utc - timedelta(hours=24) <= _historical_snapshot_as_utc(snapshot[2]) <= kickoff_utc
+        ]
+        if len(snapshots) < COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT:
+            continue
+        close_window_start = kickoff_utc - COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW
+        sides_by_market: dict[str, set[str]] = {}
+        for market_type, outcome_side, snapshot_time in snapshots:
+            snapshot_utc = _historical_snapshot_as_utc(snapshot_time)
+            if close_window_start <= snapshot_utc <= kickoff_utc:
+                sides_by_market.setdefault(market_type, set()).add(outcome_side)
+        if all(
+            required_sides.issubset(sides_by_market.get(market_type, set()))
+            for market_type, required_sides in COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS.items()
+        ):
+            complete_match_ids.add(match.id)
+    return complete_match_ids
+
+
+def _filter_matches_by_legacy_odds_filter(
+    matches: list[Match],
+    *,
+    odds_filter: str,
+    odds_match_ids: set[int],
+) -> list[Match]:
+    legacy_filter = _legacy_odds_filter(odds_filter)
+    if legacy_filter == "with_odds":
+        return [match for match in matches if match.id in odds_match_ids]
+    if legacy_filter == "without_odds":
+        return [match for match in matches if match.id not in odds_match_ids]
+    return matches
+
+
+def _odds_statuses_by_match_id(
+    matches: list[Match],
+    *,
+    now: datetime | None = None,
+    facts: MatchOddsStatusFacts,
+) -> dict[int, MatchOddsStatus]:
+    return {
+        match.id: _odds_status(match, now=now, facts=facts)
+        for match in matches
+    }
+
+
+def _filter_matches_by_odds_status(
+    matches: list[Match],
+    *,
+    selected_statuses: set[str],
+    odds_status_by_match_id: dict[int, MatchOddsStatus],
+) -> list[Match]:
+    if not selected_statuses:
+        return matches
+    return [
+        match
+        for match in matches
+        if odds_status_by_match_id.get(match.id, MATCH_ODDS_STATUS_NONE).key in selected_statuses
+    ]
+
+
+def _parse_odds_filter_statuses(odds_filter: str) -> set[str]:
+    values = {value.strip() for value in odds_filter.split(",") if value.strip()}
+    if not values or values & LEGACY_ODDS_FILTERS:
+        return set()
+    return {value for value in values if value in MATCH_ODDS_STATUS_BY_KEY}
+
+
+def _legacy_odds_filter(odds_filter: str) -> str:
+    return odds_filter if odds_filter in LEGACY_ODDS_FILTERS else "all"
+
+
+def _odds_status(
+    match: Match,
+    *,
+    now: datetime | None = None,
+    facts: MatchOddsStatusFacts | None = None,
+) -> MatchOddsStatus:
+    facts = facts or _empty_odds_status_facts()
+    status = _display_status(match, now=now) if now is not None else match.status
+    status_group = _status_group(status)
+    if status_group in {"finished", "live"}:
+        if match.id in facts.complete_historical_match_ids:
+            return MATCH_ODDS_STATUS_FILLED
+        if match.id in facts.odds_match_ids:
+            return MATCH_ODDS_STATUS_PENDING_FILL
+        return MATCH_ODDS_STATUS_NONE
+
+    latest_odds = facts.latest_odds_time_by_match_id.get(match.id)
+    if latest_odds is None:
+        return MATCH_ODDS_STATUS_NONE
+    lead_time = _as_beijing_datetime(match.kickoff_time) - _as_beijing_datetime(latest_odds)
+    if timedelta(0) <= lead_time <= timedelta(minutes=30):
+        return MATCH_ODDS_STATUS_CLOSE
+    if timedelta(minutes=30) < lead_time <= timedelta(hours=3):
+        return MATCH_ODDS_STATUS_NEAR
+    return MATCH_ODDS_STATUS_EARLY
 
 
 def _odds_summary(session: Session, match_id: int) -> MatchOddsSummary:
@@ -413,6 +650,34 @@ def _odds_summary(session: Session, match_id: int) -> MatchOddsSummary:
         total_goals=_format_total_goals(_latest_market_pair(snapshots, "total_goals")),
         match_winner=_format_match_winner(snapshots),
     )
+
+
+def _odds_summaries_by_match_id(
+    session: Session,
+    match_ids: list[int],
+) -> dict[int, MatchOddsSummary]:
+    if not match_ids:
+        return {}
+    snapshots = (
+        session.query(HistoricalOddsSnapshot)
+        .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
+        .order_by(
+            HistoricalOddsSnapshot.match_id.asc(),
+            HistoricalOddsSnapshot.snapshot_time.desc(),
+        )
+        .all()
+    )
+    snapshots_by_match_id: dict[int, list[HistoricalOddsSnapshot]] = {}
+    for snapshot in snapshots:
+        snapshots_by_match_id.setdefault(snapshot.match_id, []).append(snapshot)
+    return {
+        match_id: MatchOddsSummary(
+            asian_handicap=_format_asian_handicap(_latest_market_pair(match_snapshots, "asian_handicap")),
+            total_goals=_format_total_goals(_latest_market_pair(match_snapshots, "total_goals")),
+            match_winner=_format_match_winner(match_snapshots),
+        )
+        for match_id, match_snapshots in snapshots_by_match_id.items()
+    }
 
 
 def _latest_market_pair(

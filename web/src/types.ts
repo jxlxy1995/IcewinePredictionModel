@@ -401,7 +401,7 @@ export type MatchListFilters = {
   end_time: string;
   league_name: string | null;
   status_filter: string;
-  odds_filter: string;
+  odds_filter: string | string[];
   search: string | null;
 };
 
@@ -427,6 +427,8 @@ export type MatchListMatch = {
   home_score: number | null;
   away_score: number | null;
   has_odds: boolean;
+  odds_status_key: string;
+  odds_status_label: string;
   odds_summary: MatchOddsSummary;
 };
 

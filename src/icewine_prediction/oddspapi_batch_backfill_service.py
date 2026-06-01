@@ -16,6 +16,7 @@ from icewine_prediction.oddspapi_sync_runner import (
     API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS,
     OddsPapiSyncResult,
     run_oddspapi_sync_result,
+    _has_complete_historical_odds,
 )
 from icewine_prediction.display_service import DisplayNameService
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, OddsSourceMatch
@@ -722,13 +723,8 @@ def _count_candidate_matches_for_league(
     match_ids: set[int] | None,
 ) -> int:
     query = (
-        session.query(func.count(Match.id))
+        session.query(Match)
         .join(League, Match.league_id == League.id)
-        .outerjoin(
-            HistoricalOddsSnapshot,
-            (HistoricalOddsSnapshot.match_id == Match.id)
-            & (HistoricalOddsSnapshot.source_name == "oddspapi"),
-        )
         .outerjoin(
             OddsSourceMatch,
             (OddsSourceMatch.match_id == Match.id)
@@ -739,7 +735,6 @@ def _count_candidate_matches_for_league(
         .filter(Match.status == "finished")
         .filter(Match.home_score.isnot(None))
         .filter(Match.away_score.isnot(None))
-        .filter(HistoricalOddsSnapshot.id.is_(None))
         .filter(
             (OddsSourceMatch.id.is_(None))
             | (OddsSourceMatch.historical_odds_status.is_(None))
@@ -752,7 +747,13 @@ def _count_candidate_matches_for_league(
         query = query.filter(~Match.id.in_(skip_match_ids))
     if match_ids:
         query = query.filter(Match.id.in_(match_ids))
-    return int(query.scalar() or 0)
+    return len(
+        [
+            match
+            for match in query.all()
+            if not _has_complete_historical_odds(session, match.id, match.kickoff_time)
+        ]
+    )
 
 
 def _run_league_backfill(

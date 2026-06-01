@@ -120,11 +120,25 @@ type NavItem = {
 type MatchListFilterState = {
   end_time: string;
   league_name: string;
-  odds_filter: string;
+  odds_filter: string[];
   search: string;
   start_time: string;
   status_filter: string;
 };
+
+type PaperFilterState = {
+  end_time: string;
+  start_time: string;
+};
+
+const matchOddsStatusOptions = [
+  { key: "none", label: "无赔率" },
+  { key: "early", label: "早盘" },
+  { key: "near", label: "近盘" },
+  { key: "close", label: "临盘" },
+  { key: "pending_fill", label: "待回填" },
+  { key: "filled", label: "已回填" }
+];
 
 export const initialDashboardView: ViewKey = "matchList";
 
@@ -215,6 +229,10 @@ export function DashboardPage() {
   const [paperAction, setPaperAction] = useState<string | null>(null);
   const [paperMessage, setPaperMessage] = useState<string | null>(null);
   const [paperError, setPaperError] = useState<string | null>(null);
+  const [paperFilters, setPaperFilters] = useState<PaperFilterState>({
+    end_time: "",
+    start_time: ""
+  });
   const [matchListAction, setMatchListAction] = useState<string | null>(null);
   const [matchListMessage, setMatchListMessage] = useState<string | null>(null);
   const [matchListError, setMatchListError] = useState<string | null>(null);
@@ -225,7 +243,7 @@ export function DashboardPage() {
   const [matchListFilters, setMatchListFilters] = useState<MatchListFilterState>({
     ...defaultMatchListDateRange(),
     league_name: "",
-    odds_filter: "all",
+    odds_filter: [],
     search: "",
     status_filter: "all"
   });
@@ -276,7 +294,7 @@ export function DashboardPage() {
     }
     if (activeView === "paperTracking") {
       setPaperAction("refresh");
-      refreshPaperWorkspace(setData)
+      refreshPaperWorkspace(setData, paperFilters)
         .catch(() => setPaperError("刷新纸面跟踪失败"))
         .finally(() => setPaperAction(null));
     }
@@ -599,6 +617,7 @@ export function DashboardPage() {
             actionInFlight={paperAction}
             data={data}
             errorText={paperError}
+            filters={paperFilters}
             messageText={paperMessage}
             onBatchRecord={(candidates) => {
               setPaperAction("batch-record");
@@ -606,10 +625,10 @@ export function DashboardPage() {
               setPaperMessage(null);
               Promise.all(
                 candidates.map((candidate) =>
-                  recordPaperCandidate(candidate.match_id, candidate.strategy_key)
+                  recordPaperCandidate(candidate.match_id, candidate.strategy_key, paperFilters)
                 )
               )
-                .then(() => refreshPaperWorkspace(setData))
+                .then(() => refreshPaperWorkspace(setData, paperFilters))
                 .then(() => setPaperMessage(`已记录 ${candidates.length} 条纸面观察`))
                 .catch(() => setPaperError("批量记录纸面观察失败"))
                 .finally(() => setPaperAction(null));
@@ -619,7 +638,7 @@ export function DashboardPage() {
               setPaperError(null);
               setPaperMessage(null);
               editPaperRecord(record.id, payload)
-                .then(() => refreshPaperWorkspace(setData))
+                .then(() => refreshPaperWorkspace(setData, paperFilters))
                 .then(() => setPaperMessage("纸面记录已更新"))
                 .catch(() => setPaperError("编辑纸面记录失败"))
                 .finally(() => setPaperAction(null));
@@ -628,17 +647,20 @@ export function DashboardPage() {
               setPaperAction(`record-${candidate.match_id}`);
               setPaperError(null);
               setPaperMessage(null);
-              recordPaperCandidate(candidate.match_id, candidate.strategy_key)
-                .then(() => refreshPaperWorkspace(setData))
+              recordPaperCandidate(candidate.match_id, candidate.strategy_key, paperFilters)
+                .then(() => refreshPaperWorkspace(setData, paperFilters))
                 .then(() => setPaperMessage("已记录纸面观察"))
                 .catch(() => setPaperError("记录纸面观察失败"))
                 .finally(() => setPaperAction(null));
+            }}
+            onFiltersChange={(filters) => {
+              setPaperFilters((current) => ({ ...current, ...filters }));
             }}
             onRefresh={() => {
               setPaperAction("refresh");
               setPaperError(null);
               setPaperMessage(null);
-              refreshPaperWorkspace(setData)
+              refreshPaperWorkspace(setData, paperFilters)
                 .then(() => setPaperMessage("纸面跟踪已刷新"))
                 .catch(() => setPaperError("刷新纸面跟踪失败"))
                 .finally(() => setPaperAction(null));
@@ -648,7 +670,7 @@ export function DashboardPage() {
               setPaperError(null);
               setPaperMessage(null);
               settlePaperRecords()
-                .then(() => refreshPaperWorkspace(setData))
+                .then(() => refreshPaperWorkspace(setData, paperFilters))
                 .then(() => setPaperMessage("已结算可结算纸面记录"))
                 .catch(() => setPaperError("结算纸面记录失败"))
                 .finally(() => setPaperAction(null));
@@ -658,7 +680,7 @@ export function DashboardPage() {
               setPaperError(null);
               setPaperMessage(null);
               voidPaperRecord(record.id)
-                .then(() => refreshPaperWorkspace(setData))
+                .then(() => refreshPaperWorkspace(setData, paperFilters))
                 .then(() => setPaperMessage("纸面记录已作废"))
                 .catch(() => setPaperError("作废纸面记录失败"))
                 .finally(() => setPaperAction(null));
@@ -712,7 +734,7 @@ function MatchListView({
   filters: {
     end_time: string;
     league_name: string;
-    odds_filter: string;
+    odds_filter: string[];
     search: string;
     start_time: string;
     status_filter: string;
@@ -829,14 +851,10 @@ function MatchListView({
             <option value="live">进行中</option>
             <option value="finished">已完赛</option>
           </select>
-          <select
-            onChange={(event) => onFiltersChange({ odds_filter: event.target.value })}
-            value={filters.odds_filter}
-          >
-            <option value="all">全部赔率</option>
-            <option value="with_odds">有赔率</option>
-            <option value="without_odds">无赔率</option>
-          </select>
+          <OddsStatusFilter
+            selected={filters.odds_filter}
+            onChange={(odds_filter) => onFiltersChange({ odds_filter })}
+          />
           <input
             onChange={(event) => onFiltersChange({ search: event.target.value })}
             placeholder="搜索球队"
@@ -981,14 +999,10 @@ function FilteredMatchListView({
             <option value="live">进行中</option>
             <option value="finished">已完赛</option>
           </select>
-          <select
-            onChange={(event) => onFiltersChange({ odds_filter: event.target.value })}
-            value={filters.odds_filter}
-          >
-            <option value="all">全部赔率</option>
-            <option value="with_odds">有赔率</option>
-            <option value="without_odds">无赔率</option>
-          </select>
+          <OddsStatusFilter
+            selected={filters.odds_filter}
+            onChange={(odds_filter) => onFiltersChange({ odds_filter })}
+          />
           <input
             onChange={(event) => onFiltersChange({ search: event.target.value })}
             placeholder="搜索球队"
@@ -1174,12 +1188,41 @@ function TeamBadge({ logoUrl, name }: { logoUrl?: string | null; name: string })
   );
 }
 
+function OddsStatusFilter({
+  onChange,
+  selected
+}: {
+  onChange: (selected: string[]) => void;
+  selected: string[];
+}) {
+  const selectedSet = new Set(selected);
+  return (
+    <div className="odds-status-filter" aria-label="赔率状态">
+      {matchOddsStatusOptions.map((option) => (
+        <label className={selectedSet.has(option.key) ? "selected" : ""} key={option.key}>
+          <input
+            checked={selectedSet.has(option.key)}
+            onChange={(event) => {
+              const next = event.target.checked
+                ? [...selected, option.key]
+                : selected.filter((key) => key !== option.key);
+              onChange(next);
+            }}
+            type="checkbox"
+          />
+          {option.label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 function refreshMatchListWorkspace(
   setData: React.Dispatch<React.SetStateAction<DashboardData>>,
   filters: {
     end_time?: string;
     league_name?: string | null;
-    odds_filter?: string;
+    odds_filter?: string[];
     search?: string | null;
     start_time?: string;
     status_filter?: string;
@@ -1829,9 +1872,11 @@ function PaperTrackingView({
   actionInFlight,
   data,
   errorText,
+  filters,
   messageText,
   onBatchRecord,
   onEdit,
+  onFiltersChange,
   onRecord,
   onRefresh,
   onSettle,
@@ -1840,12 +1885,14 @@ function PaperTrackingView({
   actionInFlight: string | null;
   data: DashboardData;
   errorText: string | null;
+  filters: PaperFilterState;
   messageText: string | null;
   onBatchRecord: (candidates: PaperCandidate[]) => void;
   onEdit: (
     record: PaperRecord,
     payload: { current_market_line: string; current_odds: string; manual_note: string }
   ) => void;
+  onFiltersChange: (filters: Partial<PaperFilterState>) => void;
   onRecord: (candidate: PaperCandidate) => void;
   onRefresh: () => void;
   onSettle: () => void;
@@ -1868,6 +1915,22 @@ function PaperTrackingView({
       </section>
       <Panel title="操作">
         <div className="action-row">
+          <label>
+            <span>开始</span>
+            <input
+              onChange={(event) => onFiltersChange({ start_time: event.target.value })}
+              type="datetime-local"
+              value={filters.start_time}
+            />
+          </label>
+          <label>
+            <span>结束</span>
+            <input
+              onChange={(event) => onFiltersChange({ end_time: event.target.value })}
+              type="datetime-local"
+              value={filters.end_time}
+            />
+          </label>
           <button disabled={isBusy} onClick={onRefresh} type="button">
             刷新候选
           </button>
@@ -1958,9 +2021,10 @@ function PaperGroupTable({
 }
 
 function refreshPaperWorkspace(
-  setData: React.Dispatch<React.SetStateAction<DashboardData>>
+  setData: React.Dispatch<React.SetStateAction<DashboardData>>,
+  filters: PaperFilterState = { end_time: "", start_time: "" }
 ): Promise<void> {
-  return loadPaperRecommendationWorkspace().then((workspace) => {
+  return loadPaperRecommendationWorkspace(filters).then((workspace) => {
     setData((current) => ({ ...current, paperRecommendations: workspace }));
   });
 }

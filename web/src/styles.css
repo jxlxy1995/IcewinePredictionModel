@@ -721,6 +721,39 @@ th {
   width: 100%;
 }
 
+.odds-status-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 220px;
+}
+
+.odds-status-filter label {
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  color: #334155;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 4px;
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.odds-status-filter label.selected {
+  background: #eef2ff;
+  border-color: #818cf8;
+  color: #3730a3;
+}
+
+.odds-status-filter input {
+  height: 13px;
+  min-height: 13px;
+  padding: 0;
+  width: 13px;
+}
+
 .clickable-row {
   cursor: pointer;
 }

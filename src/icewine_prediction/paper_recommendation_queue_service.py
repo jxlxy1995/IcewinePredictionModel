@@ -28,8 +28,12 @@ from icewine_prediction.baseline_total_goals_model_service import (
 )
 from icewine_prediction.config import BEIJING_TIMEZONE
 from icewine_prediction.display_service import DisplayNameService
-from icewine_prediction.feature_service import build_match_odds_features
-from icewine_prediction.models import League, Match, TrainingRun
+from icewine_prediction.feature_service import (
+    MatchOddsFeatures,
+    OddsMarketAggregate,
+    build_match_odds_features,
+)
+from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, TrainingRun
 from icewine_prediction.paper_strategy_registry import (
     BUCKET_V2_STRATEGY,
     DEFAULT_STRATEGY,
@@ -134,6 +138,8 @@ def build_paper_recommendation_queue(
     now: datetime,
     hours: int = 72,
     near_start_hours: int = 6,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
     edge_threshold: str = "0.10",
     prefetch_odds: bool = False,
     odds_prefetcher: Callable[[list[str]], dict[str, Any] | object] | None = None,
@@ -152,21 +158,32 @@ def build_paper_recommendation_queue(
         prefetch_result = _normalize_prefetch_result(odds_prefetcher(near_start_fixture_ids))
     resolved_feature_csv_path = _resolve_feature_csv_path(session, feature_csv_path)
     model_scorer = scorer or _train_live_scorer(resolved_feature_csv_path)
+    matches = _list_candidate_matches(
+        session,
+        now=now,
+        hours=hours,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    historical_snapshots_by_match_id = _historical_snapshots_by_match_id(session, matches)
     rows = [
         row
-        for match in _list_upcoming_matches(session, now=now, hours=hours)
+        for match in matches
         for row in _build_queue_rows(
             match,
             scorer=model_scorer,
             edge_threshold=threshold,
             display_name_service=display_name_service,
+            historical_snapshots=historical_snapshots_by_match_id.get(match.id, []),
         )
     ]
+    window_start = start_time or now
+    window_end = end_time or now + timedelta(hours=hours)
     status_counts = _count_statuses(rows)
     return PaperRecommendationQueueReport(
         generated_at=_format_beijing_datetime(now),
-        window_start=_format_beijing_datetime(now),
-        window_end=_format_beijing_datetime(now + timedelta(hours=hours)),
+        window_start=_format_beijing_datetime(window_start),
+        window_end=_format_beijing_datetime(window_end),
         hours=hours,
         near_start_hours=near_start_hours,
         edge_threshold=threshold,
@@ -273,8 +290,15 @@ def format_paper_recommendation_queue_report(report: PaperRecommendationQueueRep
     return "\n".join(lines)
 
 
-def _list_upcoming_matches(session: Session, *, now: datetime, hours: int) -> list[Match]:
-    return (
+def _list_candidate_matches(
+    session: Session,
+    *,
+    now: datetime,
+    hours: int,
+    start_time: datetime | None,
+    end_time: datetime | None,
+) -> list[Match]:
+    query = (
         session.query(Match)
         .options(
             joinedload(Match.league).joinedload(League.matches),
@@ -282,12 +306,41 @@ def _list_upcoming_matches(session: Session, *, now: datetime, hours: int) -> li
             joinedload(Match.away_team),
             joinedload(Match.odds_snapshots),
         )
-        .filter(Match.status == "scheduled")
+        .order_by(Match.kickoff_time.asc(), Match.id.asc())
+    )
+    if start_time is not None or end_time is not None:
+        start = start_time or now
+        end = end_time or now + timedelta(hours=hours)
+        return (
+            query.filter(Match.status.in_(("scheduled", "finished")))
+            .filter(Match.kickoff_time >= start)
+            .filter(Match.kickoff_time <= end)
+            .all()
+        )
+    return (
+        query.filter(Match.status == "scheduled")
         .filter(Match.kickoff_time >= now)
         .filter(Match.kickoff_time <= now + timedelta(hours=hours))
-        .order_by(Match.kickoff_time.asc(), Match.id.asc())
         .all()
     )
+
+
+def _historical_snapshots_by_match_id(
+    session: Session,
+    matches: list[Match],
+) -> dict[int, list[HistoricalOddsSnapshot]]:
+    finished_match_ids = [match.id for match in matches if match.status == "finished"]
+    if not finished_match_ids:
+        return {}
+    snapshots = (
+        session.query(HistoricalOddsSnapshot)
+        .filter(HistoricalOddsSnapshot.match_id.in_(finished_match_ids))
+        .all()
+    )
+    snapshots_by_match_id: dict[int, list[HistoricalOddsSnapshot]] = {}
+    for snapshot in snapshots:
+        snapshots_by_match_id.setdefault(snapshot.match_id, []).append(snapshot)
+    return snapshots_by_match_id
 
 
 def _near_start_fixture_ids(session: Session, *, now: datetime, near_start_hours: int) -> list[str]:
@@ -309,8 +362,10 @@ def _build_queue_rows(
     scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
     edge_threshold: Decimal,
     display_name_service: DisplayNameService | None = None,
+    historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
 ) -> list[PaperQueueRow]:
-    feature_row = _live_feature_row(match)
+    historical_snapshots = historical_snapshots or []
+    feature_row = _live_feature_row(match, historical_snapshots=historical_snapshots)
     diagnostic_rows = []
     asian_line = _decimal_from_row(feature_row, "asian_handicap_close_line")
     asian_odds = _decimal_from_row(feature_row, "asian_handicap_away_odds")
@@ -325,7 +380,7 @@ def _build_queue_rows(
                 display_name_service=display_name_service,
             )
         )
-    elif not _has_candidate_fresh_odds(match):
+    elif not _has_candidate_fresh_odds(match, historical_snapshots=historical_snapshots):
         diagnostic_rows.append(
             _row(
                 match,
@@ -360,11 +415,17 @@ def _build_queue_rows(
             edge_threshold=edge_threshold,
             feature_row=feature_row,
             display_name_service=display_name_service,
+            historical_snapshots=historical_snapshots,
         )
         if scored is None:
             continue
-        rows.append(scored)
-        rows.extend(row for row in (_bucket_strategy_row(scored),) if row is not None)
+        bucket_row = _bucket_strategy_row(scored)
+        if scored.market_type == DEFAULT_STRATEGY.market_type:
+            rows.append(scored)
+        elif scored.status != "candidate":
+            rows.append(scored)
+        if bucket_row is not None:
+            rows.append(bucket_row)
     return rows or diagnostic_rows
 
 
@@ -375,10 +436,15 @@ def _scored_row(
     edge_threshold: Decimal,
     feature_row: dict[str, str],
     display_name_service: DisplayNameService | None,
+    historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
 ) -> PaperQueueRow | None:
     if score.market_type == "total_goals":
         line = _decimal_from_row(feature_row, "total_goals_close_line")
-        if line is None or not _has_fresh_market_odds(match, market_type="total_goals"):
+        if line is None or not _has_fresh_market_odds(
+            match,
+            market_type="total_goals",
+            historical_snapshots=historical_snapshots,
+        ):
             return None
         odds = (
             _decimal_from_row(feature_row, "total_goals_over_odds")
@@ -552,8 +618,16 @@ def _row(
     )
 
 
-def _live_feature_row(match: Match) -> dict[str, str]:
-    odds_features = build_match_odds_features(match)
+def _live_feature_row(
+    match: Match,
+    *,
+    historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
+) -> dict[str, str]:
+    odds_features = (
+        _historical_odds_features(match, historical_snapshots)
+        if historical_snapshots
+        else build_match_odds_features(match)
+    )
     home_state = _team_prior_state(match, side="home")
     away_state = _team_prior_state(match, side="away")
     row = {feature: "" for feature in FEATURES}
@@ -643,6 +717,62 @@ def _team_prior_state(match: Match, *, side: str) -> _TeamPriorState:
         venue_matches=venue_matches,
         venue_points=venue_points,
         last_kickoff=prior_matches[-1].kickoff_time if prior_matches else None,
+    )
+
+
+def _historical_odds_features(
+    match: Match,
+    snapshots: list[HistoricalOddsSnapshot] | None,
+) -> MatchOddsFeatures:
+    snapshots = snapshots or []
+    asian_pair = _historical_market_pair(snapshots, market_type="asian_handicap")
+    total_pair = _historical_market_pair(snapshots, market_type="total_goals")
+    winner_pair = _historical_market_pair(snapshots, market_type="match_winner")
+    return MatchOddsFeatures(
+        match_id=match.id,
+        bookmaker_count=len({snapshot.bookmaker for snapshot in snapshots}),
+        asian_handicap=_aggregate_one(asian_pair[0] if asian_pair else None),
+        home_odds=_aggregate_one(asian_pair[1].get("home") if asian_pair else None),
+        away_odds=_aggregate_one(asian_pair[1].get("away") if asian_pair else None),
+        total_line=_aggregate_one(total_pair[0] if total_pair else None),
+        over_odds=_aggregate_one(total_pair[1].get("over") if total_pair else None),
+        under_odds=_aggregate_one(total_pair[1].get("under") if total_pair else None),
+        match_winner_home_odds=_aggregate_one(winner_pair[1].get("home") if winner_pair else None),
+        match_winner_draw_odds=_aggregate_one(winner_pair[1].get("draw") if winner_pair else None),
+        match_winner_away_odds=_aggregate_one(winner_pair[1].get("away") if winner_pair else None),
+    )
+
+
+def _historical_market_pair(
+    snapshots: list[HistoricalOddsSnapshot],
+    *,
+    market_type: str,
+) -> tuple[Decimal, dict[str, Decimal]] | None:
+    market_snapshots = [snapshot for snapshot in snapshots if snapshot.market_type == market_type]
+    if not market_snapshots:
+        return None
+    latest_time = max(snapshot.snapshot_time for snapshot in market_snapshots)
+    latest = [snapshot for snapshot in market_snapshots if snapshot.snapshot_time == latest_time]
+    return latest[0].market_line, {snapshot.outcome_side: snapshot.odds for snapshot in latest}
+
+
+def _aggregate_one(value: Decimal | None) -> OddsMarketAggregate:
+    if value is None:
+        return OddsMarketAggregate(
+            sample_count=0,
+            mean=None,
+            median=None,
+            minimum=None,
+            maximum=None,
+            disagreement=None,
+        )
+    return OddsMarketAggregate(
+        sample_count=1,
+        mean=value,
+        median=value,
+        minimum=value,
+        maximum=value,
+        disagreement=Decimal("0.00"),
     )
 
 
@@ -819,11 +949,26 @@ def _risk_tags(line_bucket: str, feature_row: dict[str, str]) -> tuple[str, ...]
     return tuple(tags)
 
 
-def _has_candidate_fresh_odds(match: Match) -> bool:
-    return _has_fresh_market_odds(match, market_type="asian_handicap")
+def _has_candidate_fresh_odds(
+    match: Match,
+    *,
+    historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
+) -> bool:
+    return _has_fresh_market_odds(
+        match,
+        market_type="asian_handicap",
+        historical_snapshots=historical_snapshots,
+    )
 
 
-def _has_fresh_market_odds(match: Match, *, market_type: str) -> bool:
+def _has_fresh_market_odds(
+    match: Match,
+    *,
+    market_type: str,
+    historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
+) -> bool:
+    if historical_snapshots:
+        return _historical_market_pair(historical_snapshots, market_type=market_type) is not None
     latest_captured_at = max(
         (
             snapshot.captured_at

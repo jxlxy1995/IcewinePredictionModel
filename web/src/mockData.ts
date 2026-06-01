@@ -513,6 +513,8 @@ export const mockMatchListWorkspace: MatchListWorkspace = {
       home_score: null,
       away_score: null,
       has_odds: true,
+      odds_status_key: "close",
+      odds_status_label: "临盘",
       odds_summary: {
         asian_handicap: "客队 +0.50 @ 1.950",
         total_goals: null,
@@ -535,6 +537,8 @@ export const mockMatchListWorkspace: MatchListWorkspace = {
       home_score: null,
       away_score: null,
       has_odds: false,
+      odds_status_key: "none",
+      odds_status_label: "无赔率",
       odds_summary: {
         asian_handicap: null,
         total_goals: null,

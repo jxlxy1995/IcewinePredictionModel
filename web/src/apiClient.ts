@@ -181,9 +181,24 @@ export async function loadLatestTrainingRun(): Promise<TrainingRun | null> {
   return await getJsonOrFallback<TrainingRun | null>("/api/training/runs/latest", null);
 }
 
-export async function loadPaperRecommendationWorkspace(): Promise<PaperRecommendationWorkspace> {
+export type PaperRecommendationWorkspaceParams = {
+  end_time?: string;
+  start_time?: string;
+};
+
+export async function loadPaperRecommendationWorkspace(
+  params: PaperRecommendationWorkspaceParams = {}
+): Promise<PaperRecommendationWorkspace> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value == null || value === "") {
+      continue;
+    }
+    query.set(key, value);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
   try {
-    return await getJson<PaperRecommendationWorkspace>("/api/paper-recommendations/workspace");
+    return await getJson<PaperRecommendationWorkspace>(`/api/paper-recommendations/workspace${suffix}`);
   } catch {
     return mockPaperRecommendationWorkspace;
   }
@@ -192,7 +207,7 @@ export async function loadPaperRecommendationWorkspace(): Promise<PaperRecommend
 export async function loadMatchListWorkspace(params: {
   end_time?: string;
   league_name?: string | null;
-  odds_filter?: string;
+  odds_filter?: string | string[];
   search?: string | null;
   start_time?: string;
   status_filter?: string;
@@ -202,7 +217,7 @@ export async function loadMatchListWorkspace(params: {
     if (value == null || value === "") {
       continue;
     }
-    query.set(key, value);
+    query.set(key, Array.isArray(value) ? value.join(",") : value);
   }
   const suffix = query.toString() ? `?${query.toString()}` : "";
   try {
@@ -231,23 +246,29 @@ export async function syncMatchListOdds(days: number): Promise<unknown> {
 export async function syncFilteredMatchListFixturesResults(filters: {
   end_time?: string;
   league_name?: string | null;
-  odds_filter?: string;
+  odds_filter?: string | string[];
   search?: string | null;
   start_time?: string;
   status_filter?: string;
 }): Promise<MatchSyncResponse> {
-  return await postJson<MatchSyncResponse>("/api/match-list/sync/fixtures-results", filters);
+  return await postJson<MatchSyncResponse>("/api/match-list/sync/fixtures-results", {
+    ...filters,
+    odds_filter: serializeOddsFilter(filters.odds_filter)
+  });
 }
 
 export async function syncFilteredMatchListOdds(filters: {
   end_time?: string;
   league_name?: string | null;
-  odds_filter?: string;
+  odds_filter?: string | string[];
   search?: string | null;
   start_time?: string;
   status_filter?: string;
 }): Promise<MatchSyncResponse> {
-  return await postJson<MatchSyncResponse>("/api/match-list/sync/odds", filters);
+  return await postJson<MatchSyncResponse>("/api/match-list/sync/odds", {
+    ...filters,
+    odds_filter: serializeOddsFilter(filters.odds_filter)
+  });
 }
 
 export async function syncSingleMatchFixturesResults(matchId: number): Promise<MatchSyncResponse> {
@@ -262,13 +283,19 @@ export async function loadMatchSyncRunDetail(runId: number): Promise<MatchSyncRu
   return await getJson<MatchSyncRunDetail>(`/api/data-sync-runs/${runId}/items`);
 }
 
+function serializeOddsFilter(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value.join(",") : value;
+}
+
 export async function recordPaperCandidate(
   matchId: number,
-  strategyKey?: string
+  strategyKey?: string,
+  params: PaperRecommendationWorkspaceParams = {}
 ): Promise<unknown> {
   return await postJson("/api/paper-recommendations/records", {
     match_id: matchId,
-    strategy_key: strategyKey
+    strategy_key: strategyKey,
+    ...params
   });
 }
 

@@ -54,7 +54,7 @@ export function buildMatchListRows(workspace: MatchListWorkspace): MatchListDisp
     kickoffTime: formatDateTime(match.kickoff_time),
     league: match.league_display_name ?? match.league_name,
     match,
-    oddsAvailability: formatOddsAvailability(match.has_odds),
+    oddsAvailability: formatOddsAvailability(match),
     scoreText: formatScore(match),
     statusText: formatMatchStatus(match.status)
   }));
@@ -122,8 +122,11 @@ export function formatMatchStatus(value: string): string {
   return labels[value] ?? value;
 }
 
-export function formatOddsAvailability(hasOdds: boolean): string {
-  return hasOdds ? "有赔率" : "无赔率";
+export function formatOddsAvailability(matchOrHasOdds: MatchListMatch | boolean): string {
+  if (typeof matchOrHasOdds !== "boolean") {
+    return matchOrHasOdds.odds_status_label ?? (matchOrHasOdds.has_odds ? "有赔率" : "无赔率");
+  }
+  return matchOrHasOdds ? "有赔率" : "无赔率";
 }
 
 function formatScore(match: MatchListMatch): string {

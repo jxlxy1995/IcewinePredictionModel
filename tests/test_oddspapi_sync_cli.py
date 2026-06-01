@@ -70,10 +70,12 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
         league_ids=None,
         from_date=None,
         historical_odds_cooldown_seconds=5,
+        refresh_pre_kickoff_existing=False,
         progress_callback=None: (
             f"fetch:{season}:{max_matches}:{request_budget}:"
             f"{timeout_seconds}:{max_snapshots_per_match}:{skip_match_ids}:"
-            f"{match_ids}:{league_ids}:{from_date}:{historical_odds_cooldown_seconds}"
+            f"{match_ids}:{league_ids}:{from_date}:{historical_odds_cooldown_seconds}:"
+            f"{refresh_pre_kickoff_existing}"
         ),
     )
 
@@ -100,6 +102,7 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
             "2026-01-15",
             "--historical-odds-cooldown-seconds",
             "3",
+            "--refresh-pre-kickoff-existing",
         ],
     )
 
@@ -107,7 +110,7 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
     assert "fetch:2025:20:50:12:150:{1149, 1150}:" in result.stdout
     assert "'135'" in result.stdout
     assert "'140'" in result.stdout
-    assert ":2026-01-15:3.0" in result.stdout
+    assert ":2026-01-15:3.0:True" in result.stdout
 
 
 def test_oddspapi_probe_accepts_season_match_limit_and_request_budget(monkeypatch):

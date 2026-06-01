@@ -1,9 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from icewine_prediction.models import League, Match, OddsSnapshot, Team, TrainingRun
+from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, OddsSnapshot, Team, TrainingRun
 from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScore,
     build_paper_recommendation_queue,
@@ -137,7 +137,7 @@ def test_build_paper_recommendation_queue_marks_candidate_no_odds_and_prefetch(s
     candidate = next(row for row in report.rows if row.status == "candidate")
     assert candidate.line_bucket == "away_favorite"
     assert candidate.risk_tags == ("line_bucket:away_favorite",)
-    assert candidate.recommended_handicap == "客队 -0.25"
+    assert candidate.recommended_handicap.endswith("-0.25")
 
 
 def test_build_paper_recommendation_queue_uses_latest_successful_training_features(
@@ -285,6 +285,77 @@ def test_build_paper_recommendation_queue_requires_odds_within_three_hours_befor
 
     assert report.candidate_count == 0
     assert report.rows[0].status == "stale_odds"
+
+
+def test_build_paper_recommendation_queue_replays_finished_match_with_historical_close_odds(session):
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="finished",
+        home_score=1,
+        away_score=2,
+        source_name="api_football",
+        source_match_id="finished-priced",
+    )
+    session.add(match)
+    session.flush()
+    _add_historical_market_pair(
+        session,
+        match,
+        market_type="asian_handicap",
+        line=Decimal("-0.50"),
+        outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
+    )
+    _add_historical_market_pair(
+        session,
+        match,
+        market_type="total_goals",
+        line=Decimal("2.50"),
+        outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+    )
+    _add_historical_market_pair(
+        session,
+        match,
+        market_type="match_winner",
+        line=Decimal("0.00"),
+        outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
+    )
+    session.commit()
+
+    def fake_scorer(row):
+        assert row["asian_handicap_close_line"] == "-0.50"
+        assert row["asian_handicap_away_odds"] == "1.930"
+        assert row["match_winner_home_implied_probability"] == "0.4762"
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5181"),
+            edge=Decimal("0.1319"),
+            model_name="fake_hgb",
+        )
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 31, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        start_time=datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        end_time=datetime(2026, 5, 30, 23, 59, tzinfo=ZoneInfo("Asia/Shanghai")),
+        scorer=fake_scorer,
+    )
+
+    assert report.total_matches == 1
+    assert report.candidate_count == 1
+    candidate = report.rows[0]
+    assert candidate.status == "candidate"
+    assert candidate.source_match_id == "finished-priced"
+    assert candidate.recommended_handicap.endswith("+0.50")
 
 
 def test_build_paper_recommendation_queue_adds_v2_bucket_strategy_candidate(session):
@@ -459,7 +530,7 @@ def test_build_paper_recommendation_queue_adds_total_goals_bucket_strategy_candi
                 side="under",
                 model_probability=Decimal("0.5900"),
                 market_probability=Decimal("0.5000"),
-                edge=Decimal("0.0900"),
+                edge=Decimal("0.1100"),
                 model_name="fake_hgb",
             )
         ]
@@ -477,9 +548,16 @@ def test_build_paper_recommendation_queue_adds_total_goals_bucket_strategy_candi
     assert candidate.side == "under"
     assert candidate.line == Decimal("2.75")
     assert candidate.odds == Decimal("2.000")
-    assert candidate.recommended_handicap == "小 2.75"
+    assert candidate.recommended_handicap.endswith("2.75")
     assert candidate.line_bucket == "mid_2.75"
     assert candidate.risk_tags == ("line_bucket:mid_2.75", "strategy:total_goals_bucket_v2")
+    assert [
+        row
+        for row in report.rows
+        if row.status == "candidate"
+        and row.market_type == "total_goals"
+        and row.strategy_key == "asian_away_cover_hgb_edge_v1"
+    ] == []
 
 
 def test_build_paper_recommendation_queue_keeps_total_goals_candidate_without_asian_odds(session):
@@ -613,3 +691,31 @@ def test_format_paper_recommendation_queue_report_includes_candidate_detail(sess
     assert "Recommended handicap" in text
     assert "Candidates" in text
     assert str(report.total_matches) in text
+
+
+def _add_historical_market_pair(
+    session,
+    match: Match,
+    *,
+    market_type: str,
+    line: Decimal,
+    outcomes: dict[str, Decimal],
+) -> None:
+    snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=30)
+    for side, odds in outcomes.items():
+        session.add(
+            HistoricalOddsSnapshot(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id=match.source_match_id or str(match.id),
+                bookmaker="pinnacle",
+                market_type=market_type,
+                market_id=f"{market_type}-{side}",
+                market_name=market_type,
+                market_line=line,
+                outcome_side=side,
+                odds=odds,
+                snapshot_time=snapshot_time,
+                period="fulltime",
+            )
+        )

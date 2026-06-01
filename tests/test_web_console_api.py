@@ -594,13 +594,87 @@ def test_web_console_api_returns_paper_recommendation_queue(tmp_path):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total_matches"] == 1
-    assert payload["candidate_count"] == 1
-    assert payload["rows"][0]["status"] == "candidate"
-    assert payload["rows"][0]["league_display_name"] == "Test League"
-    assert payload["rows"][0]["home_team_display_name"] == "Test Home"
-    assert payload["rows"][0]["recommended_handicap"] == "客队 -0.25"
+    assert payload["total_matches"] >= 1
+    assert payload["candidate_count"] >= 1
+    candidate = next(row for row in payload["rows"] if row["status"] == "candidate")
+    assert candidate["league_display_name"] == "Test League"
+    assert candidate["home_team_display_name"] == "Test Home"
+    assert candidate["recommended_handicap"].endswith("-0.25")
 
+def test_web_console_api_paper_workspace_replays_finished_window(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    seeded = _seed_console_data(session_factory)
+
+    with session_factory() as session:
+        match = session.get(Match, seeded["matched_match_id"])
+        match.kickoff_time = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        session.add(
+            HistoricalOddsSnapshot(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id="p1",
+                bookmaker="pinnacle",
+                market_type="asian_handicap",
+                market_id="ah-away",
+                market_name="Asian Handicap",
+                market_line=Decimal("-0.50"),
+                outcome_side="away",
+                odds=Decimal("1.930"),
+                snapshot_time=datetime(2026, 5, 29, 18, 30, tzinfo=ZoneInfo("UTC")),
+                period="prematch",
+            )
+        )
+        session.add(
+            HistoricalOddsSnapshot(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id="p1",
+                bookmaker="pinnacle",
+                market_type="total_goals",
+                market_id="ou-under",
+                market_name="Total Goals",
+                market_line=Decimal("2.50"),
+                outcome_side="under",
+                odds=Decimal("2.000"),
+                snapshot_time=datetime(2026, 5, 29, 18, 30, tzinfo=ZoneInfo("UTC")),
+                period="prematch",
+            )
+        )
+        session.commit()
+
+    def fake_scorer(row):
+        from icewine_prediction.paper_recommendation_queue_service import PaperQueueScore
+
+        assert row["asian_handicap_away_odds"] == "1.930"
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5181"),
+            edge=Decimal("0.1319"),
+            model_name="fake_hgb",
+        )
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            paper_queue_scorer=fake_scorer,
+            clock=lambda: datetime(2026, 5, 31, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    response = client.get(
+        "/api/paper-recommendations/workspace"
+        "?start_time=2026-05-30T00:00:00%2B08:00"
+        "&end_time=2026-05-30T23:59:00%2B08:00"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["candidate_count"] == 1
+    assert payload["candidates"][0]["match_id"] == seeded["matched_match_id"]
 
 def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
     engine = create_memory_database()

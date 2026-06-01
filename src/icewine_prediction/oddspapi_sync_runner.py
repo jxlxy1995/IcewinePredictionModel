@@ -45,6 +45,12 @@ SELECTED_BOOKMAKERS = "pinnacle"
 TERMINAL_HISTORICAL_ODDS_STATUSES = {"empty", "unavailable", "unmatched"}
 HISTORICAL_ODDS_TIMEOUT_ATTEMPTS = 2
 COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT = 100
+COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW = timedelta(hours=3)
+COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS = {
+    "asian_handicap": {"home", "away"},
+    "total_goals": {"over", "under"},
+    "match_winner": {"home", "draw", "away"},
+}
 
 API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "39": 17,
@@ -391,6 +397,7 @@ def run_oddspapi_sync(
     league_ids: set[str] | None = None,
     from_date: datetime | None = None,
     historical_odds_cooldown_seconds: float = 6,
+    refresh_pre_kickoff_existing: bool = False,
     progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     settings = load_project_settings()
@@ -419,6 +426,7 @@ def run_oddspapi_sync(
             match_ids=match_ids,
             league_ids=league_ids,
             from_date=from_date,
+            refresh_pre_kickoff_existing=refresh_pre_kickoff_existing,
             progress_callback=progress_callback,
         )
     return _format_result(result)
@@ -435,6 +443,7 @@ def run_oddspapi_sync_result(
     league_ids: set[str] | None = None,
     from_date: datetime | None = None,
     historical_odds_cooldown_seconds: float = 6,
+    refresh_pre_kickoff_existing: bool = False,
     progress_callback: Callable[[str], None] | None = None,
 ) -> OddsPapiSyncResult:
     settings = load_project_settings()
@@ -463,6 +472,7 @@ def run_oddspapi_sync_result(
             match_ids=match_ids,
             league_ids=league_ids,
             from_date=from_date,
+            refresh_pre_kickoff_existing=refresh_pre_kickoff_existing,
             progress_callback=progress_callback,
         )
 
@@ -621,6 +631,7 @@ def run_oddspapi_sync_for_session(
     match_ids: set[int] | None = None,
     league_ids: set[str] | None = None,
     from_date: datetime | None = None,
+    refresh_pre_kickoff_existing: bool = False,
     progress_callback: Callable[[str], None] | None = None,
 ) -> OddsPapiSyncResult:
     matches, skipped_existing_odds = select_oddspapi_candidate_matches(
@@ -630,6 +641,7 @@ def run_oddspapi_sync_for_session(
         league_ids=league_ids,
         from_date=from_date,
         match_ids=match_ids,
+        refresh_pre_kickoff_existing=refresh_pre_kickoff_existing,
     )
     if skip_match_ids:
         matches = [match for match in matches if match.id not in skip_match_ids]
@@ -1241,6 +1253,8 @@ def select_oddspapi_candidate_matches(
     league_ids: set[str] | None = None,
     from_date: datetime | None = None,
     match_ids: set[int] | None = None,
+    refresh_pre_kickoff_existing: bool = False,
+    reference_time: datetime | None = None,
 ) -> tuple[list[Match], int]:
     league_priorities = _load_league_priority_by_source_id()
     query = (
@@ -1267,7 +1281,13 @@ def select_oddspapi_candidate_matches(
             continue
         if league_ids is not None and str(match.league.source_league_id) not in league_ids:
             continue
-        if _has_complete_historical_odds(session, match.id, match.kickoff_time):
+        if _has_complete_historical_odds(
+            session,
+            match.id,
+            match.kickoff_time,
+            refresh_pre_kickoff_existing=refresh_pre_kickoff_existing,
+            reference_time=reference_time,
+        ):
             skipped_existing_odds += 1
             continue
         if not match_ids and _has_terminal_historical_odds_status(session, match.id):
@@ -1301,14 +1321,47 @@ def _has_complete_historical_odds(
     session: Session,
     match_id: int,
     kickoff_time: datetime,
+    *,
+    refresh_pre_kickoff_existing: bool = False,
+    reference_time: datetime | None = None,
 ) -> bool:
-    return (
-        _historical_odds_snapshot_count(
-            session,
-            match_id,
-            kickoff_time=kickoff_time,
-        )
-        >= COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT
+    kickoff_utc = _as_utc(kickoff_time)
+    snapshots = (
+        session.query(HistoricalOddsSnapshot)
+        .filter_by(match_id=match_id, source_name=ODDSPAPI_SOURCE_NAME)
+        .filter(HistoricalOddsSnapshot.snapshot_time >= kickoff_utc - timedelta(hours=24))
+        .filter(HistoricalOddsSnapshot.snapshot_time <= kickoff_utc)
+        .all()
+    )
+    if len(snapshots) < COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT:
+        return False
+    latest_snapshot_time = max(
+        (_historical_snapshot_as_utc(snapshot.snapshot_time) for snapshot in snapshots),
+        default=None,
+    )
+    reference = reference_time or now_beijing()
+    reference_utc = _as_utc(reference)
+    if (
+        refresh_pre_kickoff_existing
+        and reference_utc < kickoff_utc
+        and latest_snapshot_time is not None
+        and latest_snapshot_time < reference_utc
+    ):
+        return False
+    close_window_start = kickoff_utc - COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW
+    close_snapshots = [
+        snapshot
+        for snapshot in snapshots
+        if close_window_start <= _historical_snapshot_as_utc(snapshot.snapshot_time) <= kickoff_utc
+    ]
+    if not close_snapshots:
+        return False
+    sides_by_market: dict[str, set[str]] = {}
+    for snapshot in close_snapshots:
+        sides_by_market.setdefault(snapshot.market_type, set()).add(snapshot.outcome_side)
+    return all(
+        required_sides.issubset(sides_by_market.get(market_type, set()))
+        for market_type, required_sides in COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS.items()
     )
 
 
@@ -1327,6 +1380,12 @@ def _historical_odds_snapshot_count(
         query = query.filter(HistoricalOddsSnapshot.snapshot_time >= kickoff_utc - timedelta(hours=24))
         query = query.filter(HistoricalOddsSnapshot.snapshot_time <= kickoff_utc)
     return int(query.scalar() or 0)
+
+
+def _historical_snapshot_as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=ZoneInfo("UTC"))
+    return value.astimezone(ZoneInfo("UTC"))
 
 
 def _get_odds_source_match(session: Session, match_id: int) -> OddsSourceMatch | None:

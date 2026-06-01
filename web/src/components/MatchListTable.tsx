@@ -1,5 +1,5 @@
 import type { MatchListMatch } from "../types";
-import { buildMatchListRows, formatOddsAvailability } from "../matchListWorkspace";
+import { buildMatchListRows } from "../matchListWorkspace";
 import type { MatchListWorkspace } from "../types";
 
 type MatchListTableProps = {
@@ -56,7 +56,7 @@ export function MatchListTable({
             </td>
             <td>{row.statusText}</td>
             <td>{row.scoreText}</td>
-            <td>{formatOddsAvailability(row.match.has_odds)}</td>
+            <td>{row.oddsAvailability}</td>
             <td>
               <div className="inline-actions">
                 <button

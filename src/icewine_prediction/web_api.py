@@ -550,6 +550,8 @@ def create_web_app(
         hours: int = 72,
         near_start_hours: int = 6,
         edge_threshold: str = "0.10",
+        start_time: str | None = None,
+        end_time: str | None = None,
     ) -> dict[str, Any]:
         with session_factory() as session:
             report = build_paper_recommendation_queue(
@@ -557,6 +559,8 @@ def create_web_app(
                 now=clock(),
                 hours=hours,
                 near_start_hours=near_start_hours,
+                start_time=_parse_optional_datetime(start_time),
+                end_time=_parse_optional_datetime(end_time),
                 edge_threshold=edge_threshold,
                 scorer=paper_queue_scorer,
                 display_name_service=display_name_service,
@@ -571,6 +575,8 @@ def create_web_app(
         hours: int = 72,
         near_start_hours: int = 6,
         edge_threshold: str = "0.10",
+        start_time: str | None = None,
+        end_time: str | None = None,
     ) -> dict[str, Any]:
         training_fingerprint = _latest_successful_training_fingerprint(session_factory)
         return cached_response(
@@ -579,6 +585,8 @@ def create_web_app(
                 hours,
                 near_start_hours,
                 edge_threshold,
+                start_time,
+                end_time,
                 training_fingerprint,
             ),
             lambda: _with_session(
@@ -588,6 +596,8 @@ def create_web_app(
                     now=clock(),
                     hours=hours,
                     near_start_hours=near_start_hours,
+                    start_time=_parse_optional_datetime(start_time),
+                    end_time=_parse_optional_datetime(end_time),
                     edge_threshold=edge_threshold,
                     scorer=paper_queue_scorer,
                     display_name_service=display_name_service,
@@ -605,6 +615,8 @@ def create_web_app(
                 now=clock(),
                 hours=int(payload.get("hours", 72)),
                 near_start_hours=int(payload.get("near_start_hours", 6)),
+                start_time=_parse_optional_datetime(payload.get("start_time")),
+                end_time=_parse_optional_datetime(payload.get("end_time")),
                 edge_threshold=str(payload.get("edge_threshold", "0.10")),
                 scorer=paper_queue_scorer,
                 display_name_service=display_name_service,
@@ -843,6 +855,8 @@ def _build_paper_recommendation_workspace_response(
     now: datetime,
     hours: int,
     near_start_hours: int,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
     edge_threshold: str,
     scorer: Callable[[dict[str, str]], PaperQueueScoreResult] | None,
     display_name_service: DisplayNameService,
@@ -852,6 +866,8 @@ def _build_paper_recommendation_workspace_response(
         now=now,
         hours=hours,
         near_start_hours=near_start_hours,
+        start_time=start_time,
+        end_time=end_time,
         edge_threshold=edge_threshold,
         scorer=scorer,
         display_name_service=display_name_service,
@@ -1314,6 +1330,8 @@ def build_match_list_row_payload(row) -> dict[str, Any]:
         "home_score": row.home_score,
         "away_score": row.away_score,
         "has_odds": row.has_odds,
+        "odds_status_key": row.odds_status_key,
+        "odds_status_label": row.odds_status_label,
         "odds_summary": asdict(row.odds_summary),
     }
 
@@ -1335,6 +1353,8 @@ def build_match_detail_payload(detail) -> dict[str, Any]:
         "home_score": detail.home_score,
         "away_score": detail.away_score,
         "has_odds": detail.has_odds,
+        "odds_status_key": detail.odds_status_key,
+        "odds_status_label": detail.odds_status_label,
         "team_data_note": detail.team_data_note,
         "odds_summary": asdict(detail.odds_summary),
         "paper_recommendation_summary": asdict(detail.paper_recommendation_summary),
@@ -2058,6 +2078,7 @@ def _run_match_list_odds_sync(match_ids: list[int]) -> dict[str, Any]:
             max_snapshots_per_match=151,
             match_ids=season_match_ids,
             historical_odds_cooldown_seconds=7.5,
+            refresh_pre_kickoff_existing=True,
         )
         requests_used += result.requests_used
         with _open_session_for_web_sync() as session:

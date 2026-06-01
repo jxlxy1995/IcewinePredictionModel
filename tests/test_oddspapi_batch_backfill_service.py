@@ -1,5 +1,5 @@
 ﻿from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 import json
 import os
@@ -81,6 +81,39 @@ def _get_or_create_test_team(session, canonical_name: str) -> Team:
     if team is not None:
         return team
     return Team(canonical_name=canonical_name)
+
+
+def _add_complete_historical_snapshots(session, match, *, count: int = 120) -> None:
+    kickoff_time = match.kickoff_time
+    if kickoff_time.tzinfo is None:
+        kickoff_time = kickoff_time.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+    snapshot_time = kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=90)
+    markets = [
+        ("asian_handicap", Decimal("-0.25"), ("home", "away")),
+        ("total_goals", Decimal("2.50"), ("over", "under")),
+        ("match_winner", Decimal("0.00"), ("home", "draw", "away")),
+    ]
+    market_counts = {market_type: 0 for market_type, _, _ in markets}
+    for index in range(count):
+        market_type, market_line, sides = markets[index % len(markets)]
+        side = sides[market_counts[market_type] % len(sides)]
+        market_counts[market_type] += 1
+        session.add(
+            HistoricalOddsSnapshot(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id="complete-fixture",
+                bookmaker="pinnacle",
+                market_type=market_type,
+                market_id=f"complete-{market_type}-{index}",
+                market_name=market_type,
+                market_line=market_line,
+                outcome_side=side,
+                odds=Decimal("1.90"),
+                snapshot_time=snapshot_time + timedelta(seconds=index),
+                period="fulltime",
+            )
+        )
 
 
 def test_build_league_backfill_jobs_orders_enabled_supported_leagues_by_priority():
@@ -239,22 +272,7 @@ def test_count_candidate_matches_uses_same_filters_as_sync_selector(session):
             historical_odds_status=None,
         )
     )
-    session.add(
-        HistoricalOddsSnapshot(
-            match_id=completed_match.id,
-            source_name="oddspapi",
-            source_fixture_id="completed-fixture",
-            bookmaker="pinnacle",
-            market_type="asian_handicap",
-            market_id="ah-0",
-            market_name="Asian Handicap 0",
-            market_line=Decimal("0.00"),
-            outcome_side="home",
-            odds=Decimal("1.90"),
-            snapshot_time=datetime(2026, 5, 20, 18, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
-            period="fulltime",
-        )
-    )
+    _add_complete_historical_snapshots(session, completed_match)
     session.commit()
 
     count = batch_service._count_candidate_matches_for_league(
@@ -270,6 +288,23 @@ def test_count_candidate_matches_uses_same_filters_as_sync_selector(session):
     assert empty_match.id
     assert raw_only_match.id
     assert cached_unfilled_match.id
+
+
+def test_count_candidate_matches_includes_existing_incomplete_historical_odds(session):
+    incomplete_match = _batch_match(session, source_match_id="incomplete")
+    _add_complete_historical_snapshots(session, incomplete_match, count=99)
+    session.commit()
+
+    count = batch_service._count_candidate_matches_for_league(
+        session=session,
+        league_id="169",
+        season=2026,
+        from_date=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
+        skip_match_ids=None,
+        match_ids=None,
+    )
+
+    assert count == 1
 
 
 def test_batch_backfill_stops_league_after_consecutive_empty_rounds():

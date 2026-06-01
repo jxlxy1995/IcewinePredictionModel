@@ -140,6 +140,23 @@ describe("apiClient", () => {
     expect(workspace.summary.total_records).toBeGreaterThan(0);
   });
 
+  it("loads paper workspace with replay window params", async () => {
+    const fetchMock = vi.fn(async (rawUrl: string) => {
+      const url = rawUrl.replace(/^http:\/\/127\.0\.0\.1:\d+/, "");
+      return Response.json(apiPayloads["/api/paper-recommendations/workspace"]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await loadPaperRecommendationWorkspace({
+      end_time: "2026-05-30T23:59",
+      start_time: "2026-05-30T00:00"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/paper-recommendations/workspace?end_time=2026-05-30T23%3A59&start_time=2026-05-30T00%3A00"
+    );
+  });
+
   it("loads latest training run", async () => {
     vi.stubGlobal(
       "fetch",
@@ -196,12 +213,13 @@ describe("apiClient", () => {
     const workspace = await loadMatchListWorkspace({
       end_time: "2026-05-31T12:00",
       league_name: "J1 League",
+      odds_filter: ["none", "near"],
       start_time: "2026-05-30T00:00",
       status_filter: "live"
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/match-list/workspace?end_time=2026-05-31T12%3A00&league_name=J1+League&start_time=2026-05-30T00%3A00&status_filter=live"
+      "/api/match-list/workspace?end_time=2026-05-31T12%3A00&league_name=J1+League&odds_filter=none%2Cnear&start_time=2026-05-30T00%3A00&status_filter=live"
     );
     expect(workspace.filters.start_time).toBe("2026-05-30T00:00:00+08:00");
   });
@@ -242,7 +260,7 @@ describe("apiClient", () => {
     await syncFilteredMatchListFixturesResults({
       end_time: "2026-05-31T12:00",
       league_name: "J1 League",
-      odds_filter: "with_odds",
+      odds_filter: ["pending_fill", "none"],
       search: "hiro",
       start_time: "2026-05-30T00:00",
       status_filter: "not_started"
@@ -252,7 +270,7 @@ describe("apiClient", () => {
       body: JSON.stringify({
         end_time: "2026-05-31T12:00",
         league_name: "J1 League",
-        odds_filter: "with_odds",
+        odds_filter: "pending_fill,none",
         search: "hiro",
         start_time: "2026-05-30T00:00",
         status_filter: "not_started"

@@ -1440,6 +1440,7 @@ def odds_source_oddspapi_fetch(
         6,
         "--historical-odds-cooldown-seconds",
     ),
+    refresh_pre_kickoff_existing: bool = typer.Option(False, "--refresh-pre-kickoff-existing"),
 ):
     typer.echo(
         run_oddspapi_sync(
@@ -1453,6 +1454,7 @@ def odds_source_oddspapi_fetch(
             league_ids=_parse_str_set(league_ids),
             from_date=date.fromisoformat(from_date) if from_date else None,
             historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
+            refresh_pre_kickoff_existing=refresh_pre_kickoff_existing,
             progress_callback=typer.echo,
         )
     )

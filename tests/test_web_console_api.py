@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -642,6 +642,7 @@ def test_web_console_api_paper_workspace_replays_finished_window(tmp_path):
                 period="prematch",
             )
         )
+        _add_complete_historical_odds(session, match)
         session.commit()
 
     def fake_scorer(row):
@@ -897,7 +898,7 @@ def test_web_console_api_paper_workspace_lists_only_recordable_candidates(tmp_pa
     assert queue_response.status_code == 200
     workspace = workspace_response.json()
     queue = queue_response.json()
-    assert queue["rows"][0]["status"] == "stale_odds"
+    assert queue["rows"][0]["status"] == "odds_status_not_ready"
     assert workspace["summary"]["candidate_count"] == 0
     assert workspace["candidates"] == []
 
@@ -2326,3 +2327,38 @@ def _seed_console_data(session_factory):
         )
         session.commit()
         return {"matched_match_id": matched_match.id}
+
+
+def _add_complete_historical_odds(session, match: Match) -> None:
+    snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=6)
+    markets = [
+        ("asian_handicap", Decimal("-0.50"), ("home", "away"), {"home": Decimal("1.990"), "away": Decimal("1.930")}),
+        ("total_goals", Decimal("2.50"), ("over", "under"), {"over": Decimal("1.900"), "under": Decimal("2.000")}),
+        (
+            "match_winner",
+            Decimal("0.00"),
+            ("home", "draw", "away"),
+            {"home": Decimal("2.100"), "draw": Decimal("3.250"), "away": Decimal("3.400")},
+        ),
+    ]
+    counts = {market_type: 0 for market_type, _, _, _ in markets}
+    for index in range(120):
+        market_type, line, sides, odds_by_side = markets[index % len(markets)]
+        side = sides[counts[market_type] % len(sides)]
+        counts[market_type] += 1
+        session.add(
+            HistoricalOddsSnapshot(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id=match.source_match_id or str(match.id),
+                bookmaker="pinnacle",
+                market_type=market_type,
+                market_id=f"complete-{market_type}-{index}",
+                market_name=market_type,
+                market_line=line,
+                outcome_side=side,
+                odds=odds_by_side[side],
+                snapshot_time=snapshot_time,
+                period="prematch",
+            )
+        )

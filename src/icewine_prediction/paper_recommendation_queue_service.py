@@ -34,6 +34,14 @@ from icewine_prediction.feature_service import (
     build_match_odds_features,
 )
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, TrainingRun
+from icewine_prediction.oddspapi_sync_runner import (
+    COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT,
+    COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW,
+    COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS,
+    ODDSPAPI_SOURCE_NAME,
+    _as_utc,
+    _historical_snapshot_as_utc,
+)
 from icewine_prediction.paper_strategy_registry import (
     BUCKET_V2_STRATEGY,
     DEFAULT_STRATEGY,
@@ -58,6 +66,7 @@ TOTAL_GOALS_PROBABILITY_FIELDS = (
 )
 TOTAL_GOALS_ODDS_FIELDS = ("total_goals_over_odds", "total_goals_under_odds")
 MAX_CANDIDATE_ODDS_LEAD_TIME = timedelta(hours=3)
+MIN_CANDIDATE_ODDS_LEAD_TIME = timedelta(0)
 
 
 @dataclass(frozen=True)
@@ -374,6 +383,17 @@ def _build_queue_rows(
             _row(
                 match,
                 status="no_odds",
+                line=asian_line,
+                odds=asian_odds,
+                feature_row=feature_row,
+                display_name_service=display_name_service,
+            )
+        )
+    elif not _has_allowed_candidate_odds_status(match, historical_snapshots=historical_snapshots):
+        diagnostic_rows.append(
+            _row(
+                match,
+                status="odds_status_not_ready",
                 line=asian_line,
                 odds=asian_odds,
                 feature_row=feature_row,
@@ -958,6 +978,54 @@ def _has_candidate_fresh_odds(
         match,
         market_type="asian_handicap",
         historical_snapshots=historical_snapshots,
+    )
+
+
+def _has_allowed_candidate_odds_status(
+    match: Match,
+    *,
+    historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
+) -> bool:
+    if historical_snapshots:
+        return _has_complete_historical_odds(match, historical_snapshots)
+    latest_captured_at = max(
+        (
+            snapshot.captured_at
+            for snapshot in match.odds_snapshots
+            if _snapshot_has_market_odds(snapshot, market_type="asian_handicap")
+        ),
+        default=None,
+    )
+    if latest_captured_at is None:
+        return False
+    lead_time = _naive_datetime(match.kickoff_time) - _naive_datetime(latest_captured_at)
+    return MIN_CANDIDATE_ODDS_LEAD_TIME <= lead_time <= MAX_CANDIDATE_ODDS_LEAD_TIME
+
+
+def _has_complete_historical_odds(
+    match: Match,
+    snapshots: list[HistoricalOddsSnapshot],
+) -> bool:
+    kickoff_utc = _as_utc(match.kickoff_time)
+    relevant = [
+        snapshot
+        for snapshot in snapshots
+        if snapshot.source_name == ODDSPAPI_SOURCE_NAME
+        and kickoff_utc - timedelta(hours=24)
+        <= _historical_snapshot_as_utc(snapshot.snapshot_time)
+        <= kickoff_utc
+    ]
+    if len(relevant) < COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT:
+        return False
+    close_window_start = kickoff_utc - COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW
+    sides_by_market: dict[str, set[str]] = {}
+    for snapshot in relevant:
+        snapshot_utc = _historical_snapshot_as_utc(snapshot.snapshot_time)
+        if close_window_start <= snapshot_utc <= kickoff_utc:
+            sides_by_market.setdefault(snapshot.market_type, set()).add(snapshot.outcome_side)
+    return all(
+        required_sides.issubset(sides_by_market.get(market_type, set()))
+        for market_type, required_sides in COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS.items()
     )
 
 

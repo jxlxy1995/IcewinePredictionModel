@@ -230,7 +230,7 @@ def test_build_paper_recommendation_queue_allows_explicit_feature_path_override(
     assert captured == [Path("local_data/training/manual.csv")]
 
 
-def test_build_paper_recommendation_queue_requires_odds_within_three_hours_before_kickoff(session):
+def test_build_paper_recommendation_queue_marks_early_upcoming_odds_not_ready(session):
     league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
     home = Team(canonical_name="Rosenborg")
     away = Team(canonical_name="Bodo/Glimt")
@@ -284,7 +284,176 @@ def test_build_paper_recommendation_queue_requires_odds_within_three_hours_befor
     )
 
     assert report.candidate_count == 0
-    assert report.rows[0].status == "stale_odds"
+    assert report.rows[0].status == "odds_status_not_ready"
+
+
+def test_build_paper_recommendation_queue_requires_near_or_close_odds_for_upcoming_matches(session):
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 6, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="priced-early",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=now,
+            data_source="api_football",
+            bookmaker="Bet365",
+            asian_handicap=Decimal("-0.50"),
+            home_odds=Decimal("1.99"),
+            away_odds=Decimal("1.93"),
+            total_line=Decimal("2.50"),
+            over_odds=Decimal("1.90"),
+            under_odds=Decimal("2.00"),
+            match_winner_home_odds=Decimal("2.10"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("3.40"),
+        )
+    )
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=8,
+        scorer=lambda row: PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1500"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    assert report.candidate_count == 0
+    assert report.rows[0].status == "odds_status_not_ready"
+
+
+def test_build_paper_recommendation_queue_allows_near_odds_for_upcoming_matches(session):
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 2, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="priced-near",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=now,
+            data_source="api_football",
+            bookmaker="Bet365",
+            asian_handicap=Decimal("-0.50"),
+            home_odds=Decimal("1.99"),
+            away_odds=Decimal("1.93"),
+            total_line=Decimal("2.50"),
+            over_odds=Decimal("1.90"),
+            under_odds=Decimal("2.00"),
+            match_winner_home_odds=Decimal("2.10"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("3.40"),
+        )
+    )
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=8,
+        scorer=lambda row: PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1500"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    assert report.candidate_count == 1
+    assert report.rows[0].status == "candidate"
+
+
+def test_build_paper_recommendation_queue_requires_filled_odds_for_finished_matches(session):
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="finished",
+        home_score=1,
+        away_score=2,
+        source_name="api_football",
+        source_match_id="finished-pending-fill",
+    )
+    session.add(match)
+    session.flush()
+    _add_historical_market_pair(
+        session,
+        match,
+        market_type="asian_handicap",
+        line=Decimal("-0.50"),
+        outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
+    )
+    _add_historical_market_pair(
+        session,
+        match,
+        market_type="total_goals",
+        line=Decimal("2.50"),
+        outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+    )
+    _add_historical_market_pair(
+        session,
+        match,
+        market_type="match_winner",
+        line=Decimal("0.00"),
+        outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
+    )
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 31, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        start_time=datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        end_time=datetime(2026, 5, 30, 23, 59, tzinfo=ZoneInfo("Asia/Shanghai")),
+        scorer=lambda row: PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5181"),
+            edge=Decimal("0.1319"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    assert report.candidate_count == 0
+    assert report.rows[0].status == "odds_status_not_ready"
 
 
 def test_build_paper_recommendation_queue_replays_finished_match_with_historical_close_odds(session):
@@ -328,6 +497,7 @@ def test_build_paper_recommendation_queue_replays_finished_match_with_historical
         line=Decimal("0.00"),
         outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
     )
+    _add_complete_historical_odds(session, match)
     session.commit()
 
     def fake_scorer(row):
@@ -715,6 +885,41 @@ def _add_historical_market_pair(
                 market_line=line,
                 outcome_side=side,
                 odds=odds,
+                snapshot_time=snapshot_time,
+                period="fulltime",
+            )
+        )
+
+
+def _add_complete_historical_odds(session, match: Match) -> None:
+    snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=6)
+    markets = [
+        ("asian_handicap", Decimal("-0.50"), ("home", "away"), {"home": Decimal("1.99"), "away": Decimal("1.93")}),
+        ("total_goals", Decimal("2.50"), ("over", "under"), {"over": Decimal("1.90"), "under": Decimal("2.00")}),
+        (
+            "match_winner",
+            Decimal("0.00"),
+            ("home", "draw", "away"),
+            {"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
+        ),
+    ]
+    counts = {market_type: 0 for market_type, _, _, _ in markets}
+    for index in range(120):
+        market_type, line, sides, odds_by_side = markets[index % len(markets)]
+        side = sides[counts[market_type] % len(sides)]
+        counts[market_type] += 1
+        session.add(
+            HistoricalOddsSnapshot(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id=match.source_match_id or str(match.id),
+                bookmaker="pinnacle",
+                market_type=market_type,
+                market_id=f"complete-{market_type}-{index}",
+                market_name=market_type,
+                market_line=line,
+                outcome_side=side,
+                odds=odds_by_side[side],
                 snapshot_time=snapshot_time,
                 period="fulltime",
             )

@@ -1957,7 +1957,18 @@ def build_training_workspace_payload(
     latest_run: TrainingRun | None = None,
 ) -> dict[str, Any]:
     dataset_payload = _build_training_dataset_file_payload(baseline_dataset_path)
-    qa_payload: dict[str, Any] = {"exists": False, "path": str(baseline_qa_report_path)}
+    qa_payload: dict[str, Any] = {
+        "exists": baseline_qa_report_path.exists(),
+        "path": str(baseline_qa_report_path),
+        "updated_at": _format_file_mtime(baseline_qa_report_path),
+        "empty_required_cells": 0,
+        "invalid_odds_cells": 0,
+        "invalid_probability_cells": 0,
+        "invalid_overround_cells": 0,
+        "thin_history_count": 0,
+        "thin_history_ratio": "0.0000",
+        "low_sample_leagues": {},
+    }
     if baseline_dataset_path.exists():
         qa_report = build_baseline_training_dataset_qa_report(baseline_dataset_path)
         qa_payload = {
@@ -1974,8 +1985,13 @@ def build_training_workspace_payload(
         }
 
     market_payload: dict[str, Any] = {
-        "exists": False,
+        "exists": baseline_market_report_path.exists(),
         "path": str(baseline_market_report_path),
+        "updated_at": _format_file_mtime(baseline_market_report_path),
+        "market_samples": 0,
+        "evaluated_market_samples": 0,
+        "skipped_market_samples": 0,
+        "market_reports": {},
     }
     if baseline_dataset_path.exists():
         market_report = build_baseline_training_dataset_market_baseline_report(

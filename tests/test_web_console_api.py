@@ -2264,6 +2264,50 @@ def test_web_console_api_returns_training_workspace(tmp_path):
     assert payload["latest_run"] is None
 
 
+def test_web_console_api_returns_complete_training_workspace_when_dataset_is_missing(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            baseline_dataset_path=tmp_path / "missing-baseline.csv",
+            baseline_dataset_report_path=tmp_path / "dataset.md",
+            baseline_qa_report_path=tmp_path / "qa.md",
+            baseline_market_report_path=tmp_path / "market.md",
+        )
+    )
+
+    response = client.get("/api/training/workspace")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["dataset"]["exists"] is False
+    assert payload["dataset"]["row_count"] == 0
+    assert payload["qa"] == {
+        "exists": False,
+        "path": str(tmp_path / "qa.md"),
+        "updated_at": None,
+        "empty_required_cells": 0,
+        "invalid_odds_cells": 0,
+        "invalid_probability_cells": 0,
+        "invalid_overround_cells": 0,
+        "thin_history_count": 0,
+        "thin_history_ratio": "0.0000",
+        "low_sample_leagues": {},
+    }
+    assert payload["market_baseline"] == {
+        "exists": False,
+        "path": str(tmp_path / "market.md"),
+        "updated_at": None,
+        "market_samples": 0,
+        "evaluated_market_samples": 0,
+        "skipped_market_samples": 0,
+        "market_reports": {},
+    }
+
+
 def test_web_console_api_starts_training_full_refresh(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildPaperCandidateGroups,
   buildPaperCandidateRows,
+  buildPaperConfidenceSimulationCards,
+  buildPaperConfidenceSimulationRows,
   buildPaperDiagnosticCards,
   buildPaperRecordGroups,
   buildPaperSummaryCards,
@@ -119,6 +121,58 @@ const workspace: PaperRecommendationWorkspace = {
         roi: "0.4400"
       }
     ]
+  },
+  confidence_simulation: {
+    summary: {
+      group_count: 1,
+      settled_groups: 1,
+      suggested_stake_units: "1.25",
+      flat_profit_units: "0.930",
+      weighted_profit_units: "1.163",
+      flat_roi: "0.9300",
+      weighted_roi: "0.9304"
+    },
+    groups: [
+      {
+        group_key: "17446:asian_handicap:away_cover",
+        match_id: 17446,
+        source_match_id: "17446",
+        kickoff_time: "2026-05-30T02:45:00+08:00",
+        league_name: "Premier Division",
+        league_display_name: "League Display",
+        home_team_name: "Drogheda United",
+        home_team_display_name: "Drogheda",
+        away_team_name: "Waterford",
+        away_team_display_name: "Waterford",
+        market_type: "asian_handicap",
+        logical_side: "away_cover",
+        recommendation_text: "Away +0.50",
+        representative_record_id: 1,
+        representative_strategy_key: "asian_away_cover_hgb_bucket_v2",
+        representative_market_line: "-0.50",
+        representative_odds: "1.930",
+        triggered_strategy_keys: [
+          "asian_away_cover_hgb_edge_v1",
+          "asian_away_cover_hgb_bucket_v2"
+        ],
+        triggered_strategy_display_names: [
+          "Asian away HGB edge v1",
+          "Asian away HGB bucket v2"
+        ],
+        signal_families: ["asian_away_hgb"],
+        confidence_score: 72,
+        suggested_stake_units: "1.25",
+        stake_cap_reason: "same_family_cap",
+        status: "settled",
+        settlement_result: "win",
+        flat_profit_units: "0.930",
+        weighted_profit_units: "1.163",
+        warning: null
+      }
+    ],
+    by_score_bucket: [],
+    by_stake_bucket: [],
+    by_family_combo: []
   },
   diagnostics: {
     total_matches: 3,
@@ -261,6 +315,27 @@ describe("paperRecommendationWorkspace", () => {
     expect(buildPaperRecordGroups(workspace).byManualAdjustment[0]).toMatchObject({
       groupName: "人工调整",
       roi: "44.00%"
+    });
+  });
+
+  it("builds confidence simulation cards with weighted ROI", () => {
+    expect(buildPaperConfidenceSimulationCards(workspace)).toEqual([
+      { label: "Groups", value: "1" },
+      { label: "Settled", value: "1" },
+      { label: "Suggested stake", value: "1.25" },
+      { label: "Flat ROI", value: "93.00%" },
+      { label: "Weighted ROI", value: "93.04%" }
+    ]);
+  });
+
+  it("builds confidence simulation rows for display", () => {
+    expect(buildPaperConfidenceSimulationRows(workspace)[0]).toMatchObject({
+      confidenceScore: "72",
+      fixture: "Drogheda vs Waterford",
+      recommendation: "Away +0.50 @ 1.930",
+      suggestedStakeUnits: "1.25",
+      triggeredSignals: "asian_away_cover_hgb_edge_v1, asian_away_cover_hgb_bucket_v2",
+      weightedProfitUnits: "1.163"
     });
   });
 

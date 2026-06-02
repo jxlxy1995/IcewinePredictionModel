@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 
 import type { PaperCandidate, PaperRecord } from "../types";
 import {
+  buildPaperConfidenceSimulationRows,
   buildPaperDiagnosticCards,
   buildPaperCandidateGroups,
   explainPaperCandidateSignal,
@@ -32,6 +33,10 @@ type PaperRecordTableProps = {
   ) => void;
   onVoid: (record: PaperRecord) => void;
   records: PaperRecord[];
+};
+
+type PaperConfidenceSimulationTableProps = {
+  workspace: PaperRecommendationWorkspace;
 };
 
 export function PaperCandidateTable({
@@ -354,5 +359,59 @@ export function PaperRecordTable({ isBusy, onEdit, onVoid, records }: PaperRecor
         </tbody>
       </table>
     </>
+  );
+}
+
+export function PaperConfidenceSimulationTable({
+  workspace
+}: PaperConfidenceSimulationTableProps) {
+  const rows = buildPaperConfidenceSimulationRows(workspace);
+  if (rows.length === 0) {
+    return <div className="empty-state">No same-direction simulation groups</div>;
+  }
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Match</th>
+          <th>Recommendation</th>
+          <th>Score</th>
+          <th>Stake</th>
+          <th>Signals</th>
+          <th>Flat</th>
+          <th>Weighted</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.group.group_key}>
+            <td>
+              <strong>
+                {row.league} {row.fixture}
+              </strong>
+              <span className="muted-text">{row.kickoffTime}</span>
+            </td>
+            <td>
+              <strong>{row.recommendation}</strong>
+              <span className="muted-text">{row.familyCombo}</span>
+            </td>
+            <td>{row.confidenceScore}</td>
+            <td>
+              {row.suggestedStakeUnits}
+              {row.capReason !== "none" && <span className="muted-text">{row.capReason}</span>}
+            </td>
+            <td>{row.triggeredSignals}</td>
+            <td>
+              <ProfitCell value={row.flatProfitUnits} />
+            </td>
+            <td>
+              <ProfitCell value={row.weightedProfitUnits} />
+            </td>
+            <td>{formatPaperRecordStatus(row.status)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

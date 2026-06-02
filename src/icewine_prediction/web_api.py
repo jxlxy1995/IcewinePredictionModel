@@ -59,6 +59,7 @@ from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScoreResult,
     build_paper_recommendation_queue,
 )
+from icewine_prediction.paper_confidence_service import build_paper_confidence_workspace
 from icewine_prediction.match_list_workspace_service import (
     build_match_detail,
     build_match_list_workspace,
@@ -1988,6 +1989,86 @@ def build_paper_tracking_workspace_payload(workspace) -> dict[str, Any]:
                 build_paper_group_payload(group) for group in workspace.by_manual_adjustment
             ],
         },
+        "confidence_simulation": build_paper_confidence_workspace_payload(
+            build_paper_confidence_workspace(workspace.records)
+        ),
+    }
+
+
+def build_paper_confidence_workspace_payload(workspace) -> dict[str, Any]:
+    return {
+        "summary": build_paper_confidence_summary_payload(workspace.summary),
+        "groups": [build_paper_confidence_group_payload(group) for group in workspace.groups],
+        "by_score_bucket": [
+            build_paper_confidence_group_summary_payload(group)
+            for group in workspace.by_score_bucket
+        ],
+        "by_stake_bucket": [
+            build_paper_confidence_group_summary_payload(group)
+            for group in workspace.by_stake_bucket
+        ],
+        "by_family_combo": [
+            build_paper_confidence_group_summary_payload(group)
+            for group in workspace.by_family_combo
+        ],
+    }
+
+
+def build_paper_confidence_summary_payload(summary) -> dict[str, Any]:
+    return {
+        "group_count": summary.group_count,
+        "settled_groups": summary.settled_groups,
+        "suggested_stake_units": _format_decimal(summary.suggested_stake_units, "0.00"),
+        "flat_profit_units": _format_decimal(summary.flat_profit_units, "0.000"),
+        "weighted_profit_units": _format_decimal(summary.weighted_profit_units, "0.000"),
+        "flat_roi": _format_decimal(summary.flat_roi, "0.0000"),
+        "weighted_roi": _format_decimal(summary.weighted_roi, "0.0000"),
+    }
+
+
+def build_paper_confidence_group_summary_payload(summary) -> dict[str, Any]:
+    return {
+        "group_name": summary.group_name,
+        "group_count": summary.group_count,
+        "settled_groups": summary.settled_groups,
+        "suggested_stake_units": _format_decimal(summary.suggested_stake_units, "0.00"),
+        "flat_profit_units": _format_decimal(summary.flat_profit_units, "0.000"),
+        "weighted_profit_units": _format_decimal(summary.weighted_profit_units, "0.000"),
+        "flat_roi": _format_decimal(summary.flat_roi, "0.0000"),
+        "weighted_roi": _format_decimal(summary.weighted_roi, "0.0000"),
+    }
+
+
+def build_paper_confidence_group_payload(group) -> dict[str, Any]:
+    return {
+        "group_key": group.group_key,
+        "match_id": group.match_id,
+        "source_match_id": group.source_match_id,
+        "kickoff_time": _format_datetime(group.kickoff_time),
+        "league_name": group.league_name,
+        "league_display_name": group.league_display_name,
+        "home_team_name": group.home_team_name,
+        "home_team_display_name": group.home_team_display_name,
+        "away_team_name": group.away_team_name,
+        "away_team_display_name": group.away_team_display_name,
+        "market_type": group.market_type,
+        "logical_side": group.logical_side,
+        "recommendation_text": group.recommendation_text,
+        "representative_record_id": group.representative_record_id,
+        "representative_strategy_key": group.representative_strategy_key,
+        "representative_market_line": _format_decimal(group.representative_market_line, "0.00"),
+        "representative_odds": _format_decimal(group.representative_odds, "0.000"),
+        "triggered_strategy_keys": list(group.triggered_strategy_keys),
+        "triggered_strategy_display_names": list(group.triggered_strategy_display_names),
+        "signal_families": list(group.signal_families),
+        "confidence_score": group.confidence_score,
+        "suggested_stake_units": _format_decimal(group.suggested_stake_units, "0.00"),
+        "stake_cap_reason": group.stake_cap_reason,
+        "status": group.status,
+        "settlement_result": group.settlement_result,
+        "flat_profit_units": _format_decimal(group.flat_profit_units, "0.000"),
+        "weighted_profit_units": _format_decimal(group.weighted_profit_units, "0.000"),
+        "warning": group.warning,
     }
 
 

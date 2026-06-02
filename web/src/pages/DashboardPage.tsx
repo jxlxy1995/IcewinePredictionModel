@@ -45,7 +45,11 @@ import { LeagueCoverageTable } from "../components/LeagueCoverageTable";
 import { MetricCard } from "../components/MetricCard";
 import { MatchListTable } from "../components/MatchListTable";
 import { OddsTrendPanel } from "../components/OddsTrendPanel";
-import { PaperCandidateTable, PaperRecordTable } from "../components/PaperRecommendationTables";
+import {
+  PaperCandidateTable,
+  PaperConfidenceSimulationTable,
+  PaperRecordTable
+} from "../components/PaperRecommendationTables";
 import { Panel } from "../components/Panel";
 import { RecommendationRecordTable } from "../components/RecommendationRecordTable";
 import { TeamDisplayNameEditor } from "../components/TeamDisplayNameEditor";
@@ -74,6 +78,7 @@ import {
   buildRecommendationRecordSummary
 } from "../recordReportWorkspace";
 import {
+  buildPaperConfidenceSimulationCards,
   buildPaperRecordGroups,
   buildPaperSummaryCards,
   defaultPaperRecommendationDateRange
@@ -1936,6 +1941,7 @@ function PaperTrackingView({
 }) {
   const workspace = data.paperRecommendations;
   const cards = buildPaperSummaryCards(workspace);
+  const simulationCards = buildPaperConfidenceSimulationCards(workspace);
   const groups = buildPaperRecordGroups(workspace);
   const recordableCandidates = workspace.candidates.filter(
     (candidate) => candidate.is_recordable && candidate.status === "candidate"
@@ -2000,6 +2006,14 @@ function PaperTrackingView({
           onVoid={onVoid}
           records={workspace.records}
         />
+      </Panel>
+      <Panel title="Same-direction simulation">
+        <section className="metrics compact-metrics">
+          {simulationCards.map((card) => (
+            <MetricCard key={card.label} label={card.label} value={card.value} />
+          ))}
+        </section>
+        <PaperConfidenceSimulationTable workspace={workspace} />
       </Panel>
       <section className="grid">
         <Panel title="按策略">

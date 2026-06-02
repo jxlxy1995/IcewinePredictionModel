@@ -1076,6 +1076,14 @@ def test_web_console_api_batch_records_paper_candidates_with_single_queue_build(
         "asian_away_cover_hgb_edge_v1",
     ]
     assert payload["summary"]["total_records"] == 2
+    simulation = payload["confidence_simulation"]
+    assert simulation["summary"]["group_count"] == 1
+    assert simulation["groups"][0]["triggered_strategy_keys"] == [
+        "asian_away_cover_hgb_edge_v1",
+        "asian_away_cover_hgb_bucket_v2",
+    ]
+    assert simulation["groups"][0]["signal_families"] == ["asian_away_hgb"]
+    assert simulation["groups"][0]["suggested_stake_units"] == "1.25"
     assert scorer_calls == [str(match.id)]
 
 

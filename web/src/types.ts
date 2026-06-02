@@ -371,6 +371,66 @@ export type PaperGroupSummary = {
   roi: string;
 };
 
+export type PaperConfidenceSimulationGroup = {
+  group_key: string;
+  match_id: number;
+  source_match_id: string | null;
+  kickoff_time: string;
+  league_name: string;
+  league_display_name?: string | null;
+  home_team_name: string;
+  home_team_display_name?: string | null;
+  away_team_name: string;
+  away_team_display_name?: string | null;
+  market_type: string;
+  logical_side: string;
+  recommendation_text: string | null;
+  representative_record_id: number;
+  representative_strategy_key: string;
+  representative_market_line: string;
+  representative_odds: string;
+  triggered_strategy_keys: string[];
+  triggered_strategy_display_names: string[];
+  signal_families: string[];
+  confidence_score: number;
+  suggested_stake_units: string;
+  stake_cap_reason: string;
+  status: string;
+  settlement_result: string | null;
+  flat_profit_units: string;
+  weighted_profit_units: string;
+  warning: string | null;
+};
+
+export type PaperConfidenceSimulationSummary = {
+  group_count: number;
+  settled_groups: number;
+  suggested_stake_units: string;
+  flat_profit_units: string;
+  weighted_profit_units: string;
+  flat_roi: string;
+  weighted_roi: string;
+};
+
+export type PaperConfidenceSimulationGroupSummary = {
+  group_name: string;
+  group_count: number;
+  settled_groups: number;
+  suggested_stake_units: string;
+  flat_profit_units: string;
+  weighted_profit_units: string;
+  flat_roi: string;
+  weighted_roi: string;
+};
+
+export type PaperConfidenceSimulationWorkspace = {
+  summary: PaperConfidenceSimulationSummary;
+  groups: PaperConfidenceSimulationGroup[];
+  by_score_bucket: PaperConfidenceSimulationGroupSummary[];
+  by_stake_bucket: PaperConfidenceSimulationGroupSummary[];
+  by_family_combo: PaperConfidenceSimulationGroupSummary[];
+};
+
 export type PaperBatchRecordSkippedItem = {
   match_id: number | null;
   strategy_key: string | null;
@@ -403,6 +463,7 @@ export type PaperRecommendationWorkspace = {
     by_line_bucket: PaperGroupSummary[];
     by_manual_adjustment: PaperGroupSummary[];
   };
+  confidence_simulation?: PaperConfidenceSimulationWorkspace;
   diagnostics?: PaperRecommendationDiagnostics;
   batch_result?: PaperBatchRecordResult;
 };

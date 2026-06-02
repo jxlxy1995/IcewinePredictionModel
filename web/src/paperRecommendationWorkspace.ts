@@ -1,4 +1,5 @@
 import type {
+  PaperConfidenceSimulationGroup,
   PaperCandidate,
   PaperGroupSummary,
   PaperRecommendationWorkspace
@@ -57,6 +58,22 @@ export type PaperRecordGroups = {
   byLineBucket: PaperDisplayGroupSummary[];
   byManualAdjustment: PaperDisplayGroupSummary[];
   byStrategy: PaperDisplayGroupSummary[];
+};
+
+export type PaperConfidenceSimulationRow = {
+  capReason: string;
+  confidenceScore: string;
+  familyCombo: string;
+  fixture: string;
+  flatProfitUnits: string;
+  group: PaperConfidenceSimulationGroup;
+  kickoffTime: string;
+  league: string;
+  recommendation: string;
+  status: string;
+  suggestedStakeUnits: string;
+  triggeredSignals: string;
+  weightedProfitUnits: string;
 };
 
 export type PaperSignalExplanation = {
@@ -156,6 +173,47 @@ export function buildPaperSummaryCards(
     { label: "命中率", value: formatRatioAsPercent(workspace.summary.hit_rate) },
     { label: "ROI", value: formatRatioAsPercent(workspace.summary.roi) }
   ];
+}
+
+export function buildPaperConfidenceSimulationCards(
+  workspace: PaperRecommendationWorkspace
+): PaperSummaryCard[] {
+  const summary = workspace.confidence_simulation?.summary ?? {
+    flat_roi: "0.0000",
+    group_count: 0,
+    settled_groups: 0,
+    suggested_stake_units: "0.00",
+    weighted_roi: "0.0000"
+  };
+  return [
+    { label: "Groups", value: summary.group_count.toLocaleString() },
+    { label: "Settled", value: summary.settled_groups.toLocaleString() },
+    { label: "Suggested stake", value: summary.suggested_stake_units },
+    { label: "Flat ROI", value: formatRatioAsPercent(summary.flat_roi) },
+    { label: "Weighted ROI", value: formatRatioAsPercent(summary.weighted_roi) }
+  ];
+}
+
+export function buildPaperConfidenceSimulationRows(
+  workspace: PaperRecommendationWorkspace
+): PaperConfidenceSimulationRow[] {
+  return (workspace.confidence_simulation?.groups ?? []).map((group) => ({
+    capReason: group.stake_cap_reason,
+    confidenceScore: String(group.confidence_score),
+    familyCombo: group.signal_families.join(", ") || "-",
+    fixture: `${group.home_team_display_name ?? group.home_team_name} vs ${
+      group.away_team_display_name ?? group.away_team_name
+    }`,
+    flatProfitUnits: group.flat_profit_units,
+    group,
+    kickoffTime: group.kickoff_time,
+    league: group.league_display_name ?? group.league_name,
+    recommendation: `${group.recommendation_text ?? "-"} @ ${group.representative_odds}`,
+    status: group.status,
+    suggestedStakeUnits: group.suggested_stake_units,
+    triggeredSignals: group.triggered_strategy_keys.join(", "),
+    weightedProfitUnits: group.weighted_profit_units
+  }));
 }
 
 export function buildPaperCandidateRows(

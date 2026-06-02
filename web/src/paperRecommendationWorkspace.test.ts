@@ -5,6 +5,7 @@ import {
   buildPaperCandidateRows,
   buildPaperRecordGroups,
   buildPaperSummaryCards,
+  defaultPaperRecommendationDateRange,
   formatPaperRecordStatus,
   formatPaperSettlementResult
 } from "./paperRecommendationWorkspace";
@@ -128,6 +129,15 @@ describe("paperRecommendationWorkspace", () => {
       { label: "命中率", value: "100.00%" },
       { label: "ROI", value: "44.00%" }
     ]);
+  });
+
+  it("defaults paper filters to yesterday midnight through today midnight", () => {
+    const range = defaultPaperRecommendationDateRange(new Date(2026, 5, 2, 15, 24));
+
+    expect(range).toEqual({
+      start_time: "2026-06-01T00:00",
+      end_time: "2026-06-02T00:00"
+    });
   });
 
   it("marks only candidate rows as recordable", () => {

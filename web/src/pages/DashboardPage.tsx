@@ -74,7 +74,8 @@ import {
 } from "../recordReportWorkspace";
 import {
   buildPaperRecordGroups,
-  buildPaperSummaryCards
+  buildPaperSummaryCards,
+  defaultPaperRecommendationDateRange
 } from "../paperRecommendationWorkspace";
 import {
   formatPaperBatchRecordMessage,
@@ -234,8 +235,7 @@ export function DashboardPage() {
   const [paperMessage, setPaperMessage] = useState<string | null>(null);
   const [paperError, setPaperError] = useState<string | null>(null);
   const [paperFilters, setPaperFilters] = useState<PaperFilterState>({
-    end_time: "",
-    start_time: ""
+    ...defaultPaperRecommendationDateRange()
   });
   const [matchListAction, setMatchListAction] = useState<string | null>(null);
   const [matchListMessage, setMatchListMessage] = useState<string | null>(null);

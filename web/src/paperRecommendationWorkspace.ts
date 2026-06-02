@@ -3,6 +3,7 @@ import type {
   PaperGroupSummary,
   PaperRecommendationWorkspace
 } from "./types";
+import { toDatetimeLocalValue } from "./matchListWorkspace";
 
 export type PaperSummaryCard = {
   label: string;
@@ -51,6 +52,20 @@ export type PaperRecordGroups = {
   byManualAdjustment: PaperDisplayGroupSummary[];
   byStrategy: PaperDisplayGroupSummary[];
 };
+
+export function defaultPaperRecommendationDateRange(now = new Date()): {
+  start_time: string;
+  end_time: string;
+} {
+  const end = new Date(now);
+  end.setHours(0, 0, 0, 0);
+  const start = new Date(end);
+  start.setDate(end.getDate() - 1);
+  return {
+    start_time: toDatetimeLocalValue(start),
+    end_time: toDatetimeLocalValue(end)
+  };
+}
 
 export function buildPaperSummaryCards(
   workspace: PaperRecommendationWorkspace

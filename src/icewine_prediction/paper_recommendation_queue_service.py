@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Callable, Any
 from zoneinfo import ZoneInfo
 
+import numpy as np
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from icewine_prediction.baseline_edge_backtest_service import (
     FEATURES,
+    _calibrated_model,
     _market_probabilities,
     _raw_model,
 )
@@ -48,6 +50,7 @@ from icewine_prediction.paper_strategy_registry import (
     DEFAULT_STRATEGY,
     HOME_FAVORITE_BUCKET_V1_STRATEGY,
     TOTAL_GOALS_BUCKET_V2_STRATEGY,
+    TOTAL_GOALS_CONFIRMED_UNDER_MID_275_V1_STRATEGY,
     TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
 )
 
@@ -84,6 +87,8 @@ class PaperQueueScore:
     edge: Decimal
     model_name: str
     market_type: str = "asian_handicap"
+    calibrated_side: str | None = None
+    calibrated_edge: Decimal | None = None
 
 
 PaperQueueScoreResult = PaperQueueScore | list[PaperQueueScore] | tuple[PaperQueueScore, ...] | None
@@ -494,6 +499,9 @@ def _scored_row(
         )
         line_bucket = _line_bucket(line)
     status = _status_for_score(score, edge_threshold, line_bucket=line_bucket)
+    risk_tags = _risk_tags(line_bucket, feature_row)
+    if _is_model_consensus_confirmed(score):
+        risk_tags = (*risk_tags, "model_consensus:confirmed")
     return _row(
         match,
         status=status,
@@ -505,6 +513,7 @@ def _scored_row(
         market_probability=score.market_probability,
         edge=score.edge,
         line_bucket=line_bucket,
+        risk_tags=risk_tags,
         feature_row=feature_row,
         display_name_service=display_name_service,
     )
@@ -583,7 +592,11 @@ def _home_favorite_v1_row(row: PaperQueueRow) -> PaperQueueRow | None:
 
 def _total_goals_bucket_rows(row: PaperQueueRow) -> list[PaperQueueRow]:
     rows = []
-    for strategy in (TOTAL_GOALS_BUCKET_V2_STRATEGY, TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY):
+    for strategy in (
+        TOTAL_GOALS_BUCKET_V2_STRATEGY,
+        TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
+        TOTAL_GOALS_CONFIRMED_UNDER_MID_275_V1_STRATEGY,
+    ):
         strategy_row = _total_goals_strategy_row(row, strategy)
         if strategy_row is not None:
             rows.append(strategy_row)
@@ -597,12 +610,17 @@ def _total_goals_strategy_row(row: PaperQueueRow, strategy) -> PaperQueueRow | N
     threshold = bucket_thresholds.get(f"{row.side}@{row.line_bucket}")
     if threshold is None or row.edge < threshold:
         return None
+    risk_tags = row.risk_tags
+    if strategy.strategy_key == TOTAL_GOALS_CONFIRMED_UNDER_MID_275_V1_STRATEGY.strategy_key:
+        if "model_consensus:confirmed" not in row.risk_tags:
+            return None
+        risk_tags = tuple(tag for tag in row.risk_tags if not tag.startswith("strategy:"))
     return PaperQueueRow(
         **{
             **row.__dict__,
             "status": "candidate",
             "risk_tags": (
-                *row.risk_tags,
+                *risk_tags,
                 *(
                     (strategy.risk_tag,)
                     if strategy.risk_tag is not None
@@ -686,12 +704,13 @@ def _row(
     market_probability: Decimal | None = None,
     edge: Decimal | None = None,
     line_bucket: str | None = None,
+    risk_tags: tuple[str, ...] | None = None,
     feature_row: dict[str, str] | None = None,
     display_name_service: DisplayNameService | None = None,
 ) -> PaperQueueRow:
     display_name_service = display_name_service or DisplayNameService()
     line_bucket = line_bucket or (_total_line_bucket(line) if market_type == "total_goals" else _line_bucket(line))
-    risk_tags = _risk_tags(line_bucket, feature_row or {})
+    risk_tags = risk_tags or _risk_tags(line_bucket, feature_row or {})
     league_name = match.league.name
     home_team_name = match.home_team.canonical_name
     away_team_name = match.away_team.canonical_name
@@ -716,6 +735,14 @@ def _row(
         edge=edge,
         line_bucket=line_bucket,
         risk_tags=risk_tags,
+    )
+
+
+def _is_model_consensus_confirmed(score: PaperQueueScore) -> bool:
+    return (
+        score.calibrated_side == score.side
+        and score.calibrated_edge is not None
+        and score.calibrated_edge >= Decimal("0.0000")
     )
 
 
@@ -1017,12 +1044,23 @@ def train_paper_queue_scorer_from_rows(
         _matrix(asian_handicap_train_rows, FEATURES),
         [_asian_handicap_target_label(row) for row in asian_handicap_train_rows],
     )
+    asian_handicap_calibrated_model = _calibrated_model()
+    asian_handicap_calibrated_model.fit(
+        _matrix(asian_handicap_train_rows, FEATURES),
+        np.asarray([_asian_handicap_target_label(row) for row in asian_handicap_train_rows]),
+    )
     total_goals_model = None
+    total_goals_calibrated_model = None
     if total_goals_train_rows:
         total_goals_model = _raw_model()
         total_goals_model.fit(
             _matrix(total_goals_train_rows, FEATURES),
             [_total_goals_target_label(row) for row in total_goals_train_rows],
+        )
+        total_goals_calibrated_model = _calibrated_model()
+        total_goals_calibrated_model.fit(
+            _matrix(total_goals_train_rows, FEATURES),
+            np.asarray([_total_goals_target_label(row) for row in total_goals_train_rows]),
         )
 
     def score(row: dict[str, str]) -> list[PaperQueueScore]:
@@ -1030,6 +1068,7 @@ def train_paper_queue_scorer_from_rows(
         asian_handicap_score = _score_market(
             row,
             model=asian_handicap_model,
+            calibrated_model=asian_handicap_calibrated_model,
             probability_fields=ASIAN_HANDICAP_PROBABILITY_FIELDS,
             side_labels=ASIAN_HANDICAP_SIDE_LABELS,
             align_probabilities=_align_asian_handicap_probabilities,
@@ -1041,6 +1080,7 @@ def train_paper_queue_scorer_from_rows(
             total_goals_score = _score_market(
                 row,
                 model=total_goals_model,
+                calibrated_model=total_goals_calibrated_model,
                 probability_fields=TOTAL_GOALS_PROBABILITY_FIELDS,
                 side_labels=TOTAL_GOALS_SIDE_LABELS,
                 align_probabilities=_align_total_goals_probabilities,
@@ -1057,6 +1097,7 @@ def _score_market(
     row: dict[str, str],
     *,
     model,
+    calibrated_model=None,
     probability_fields: tuple[str, str],
     side_labels: tuple[str, str],
     align_probabilities,
@@ -1074,6 +1115,19 @@ def _score_market(
     )
     model_probability = _quantize(Decimal(str(probability_row[side_index])))
     market_probability = _quantize(market_probabilities[side_index])
+    calibrated_side = None
+    calibrated_edge = None
+    if calibrated_model is not None:
+        calibrated_probabilities = calibrated_model.predict_proba(_matrix([row], FEATURES))
+        calibrated_classes = list(calibrated_model.classes_)
+        calibrated_probability_row = align_probabilities(calibrated_probabilities, calibrated_classes)[0]
+        calibrated_edges = [
+            Decimal(str(calibrated_probability_row[index])) - market_probabilities[index]
+            for index in range(len(side_labels))
+        ]
+        calibrated_index = max(range(len(side_labels)), key=lambda index: calibrated_edges[index])
+        calibrated_side = side_labels[calibrated_index]
+        calibrated_edge = _quantize(calibrated_edges[side_index])
     return PaperQueueScore(
         market_type=market_type,
         side=side_labels[side_index],
@@ -1081,6 +1135,8 @@ def _score_market(
         market_probability=market_probability,
         edge=_quantize(model_probability - market_probability),
         model_name="raw_hgb_team_form_plus_all_markets",
+        calibrated_side=calibrated_side,
+        calibrated_edge=calibrated_edge,
     )
 
 

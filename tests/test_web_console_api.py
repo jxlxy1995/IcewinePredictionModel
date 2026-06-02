@@ -975,6 +975,7 @@ def test_web_console_api_records_v2_paper_candidate_by_strategy_key(tmp_path):
         "asian_home_cover_hgb_favorite_bucket_v1",
         "total_goals_hgb_bucket_v2",
         "total_goals_hgb_low_line_bucket_v3",
+        "total_goals_hgb_confirmed_under_mid_275_v1",
     }
     assert {candidate["strategy_key"] for candidate in workspace["candidates"]} == {
         "asian_away_cover_hgb_edge_v1",

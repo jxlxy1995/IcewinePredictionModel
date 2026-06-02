@@ -177,6 +177,66 @@ def test_confidence_stake_caps_same_family_support(session):
     assert group.stake_cap_reason == "same_family_cap"
 
 
+def test_confidence_score_boosts_model_consensus_confirmed_support(session):
+    plain_match = _seed_match(session)
+    confirmed_match = Match(
+        league=plain_match.league,
+        home_team=plain_match.home_team,
+        away_team=plain_match.away_team,
+        kickoff_time=datetime(2026, 5, 31, 2, 45, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="17447",
+    )
+    session.add(confirmed_match)
+    session.commit()
+    create_paper_record_from_queue_row(
+        session,
+        _queue_row(
+            plain_match,
+            status="candidate",
+            line=Decimal("-0.50"),
+            side="home_cover",
+            recommended_handicap="主队 -0.50",
+            edge=Decimal("0.1500"),
+            line_bucket="home_favorite",
+            risk_tags=("line_bucket:home_favorite", "strategy:asian_home_favorite_bucket_v1"),
+            strategy_key="asian_home_cover_hgb_favorite_bucket_v1",
+            strategy_display_name="亚盘主队让球方向 · HGB分盘口桶 v1",
+        ),
+        recorded_at=_now(),
+    )
+    create_paper_record_from_queue_row(
+        session,
+        _queue_row(
+            confirmed_match,
+            status="candidate",
+            line=Decimal("-0.50"),
+            side="home_cover",
+            recommended_handicap="主队 -0.50",
+            edge=Decimal("0.1500"),
+            line_bucket="home_favorite",
+            risk_tags=(
+                "line_bucket:home_favorite",
+                "model_consensus:confirmed",
+                "strategy:asian_home_favorite_bucket_v1",
+            ),
+            strategy_key="asian_home_cover_hgb_favorite_bucket_v1",
+            strategy_display_name="亚盘主队让球方向 · HGB分盘口桶 v1",
+        ),
+        recorded_at=_now(),
+    )
+
+    groups = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all()).groups
+    group_by_match_id = {group.match_id: group for group in groups}
+
+    assert (
+        group_by_match_id[confirmed_match.id].confidence_score
+        > group_by_match_id[plain_match.id].confidence_score
+    )
+    assert group_by_match_id[confirmed_match.id].suggested_stake_units >= Decimal("1.00")
+
+
 def test_stake_for_score_uses_quarter_unit_steps():
     assert stake_for_score(54) == Decimal("0.00")
     assert stake_for_score(55) == Decimal("0.50")
@@ -196,6 +256,7 @@ def test_strategy_family_maps_known_signals():
     assert strategy_family("asian_home_cover_hgb_favorite_bucket_v1") == "asian_home_hgb"
     assert strategy_family("total_goals_hgb_bucket_v2") == "total_goals_hgb"
     assert strategy_family("total_goals_hgb_low_line_bucket_v3") == "total_goals_hgb"
+    assert strategy_family("total_goals_hgb_confirmed_under_mid_275_v1") == "total_goals_hgb"
     assert strategy_family("new_signal") == "unknown"
 
 

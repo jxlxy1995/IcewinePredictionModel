@@ -106,6 +106,7 @@ def strategy_family(strategy_key: str) -> str:
         "asian_home_cover_hgb_favorite_bucket_v1": "asian_home_hgb",
         "total_goals_hgb_bucket_v2": "total_goals_hgb",
         "total_goals_hgb_low_line_bucket_v3": "total_goals_hgb",
+        "total_goals_hgb_confirmed_under_mid_275_v1": "total_goals_hgb",
     }
     return mapping.get(strategy_key, "unknown")
 
@@ -143,6 +144,8 @@ def confidence_score_for_group(
         score += Decimal("8")
     if any(_is_bucket_strategy(record.strategy_key) for record in records):
         score += Decimal("8")
+    if any(_has_risk_tag(record, "model_consensus:confirmed") for record in records):
+        score += Decimal("5")
     if len(records) > len(families):
         score -= Decimal("3")
     if any(record.is_manually_adjusted for record in records):
@@ -247,6 +250,10 @@ def _strategy_priority(strategy_key: str) -> int:
 
 def _is_bucket_strategy(strategy_key: str) -> bool:
     return "bucket" in strategy_key
+
+
+def _has_risk_tag(record: PaperRecommendationRecord, tag: str) -> bool:
+    return tag in {item.strip() for item in (record.risk_tags or "").split(",") if item.strip()}
 
 
 def _model_margin(record: PaperRecommendationRecord) -> Decimal:

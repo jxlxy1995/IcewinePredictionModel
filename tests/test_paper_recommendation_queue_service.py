@@ -3,11 +3,14 @@ from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import numpy as np
+
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, OddsSnapshot, Team, TrainingRun
 from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScore,
     build_paper_recommendation_queue,
     format_paper_recommendation_queue_report,
+    train_paper_queue_scorer_from_rows,
     _team_prior_state,
     _team_prior_states_by_match,
 )
@@ -276,6 +279,54 @@ def test_build_paper_recommendation_queue_reuses_cached_scorer_for_same_feature_
     )
 
     assert captured == [feature_path]
+
+
+def test_train_paper_queue_scorer_passes_numpy_labels_to_calibrated_model(monkeypatch):
+    seen_label_arrays = []
+
+    class FakeRawModel:
+        def fit(self, matrix, labels):
+            return self
+
+        def predict_proba(self, matrix):
+            return [[0.60, 0.40]]
+
+        @property
+        def named_steps(self):
+            return {"classifier": type("Classifier", (), {"classes_": np.asarray(["home_cover", "away_cover"])})()}
+
+    class FakeCalibratedModel:
+        classes_ = np.asarray(["home_cover", "away_cover"])
+
+        def fit(self, matrix, labels):
+            seen_label_arrays.append(labels)
+            assert hasattr(labels, "shape")
+            return self
+
+        def predict_proba(self, matrix):
+            return [[0.55, 0.45]]
+
+    monkeypatch.setattr(
+        "icewine_prediction.paper_recommendation_queue_service._raw_model",
+        lambda: FakeRawModel(),
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.paper_recommendation_queue_service._calibrated_model",
+        lambda: FakeCalibratedModel(),
+    )
+
+    scorer = train_paper_queue_scorer_from_rows(
+        [
+            _training_row("home_cover", "over"),
+            _training_row("away_cover", "under"),
+            _training_row("home_cover", "over"),
+        ]
+    )
+    scores = scorer(_training_row("home_cover", "over"))
+
+    assert len(seen_label_arrays) == 2
+    assert len(scores) == 2
+    assert all(score.calibrated_side is not None for score in scores)
 
 
 def test_team_prior_states_by_match_matches_legacy_team_form(session):
@@ -1041,6 +1092,68 @@ def test_build_paper_recommendation_queue_adds_total_goals_low_line_v3_candidate
     )
 
 
+def test_build_paper_recommendation_queue_adds_total_goals_confirmed_under_mid_275_candidate(session):
+    match, now = _seed_total_goals_priced_match(session, total_line=Decimal("2.75"))
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=lambda row: PaperQueueScore(
+            market_type="total_goals",
+            side="under",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1500"),
+            model_name="fake_hgb",
+            calibrated_side="under",
+            calibrated_edge=Decimal("0.0100"),
+        ),
+    )
+
+    candidate = next(
+        row
+        for row in report.rows
+        if row.strategy_key == "total_goals_hgb_confirmed_under_mid_275_v1"
+    )
+    assert candidate.status == "candidate"
+    assert candidate.match_id == match.id
+    assert candidate.market_type == "total_goals"
+    assert candidate.side == "under"
+    assert candidate.line_bucket == "mid_2.75"
+    assert candidate.signal_version == "v1"
+    assert candidate.risk_tags == (
+        "line_bucket:mid_2.75",
+        "model_consensus:confirmed",
+        "strategy:total_goals_confirmed_under_mid_275_v1",
+    )
+
+
+def test_build_paper_recommendation_queue_does_not_add_confirmed_under_mid_275_when_calibrated_diverges(session):
+    _, now = _seed_total_goals_priced_match(session, total_line=Decimal("2.75"))
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=lambda row: PaperQueueScore(
+            market_type="total_goals",
+            side="under",
+            model_probability=Decimal("0.6600"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1600"),
+            model_name="fake_hgb",
+            calibrated_side="over",
+            calibrated_edge=Decimal("-0.0200"),
+        ),
+    )
+
+    assert not any(
+        row.strategy_key == "total_goals_hgb_confirmed_under_mid_275_v1"
+        for row in report.rows
+    )
+
+
 def test_build_paper_recommendation_queue_uses_low_line_v3_side_thresholds(session):
     _, now = _seed_total_goals_priced_match(session, total_line=Decimal("2.25"))
 
@@ -1254,6 +1367,61 @@ def _seed_total_goals_priced_match(
     )
     session.commit()
     return match, now
+
+
+def _training_row(asian_actual_side: str, total_actual_side: str) -> dict[str, str]:
+    row = {
+        "match_id": "1",
+        "source_match_id": "1",
+        "league_name": "League",
+        "league_source_id": "1",
+        "season": "2026",
+        "kickoff_time": "2026-01-01T12:00:00+08:00",
+        "split": "train",
+        "home_team_name": "Home",
+        "away_team_name": "Away",
+        "target_match_result": "home",
+        "target_home_score": "2",
+        "target_away_score": "1",
+        "target_total_goals": "3",
+        "target_asian_handicap_home_result": "win" if asian_actual_side == "home_cover" else "loss",
+        "target_asian_handicap_away_result": "loss" if asian_actual_side == "home_cover" else "win",
+        "asian_handicap_close_line": "-0.50",
+        "asian_handicap_home_odds": "1.950",
+        "asian_handicap_away_odds": "1.950",
+        "total_goals_close_line": "2.75",
+        "target_total_goals_over_result": "win" if total_actual_side == "over" else "loss",
+        "target_total_goals_under_result": "loss" if total_actual_side == "over" else "win",
+        "total_goals_over_odds": "1.900",
+        "total_goals_under_odds": "2.000",
+        "match_winner_home_implied_probability": "0.4762",
+        "match_winner_draw_implied_probability": "0.3077",
+        "match_winner_away_implied_probability": "0.2941",
+        "match_winner_overround": "1.0780",
+        "asian_handicap_home_implied_probability": "0.5000",
+        "asian_handicap_away_implied_probability": "0.5000",
+        "asian_handicap_overround": "1.0000",
+        "total_goals_over_implied_probability": "0.5000",
+        "total_goals_under_implied_probability": "0.5000",
+        "total_goals_overround": "1.0000",
+        "quality_tags": "",
+    }
+    for prefix in ("home", "away"):
+        row.update(
+            {
+                f"{prefix}_prior_matches": "10",
+                f"{prefix}_prior_points_per_match": "1.5000",
+                f"{prefix}_prior_win_rate": "0.4000",
+                f"{prefix}_prior_draw_rate": "0.3000",
+                f"{prefix}_prior_loss_rate": "0.3000",
+                f"{prefix}_prior_goals_for_per_match": "1.4000",
+                f"{prefix}_prior_goals_against_per_match": "1.2000",
+                f"{prefix}_prior_{'home' if prefix == 'home' else 'away'}_matches": "5",
+                f"{prefix}_prior_{'home' if prefix == 'home' else 'away'}_points_per_match": "1.6000",
+                f"{prefix}_rest_days": "7.00",
+            }
+        )
+    return row
 
 
 def _add_historical_market_pair(

@@ -365,53 +365,139 @@ export function PaperRecordTable({ isBusy, onEdit, onVoid, records }: PaperRecor
 export function PaperConfidenceSimulationTable({
   workspace
 }: PaperConfidenceSimulationTableProps) {
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const rows = buildPaperConfidenceSimulationRows(workspace);
+  const { pageRecords, pagination, setPage } = useSortedPaginatedRecords(rows, 20);
   if (rows.length === 0) {
-    return <div className="empty-state">No same-direction simulation groups</div>;
+    return <div className="empty-state">暂无纸面推荐记录</div>;
   }
+  const recordsById = new Map(workspace.records.map((record) => [record.id, record]));
+  const toggleExpanded = (groupKey: string) => {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  };
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Match</th>
-          <th>Recommendation</th>
-          <th>Score</th>
-          <th>Stake</th>
-          <th>Signals</th>
-          <th>Flat</th>
-          <th>Weighted</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.group.group_key}>
-            <td>
-              <strong>
-                {row.league} {row.fixture}
-              </strong>
-              <span className="muted-text">{row.kickoffTime}</span>
-            </td>
-            <td>
-              <strong>{row.recommendation}</strong>
-              <span className="muted-text">{row.familyCombo}</span>
-            </td>
-            <td>{row.confidenceScore}</td>
-            <td>
-              {row.suggestedStakeUnits}
-              {row.capReason !== "none" && <span className="muted-text">{row.capReason}</span>}
-            </td>
-            <td>{row.triggeredSignals}</td>
-            <td>
-              <ProfitCell value={row.flatProfitUnits} />
-            </td>
-            <td>
-              <ProfitCell value={row.weightedProfitUnits} />
-            </td>
-            <td>{formatPaperRecordStatus(row.status)}</td>
+    <>
+      <RecordPagination pagination={pagination} onPageChange={setPage} />
+      <table>
+        <thead>
+          <tr>
+            <th>比赛</th>
+            <th>推荐</th>
+            <th>信心</th>
+            <th>手数</th>
+            <th>结算</th>
+            <th>1手收益</th>
+            <th>动态收益</th>
+            <th>信号</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {pageRecords.map((row) => {
+            const isExpanded = expandedGroups.has(row.group.group_key);
+            const signalRecords = row.signalRecordIds
+              .map((recordId) => recordsById.get(recordId))
+              .filter((record): record is PaperRecord => record !== undefined);
+            return (
+              <Fragment key={row.group.group_key}>
+                <tr>
+                  <td className="record-match-cell">
+                    <MatchCell record={row} />
+                  </td>
+                  <td>
+                    <strong>{row.recommendation}</strong>
+                    <span className="muted-text">{row.familyCombo}</span>
+                  </td>
+                  <td>{row.confidenceScore}</td>
+                  <td>
+                    {row.suggestedStakeUnits}
+                    {row.capReason !== "none" && (
+                      <span className="muted-text">{formatCapReason(row.capReason)}</span>
+                    )}
+                  </td>
+                  <td>
+                    <SettlementBadge
+                      label={formatPaperSettlementResult(row.group.settlement_result)}
+                      result={row.group.settlement_result}
+                    />
+                  </td>
+                  <td>
+                    <ProfitCell value={row.flatProfitUnits} />
+                  </td>
+                  <td>
+                    <ProfitCell value={row.weightedProfitUnits} />
+                  </td>
+                  <td>
+                    <button
+                      className="inline-action"
+                      onClick={() => toggleExpanded(row.group.group_key)}
+                      type="button"
+                    >
+                      {isExpanded ? "收起" : `查看信号 ${signalRecords.length}`}
+                    </button>
+                  </td>
+                </tr>
+                {isExpanded && (
+                  <tr className="paper-candidate-signal-row">
+                    <td />
+                    <td colSpan={7}>
+                      <table className="nested-table">
+                        <thead>
+                          <tr>
+                            <th>信号</th>
+                            <th>盘口</th>
+                            <th>赔率</th>
+                            <th>Edge</th>
+                            <th>结算</th>
+                            <th>1手收益</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {signalRecords.map((record) => (
+                            <tr key={record.id}>
+                              <td>
+                                <strong>{record.strategy_display_name}</strong>
+                                <span className="muted-text">{record.strategy_key}</span>
+                              </td>
+                              <td>{record.recommended_handicap}</td>
+                              <td>{record.current_odds}</td>
+                              <td>{record.edge}</td>
+                              <td>
+                                <SettlementBadge
+                                  label={formatPaperSettlementResult(record.settlement_result)}
+                                  result={record.settlement_result}
+                                />
+                              </td>
+                              <td>
+                                <ProfitCell value={record.profit_units} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
   );
+}
+
+function formatCapReason(value: string): string {
+  const labels: Record<string, string> = {
+    same_family_cap: "同源信号封顶",
+    single_family_limited_history: "样本封顶"
+  };
+  return labels[value] ?? value;
 }

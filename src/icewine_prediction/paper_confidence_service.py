@@ -22,8 +22,12 @@ class PaperConfidenceGroup:
     league_display_name: str | None
     home_team_name: str
     home_team_display_name: str | None
+    home_team_logo_url: str | None
+    home_score: int | None
     away_team_name: str
     away_team_display_name: str | None
+    away_team_logo_url: str | None
+    away_score: int | None
     market_type: str
     logical_side: str
     recommendation_text: str | None
@@ -31,6 +35,7 @@ class PaperConfidenceGroup:
     representative_strategy_key: str
     representative_market_line: Decimal
     representative_odds: Decimal
+    signal_record_ids: tuple[int, ...]
     triggered_strategy_keys: tuple[str, ...]
     triggered_strategy_display_names: tuple[str, ...]
     signal_families: tuple[str, ...]
@@ -184,8 +189,12 @@ def _build_group(records: list[PaperRecommendationRecord]) -> PaperConfidenceGro
         league_display_name=representative.league_display_name,
         home_team_name=representative.home_team_name,
         home_team_display_name=representative.home_team_display_name,
+        home_team_logo_url=representative.match.home_team.logo_url if representative.match else None,
+        home_score=representative.match.home_score if representative.match else None,
         away_team_name=representative.away_team_name,
         away_team_display_name=representative.away_team_display_name,
+        away_team_logo_url=representative.match.away_team.logo_url if representative.match else None,
+        away_score=representative.match.away_score if representative.match else None,
         market_type=representative.market_type,
         logical_side=representative.side,
         recommendation_text=representative.recommended_handicap,
@@ -193,6 +202,7 @@ def _build_group(records: list[PaperRecommendationRecord]) -> PaperConfidenceGro
         representative_strategy_key=representative.strategy_key,
         representative_market_line=representative.current_market_line,
         representative_odds=representative.current_odds,
+        signal_record_ids=tuple(record.id for record in sorted(records, key=lambda item: item.id)),
         triggered_strategy_keys=tuple(record.strategy_key for record in sorted(records, key=lambda item: item.id)),
         triggered_strategy_display_names=tuple(
             record.strategy_display_name for record in sorted(records, key=lambda item: item.id)

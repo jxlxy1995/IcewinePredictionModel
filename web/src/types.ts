@@ -380,8 +380,12 @@ export type PaperConfidenceSimulationGroup = {
   league_display_name?: string | null;
   home_team_name: string;
   home_team_display_name?: string | null;
+  home_team_logo_url?: string | null;
+  home_score?: number | null;
   away_team_name: string;
   away_team_display_name?: string | null;
+  away_team_logo_url?: string | null;
+  away_score?: number | null;
   market_type: string;
   logical_side: string;
   recommendation_text: string | null;
@@ -389,6 +393,7 @@ export type PaperConfidenceSimulationGroup = {
   representative_strategy_key: string;
   representative_market_line: string;
   representative_odds: string;
+  signal_record_ids: number[];
   triggered_strategy_keys: string[];
   triggered_strategy_display_names: string[];
   signal_families: string[];

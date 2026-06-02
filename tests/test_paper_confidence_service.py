@@ -53,11 +53,32 @@ def test_build_paper_confidence_workspace_groups_same_direction_strategy_records
         "asian_away_cover_hgb_edge_v1",
         "asian_away_cover_hgb_bucket_v2",
     )
+    assert len(group.signal_record_ids) == 2
     assert group.signal_families == ("asian_away_hgb",)
     assert group.representative_strategy_key == "asian_away_cover_hgb_bucket_v2"
     assert group.flat_profit_units == Decimal("0.930")
     assert group.weighted_profit_units == Decimal("1.163")
     assert workspace.summary.flat_profit_units == Decimal("0.930")
+
+
+def test_build_paper_confidence_workspace_exposes_match_display_fields(session):
+    match = _seed_match(session, home_score=2, away_score=1, status="finished")
+    match.home_team.logo_url = "https://img.example/home.png"
+    match.away_team.logo_url = "https://img.example/away.png"
+    session.commit()
+    create_paper_record_from_queue_row(
+        session,
+        _queue_row(match, status="candidate", line=Decimal("-0.50")),
+        recorded_at=_now(),
+    )
+    settle_paper_records(session, settled_at=_now())
+
+    group = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all()).groups[0]
+
+    assert group.home_team_logo_url == "https://img.example/home.png"
+    assert group.away_team_logo_url == "https://img.example/away.png"
+    assert group.home_score == 2
+    assert group.away_score == 1
 
 
 def test_build_paper_confidence_workspace_keeps_different_markets_separate(session):

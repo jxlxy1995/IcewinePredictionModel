@@ -61,15 +61,29 @@ export type PaperRecordGroups = {
 };
 
 export type PaperConfidenceSimulationRow = {
+  away_score?: number | null;
+  away_team_display_name?: string | null;
+  away_team_logo_url?: string | null;
+  away_team_name: string;
   capReason: string;
   confidenceScore: string;
   familyCombo: string;
   fixture: string;
   flatProfitUnits: string;
   group: PaperConfidenceSimulationGroup;
+  home_score?: number | null;
+  home_team_display_name?: string | null;
+  home_team_logo_url?: string | null;
+  home_team_name: string;
+  homeScore: number | null;
+  id: number;
+  kickoff_time: string;
   kickoffTime: string;
   league: string;
+  league_display_name?: string | null;
+  league_name: string;
   recommendation: string;
+  signalRecordIds: number[];
   status: string;
   suggestedStakeUnits: string;
   triggeredSignals: string;
@@ -186,11 +200,11 @@ export function buildPaperConfidenceSimulationCards(
     weighted_roi: "0.0000"
   };
   return [
-    { label: "Groups", value: summary.group_count.toLocaleString() },
-    { label: "Settled", value: summary.settled_groups.toLocaleString() },
-    { label: "Suggested stake", value: summary.suggested_stake_units },
-    { label: "Flat ROI", value: formatRatioAsPercent(summary.flat_roi) },
-    { label: "Weighted ROI", value: formatRatioAsPercent(summary.weighted_roi) }
+    { label: "推荐组", value: summary.group_count.toLocaleString() },
+    { label: "已结算", value: summary.settled_groups.toLocaleString() },
+    { label: "建议手数", value: summary.suggested_stake_units },
+    { label: "1手ROI", value: formatRatioAsPercent(summary.flat_roi) },
+    { label: "动态ROI", value: formatRatioAsPercent(summary.weighted_roi) }
   ];
 }
 
@@ -198,6 +212,10 @@ export function buildPaperConfidenceSimulationRows(
   workspace: PaperRecommendationWorkspace
 ): PaperConfidenceSimulationRow[] {
   return (workspace.confidence_simulation?.groups ?? []).map((group) => ({
+    away_score: group.away_score ?? null,
+    away_team_display_name: group.away_team_display_name,
+    away_team_logo_url: group.away_team_logo_url,
+    away_team_name: group.away_team_name,
     capReason: group.stake_cap_reason,
     confidenceScore: String(group.confidence_score),
     familyCombo: group.signal_families.join(", ") || "-",
@@ -206,9 +224,19 @@ export function buildPaperConfidenceSimulationRows(
     }`,
     flatProfitUnits: group.flat_profit_units,
     group,
+    home_score: group.home_score ?? null,
+    home_team_display_name: group.home_team_display_name,
+    home_team_logo_url: group.home_team_logo_url,
+    home_team_name: group.home_team_name,
+    homeScore: group.home_score ?? null,
+    id: group.representative_record_id,
+    kickoff_time: group.kickoff_time,
     kickoffTime: group.kickoff_time,
     league: group.league_display_name ?? group.league_name,
+    league_display_name: group.league_display_name,
+    league_name: group.league_name,
     recommendation: `${group.recommendation_text ?? "-"} @ ${group.representative_odds}`,
+    signalRecordIds: group.signal_record_ids,
     status: group.status,
     suggestedStakeUnits: group.suggested_stake_units,
     triggeredSignals: group.triggered_strategy_keys.join(", "),

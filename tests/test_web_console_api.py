@@ -683,8 +683,8 @@ def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
     session_factory = create_session_factory(engine)
     with session_factory() as session:
         league = League(name="Premier Division", country_or_region="Ireland", level=1)
-        home = Team(canonical_name="Drogheda United")
-        away = Team(canonical_name="Waterford")
+        home = Team(canonical_name="Drogheda United", logo_url="https://img.example/home.png")
+        away = Team(canonical_name="Waterford", logo_url="https://img.example/away.png")
         match = Match(
             league=league,
             home_team=home,
@@ -797,8 +797,8 @@ def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
     assert settled_workspace["summary"]["roi"] == "0.4400"
     assert settled_workspace["records"][0]["settlement_result"] == "half_win"
     assert settled_workspace["records"][0]["profit_units"] == "0.440"
-    assert settled_workspace["records"][0]["home_team_logo_url"] is None
-    assert settled_workspace["records"][0]["away_team_logo_url"] is None
+    assert settled_workspace["records"][0]["home_team_logo_url"] == "https://img.example/home.png"
+    assert settled_workspace["records"][0]["away_team_logo_url"] == "https://img.example/away.png"
     assert settled_workspace["records"][0]["home_score"] == 1
     assert settled_workspace["records"][0]["away_score"] == 1
 
@@ -809,8 +809,8 @@ def test_web_console_api_voids_paper_record(tmp_path):
     session_factory = create_session_factory(engine)
     with session_factory() as session:
         league = League(name="Premier Division", country_or_region="Ireland", level=1)
-        home = Team(canonical_name="Drogheda United")
-        away = Team(canonical_name="Waterford")
+        home = Team(canonical_name="Drogheda United", logo_url="https://img.example/home.png")
+        away = Team(canonical_name="Waterford", logo_url="https://img.example/away.png")
         match = Match(
             league=league,
             home_team=home,
@@ -1003,8 +1003,8 @@ def test_web_console_api_batch_records_paper_candidates_with_single_queue_build(
     session_factory = create_session_factory(engine)
     with session_factory() as session:
         league = League(name="Premier Division", country_or_region="Ireland", level=1)
-        home = Team(canonical_name="Drogheda United")
-        away = Team(canonical_name="Waterford")
+        home = Team(canonical_name="Drogheda United", logo_url="https://img.example/home.png")
+        away = Team(canonical_name="Waterford", logo_url="https://img.example/away.png")
         match = Match(
             league=league,
             home_team=home,
@@ -1084,6 +1084,11 @@ def test_web_console_api_batch_records_paper_candidates_with_single_queue_build(
     ]
     assert simulation["groups"][0]["signal_families"] == ["asian_away_hgb"]
     assert simulation["groups"][0]["suggested_stake_units"] == "1.25"
+    assert simulation["groups"][0]["home_team_logo_url"] == "https://img.example/home.png"
+    assert simulation["groups"][0]["away_team_logo_url"] == "https://img.example/away.png"
+    assert simulation["groups"][0]["home_score"] is None
+    assert simulation["groups"][0]["away_score"] is None
+    assert len(simulation["groups"][0]["signal_record_ids"]) == 2
     assert scorer_calls == [str(match.id)]
 
 

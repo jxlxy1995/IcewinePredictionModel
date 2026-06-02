@@ -142,8 +142,12 @@ const workspace: PaperRecommendationWorkspace = {
         league_display_name: "League Display",
         home_team_name: "Drogheda United",
         home_team_display_name: "Drogheda",
+        home_team_logo_url: "https://img.example/home.png",
+        home_score: 1,
         away_team_name: "Waterford",
         away_team_display_name: "Waterford",
+        away_team_logo_url: "https://img.example/away.png",
+        away_score: 1,
         market_type: "asian_handicap",
         logical_side: "away_cover",
         recommendation_text: "Away +0.50",
@@ -151,6 +155,7 @@ const workspace: PaperRecommendationWorkspace = {
         representative_strategy_key: "asian_away_cover_hgb_bucket_v2",
         representative_market_line: "-0.50",
         representative_odds: "1.930",
+        signal_record_ids: [1],
         triggered_strategy_keys: [
           "asian_away_cover_hgb_edge_v1",
           "asian_away_cover_hgb_bucket_v2"
@@ -320,11 +325,11 @@ describe("paperRecommendationWorkspace", () => {
 
   it("builds confidence simulation cards with weighted ROI", () => {
     expect(buildPaperConfidenceSimulationCards(workspace)).toEqual([
-      { label: "Groups", value: "1" },
-      { label: "Settled", value: "1" },
-      { label: "Suggested stake", value: "1.25" },
-      { label: "Flat ROI", value: "93.00%" },
-      { label: "Weighted ROI", value: "93.04%" }
+      { label: "推荐组", value: "1" },
+      { label: "已结算", value: "1" },
+      { label: "建议手数", value: "1.25" },
+      { label: "1手ROI", value: "93.00%" },
+      { label: "动态ROI", value: "93.04%" }
     ]);
   });
 
@@ -332,7 +337,12 @@ describe("paperRecommendationWorkspace", () => {
     expect(buildPaperConfidenceSimulationRows(workspace)[0]).toMatchObject({
       confidenceScore: "72",
       fixture: "Drogheda vs Waterford",
+      home_team_logo_url: "https://img.example/home.png",
+      homeScore: 1,
+      id: 1,
+      kickoff_time: "2026-05-30T02:45:00+08:00",
       recommendation: "Away +0.50 @ 1.930",
+      signalRecordIds: [1],
       suggestedStakeUnits: "1.25",
       triggeredSignals: "asian_away_cover_hgb_edge_v1, asian_away_cover_hgb_bucket_v2",
       weightedProfitUnits: "1.163"

@@ -47,8 +47,7 @@ import { MatchListTable } from "../components/MatchListTable";
 import { OddsTrendPanel } from "../components/OddsTrendPanel";
 import {
   PaperCandidateTable,
-  PaperConfidenceSimulationTable,
-  PaperRecordTable
+  PaperConfidenceSimulationTable
 } from "../components/PaperRecommendationTables";
 import { Panel } from "../components/Panel";
 import { RecommendationRecordTable } from "../components/RecommendationRecordTable";
@@ -1999,15 +1998,7 @@ function PaperTrackingView({
           workspace={workspace}
         />
       </Panel>
-      <Panel title="纸面记录">
-        <PaperRecordTable
-          isBusy={isBusy}
-          onEdit={onEdit}
-          onVoid={onVoid}
-          records={workspace.records}
-        />
-      </Panel>
-      <Panel title="Same-direction simulation">
+      <Panel title="纸面推荐记录">
         <section className="metrics compact-metrics">
           {simulationCards.map((card) => (
             <MetricCard key={card.label} label={card.label} value={card.value} />

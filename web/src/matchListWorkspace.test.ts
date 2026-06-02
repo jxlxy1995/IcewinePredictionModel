@@ -128,4 +128,27 @@ describe("matchListWorkspace", () => {
       line: "目标 4 场，成功 2，失败 1，跳过 1，请求 8"
     });
   });
+
+  it("builds fixture range sync summary labels", () => {
+    expect(
+      buildMatchSyncSummary({
+        sync_type: "fixtures_range",
+        started_at: "2026-05-30T10:00:00+08:00",
+        finished_at: "2026-05-30T10:01:00+08:00",
+        target_count: 5,
+        success_count: 5,
+        failed_count: 0,
+        skipped_count: 1,
+        requests_used: 2,
+        created_count: 3,
+        updated_count: 2,
+        success: [],
+        failed: [],
+        skipped: []
+      })
+    ).toEqual({
+      title: "赛程拉取结果",
+      line: "新增 3 场，更新 2 场，跳过 1，请求 2"
+    });
+  });
 });

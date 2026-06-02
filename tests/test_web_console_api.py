@@ -1534,6 +1534,94 @@ def test_web_console_api_match_list_sync_uses_filtered_match_targets(tmp_path):
     assert payload["report"]["failed"][0]["message"] == "remote error"
 
 
+def test_web_console_api_discovers_fixture_range_and_refreshes_match_list(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    calls = []
+
+    def fake_fixture_range_syncer(start_time, end_time, league_name):
+        calls.append((start_time, end_time, league_name))
+        with session_factory() as session:
+            league = League(
+                name="J1 League",
+                country_or_region="Japan",
+                level=1,
+                source_name="api_football",
+                source_league_id="98",
+            )
+            home = Team(
+                canonical_name="Sanfrecce Hiroshima",
+                country_or_region="Japan",
+                source_name="api_football",
+                source_team_id="1",
+            )
+            away = Team(
+                canonical_name="Kawasaki Frontale",
+                country_or_region="Japan",
+                source_name="api_football",
+                source_team_id="2",
+            )
+            session.add_all([league, home, away])
+            session.flush()
+            session.add(
+                Match(
+                    league=league,
+                    home_team=home,
+                    away_team=away,
+                    kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                    status="scheduled",
+                    source_name="api_football",
+                    source_match_id="1494190",
+                )
+            )
+            session.commit()
+        return {"created": 1, "updated": 0, "skipped": 0, "requests": 1}
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            clock=lambda: datetime(2026, 5, 30, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_list_fixture_range_syncer=fake_fixture_range_syncer,
+        )
+    )
+
+    response = client.post(
+        "/api/match-list/sync/fixtures-range",
+        json={
+            "start_time": "2026-05-30T00:00:00+08:00",
+            "end_time": "2026-05-30T23:59:00+08:00",
+            "league_name": "J1 League",
+        },
+    )
+    detail_response = client.get("/api/data-sync-runs/1/items")
+    workspace_response = client.get(
+        "/api/match-list/workspace?start_time=2026-05-30T00:00:00%2B08:00"
+        "&end_time=2026-05-30T23:59:00%2B08:00"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sync_run"]["sync_type"] == "fixtures_range"
+    assert payload["sync_run"]["created_count"] == 1
+    assert payload["report"]["created_count"] == 1
+    assert payload["report"]["updated_count"] == 0
+    assert detail_response.status_code == 200
+    assert detail_response.json()["report"]["created_count"] == 1
+    assert calls == [
+        (
+            datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            datetime(2026, 5, 30, 23, 59, tzinfo=ZoneInfo("Asia/Shanghai")),
+            "J1 League",
+        )
+    ]
+    assert workspace_response.status_code == 200
+    workspace = workspace_response.json()
+    assert workspace["total_matches"] == 1
+    assert workspace["matches"][0]["home_team_name"] == "Sanfrecce Hiroshima"
+
+
 def test_web_console_api_fixtures_results_sync_does_not_show_odds_diagnostics(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

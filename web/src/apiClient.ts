@@ -253,6 +253,14 @@ export async function syncFilteredMatchListFixturesResults(filters: {
   });
 }
 
+export async function syncFixtureRange(filters: {
+  end_time?: string;
+  league_name?: string | null;
+  start_time?: string;
+}): Promise<MatchSyncResponse> {
+  return await postJson<MatchSyncResponse>("/api/match-list/sync/fixtures-range", filters);
+}
+
 export async function syncFilteredMatchListOdds(filters: {
   end_time?: string;
   league_name?: string | null;

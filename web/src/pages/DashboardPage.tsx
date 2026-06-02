@@ -33,6 +33,7 @@ import {
   runTrainingWorkflowAction,
   saveTeamDisplayNames,
   settlePaperRecords,
+  syncFixtureRange,
   syncFilteredMatchListFixturesResults,
   syncFilteredMatchListOdds,
   syncSingleMatchFixturesResults,
@@ -446,6 +447,26 @@ export function DashboardPage() {
                 .catch((error) => setMatchListError(formatActionError("读取比赛详情失败", error)))
                 .finally(() => setMatchListAction(null));
             }}
+            onDiscoverFixtures={() => {
+              setMatchListAction("discover-fixtures");
+              setMatchListError(null);
+              setMatchListMessage(null);
+              setMatchListSyncReport(null);
+              setMatchListSyncRunDetail(null);
+              syncFixtureRange({
+                end_time: matchListFilters.end_time,
+                league_name: matchListFilters.league_name || undefined,
+                start_time: matchListFilters.start_time
+              })
+                .then((response) => {
+                  setMatchListSyncReport(response.report);
+                  setMatchListSyncRunDetail(response);
+                  return refreshMatchListWorkspace(setData, matchListFilters);
+                })
+                .then(() => setMatchListMessage("赛程拉取完成"))
+                .catch((error) => setMatchListError(formatActionError("赛程拉取失败", error)))
+                .finally(() => setMatchListAction(null));
+            }}
             onSyncFixturesResults={() => {
               setMatchListAction("sync-fixtures");
               setMatchListError(null);
@@ -749,13 +770,9 @@ function MatchListView({
   detail,
   errorText,
   filters,
-  fixturesSyncDays,
   messageText,
-  oddsSyncDays,
   onBackToList,
   onFiltersChange,
-  onFixturesSyncDaysChange,
-  onOddsSyncDaysChange,
   onOpenMatch,
   onSyncFixturesResults,
   onSyncOdds
@@ -772,13 +789,9 @@ function MatchListView({
     start_time: string;
     status_filter: string;
   };
-  fixturesSyncDays: number;
   messageText: string | null;
-  oddsSyncDays: number;
   onBackToList: () => void;
   onFiltersChange: (filters: Partial<MatchListFilterState>) => void;
-  onFixturesSyncDaysChange: (days: number) => void;
-  onOddsSyncDaysChange: (days: number) => void;
   onOpenMatch: (match: MatchListMatch) => void;
   onSyncFixturesResults: () => void;
   onSyncOdds: () => void;
@@ -808,29 +821,11 @@ function MatchListView({
           </div>
         ))}
         <div className="sync-action">
-          <label>
-            天数
-            <input
-              min={1}
-              onChange={(event) => onFixturesSyncDaysChange(Number(event.target.value))}
-              type="number"
-              value={fixturesSyncDays}
-            />
-          </label>
           <button disabled={isBusy} onClick={onSyncFixturesResults} type="button">
             同步赛程/赛果
           </button>
         </div>
         <div className="sync-action">
-          <label>
-            天数
-            <input
-              min={1}
-              onChange={(event) => onOddsSyncDaysChange(Number(event.target.value))}
-              type="number"
-              value={oddsSyncDays}
-            />
-          </label>
           <button disabled={isBusy} onClick={onSyncOdds} type="button">
             同步赔率
           </button>
@@ -914,6 +909,7 @@ function FilteredMatchListView({
   syncReport,
   syncRunDetail,
   onBackToList,
+  onDiscoverFixtures,
   onFiltersChange,
   onLoadSyncRunDetail,
   onOpenMatch,
@@ -933,6 +929,7 @@ function FilteredMatchListView({
   syncReport: MatchSyncReport | null;
   syncRunDetail: MatchSyncRunDetail | null;
   onBackToList: () => void;
+  onDiscoverFixtures: () => void;
   onFiltersChange: (filters: Partial<MatchListFilterState>) => void;
   onLoadSyncRunDetail: (runId: number) => void;
   onOpenMatch: (match: MatchListMatch) => void;
@@ -966,6 +963,9 @@ function FilteredMatchListView({
           </div>
         ))}
         <div className="sync-action">
+          <button disabled={isBusy} onClick={onDiscoverFixtures} type="button">
+            拉取赛程
+          </button>
           <button disabled={isBusy} onClick={onSyncFixturesResults} type="button">
             同步赛程/赛果
           </button>
@@ -1274,6 +1274,9 @@ function formatActionError(prefix: string, error: unknown): string {
 }
 
 function formatMatchListAction(action: string) {
+  if (action === "discover-fixtures") {
+    return "拉取赛程";
+  }
   if (action === "sync-fixtures") {
     return "同步赛程/赛果";
   }

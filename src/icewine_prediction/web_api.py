@@ -78,7 +78,7 @@ from icewine_prediction.sources.api_football_client import ApiFootballApiError
 from icewine_prediction.sources.api_football_mapper import map_fixtures
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.sync_runner import build_api_football_provider
-from icewine_prediction.sync_service import upsert_fixtures, upsert_odds_snapshots
+from icewine_prediction.sync_service import league_internal_name, upsert_fixtures, upsert_odds_snapshots
 from icewine_prediction.time_utils import now_beijing
 from icewine_prediction.training_orchestration_service import (
     TrainingRunAlreadyRunning,
@@ -108,6 +108,7 @@ def create_web_app(
     ),
     paper_queue_scorer: Callable[[dict[str, str]], PaperQueueScoreResult] | None = None,
     match_list_fixtures_results_syncer: Callable[[list[int]], dict[str, Any] | str] | None = None,
+    match_list_fixture_range_syncer: Callable[[datetime, datetime, str | None], dict[str, Any] | str] | None = None,
     match_list_odds_syncer: Callable[[list[int]], dict[str, Any] | str] | None = None,
     training_full_refresh_runner: Callable[[int], None] | None = None,
     clock: Callable[[], datetime] = now_beijing,
@@ -126,6 +127,9 @@ def create_web_app(
     response_cache = WebResponseCache(ttl_seconds=60.0)
     match_list_fixtures_results_syncer = (
         match_list_fixtures_results_syncer or _run_match_list_fixtures_results_sync
+    )
+    match_list_fixture_range_syncer = (
+        match_list_fixture_range_syncer or _run_match_list_fixture_range_sync
     )
     match_list_odds_syncer = match_list_odds_syncer or _run_match_list_odds_sync
     if training_full_refresh_runner is None:
@@ -340,6 +344,63 @@ def create_web_app(
                 run = record_sync_run(
                     session,
                     sync_type="fixtures_results",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="failed",
+                    days=0,
+                    created_count=0,
+                    updated_count=0,
+                    skipped_count=0,
+                    requests_used=0,
+                    error_message=str(error),
+                )
+                raise HTTPException(status_code=500, detail=str(error)) from error
+            clear_cache_prefix(
+                "dashboard-summary",
+                "league-coverage",
+                "match-list-workspace",
+                "matches-with-odds",
+                "missing-team-names",
+                "paper-recommendation-workspace",
+            )
+            return {"sync_run": build_data_sync_run_payload(run), "report": report}
+
+    @app.post("/api/match-list/sync/fixtures-range")
+    def sync_match_list_fixture_range(payload: dict[str, Any]) -> dict[str, Any]:
+        started_at = clock()
+        start_time = _parse_optional_datetime(payload.get("start_time"))
+        end_time = _parse_optional_datetime(payload.get("end_time"))
+        if start_time is None or end_time is None:
+            raise HTTPException(status_code=400, detail="fixtures range requires start_time and end_time")
+        start_time = _as_beijing_datetime(start_time)
+        end_time = _as_beijing_datetime(end_time)
+        if end_time < start_time:
+            raise HTTPException(status_code=400, detail="end_time must be greater than or equal to start_time")
+        league_name = payload.get("league_name") or None
+        with session_factory() as session:
+            try:
+                report = _build_fixture_range_sync_report(
+                    sync_type="fixtures_range",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    result=match_list_fixture_range_syncer(start_time, end_time, league_name),
+                )
+                run = record_sync_run(
+                    session,
+                    sync_type="fixtures_range",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="success",
+                    days=0,
+                    created_count=int(report["created_count"]),
+                    updated_count=int(report["updated_count"]),
+                    skipped_count=int(report["skipped_count"]),
+                    requests_used=int(report["requests_used"]),
+                )
+            except Exception as error:
+                run = record_sync_run(
+                    session,
+                    sync_type="fixtures_range",
                     started_at=started_at,
                     finished_at=clock(),
                     status="failed",
@@ -1478,6 +1539,51 @@ def _select_sync_matches_from_payload(
     )
 
 
+def _build_fixture_range_sync_report(
+    *,
+    sync_type: str,
+    started_at: datetime,
+    finished_at: datetime,
+    result: dict[str, Any] | str,
+) -> dict[str, Any]:
+    normalized = _normalize_fixture_range_sync_result(result)
+    created_count = normalized["created"]
+    updated_count = normalized["updated"]
+    skipped_count = normalized["skipped"]
+    return {
+        "sync_type": sync_type,
+        "started_at": _format_datetime(started_at),
+        "finished_at": _format_datetime(finished_at),
+        "target_count": created_count + updated_count + skipped_count,
+        "success_count": created_count + updated_count,
+        "failed_count": 0,
+        "skipped_count": skipped_count,
+        "requests_used": normalized["requests"],
+        "created_count": created_count,
+        "updated_count": updated_count,
+        "success": [],
+        "failed": [],
+        "skipped": [],
+    }
+
+
+def _normalize_fixture_range_sync_result(result: dict[str, Any] | str) -> dict[str, int]:
+    if isinstance(result, str):
+        parsed = _parse_sync_summary(result)
+        return {
+            "created": parsed["created"],
+            "updated": parsed["updated"],
+            "skipped": parsed["skipped"],
+            "requests": parsed["requests"],
+        }
+    return {
+        "created": int(result.get("created", result.get("created_count", 0)) or 0),
+        "updated": int(result.get("updated", result.get("updated_count", 0)) or 0),
+        "skipped": int(result.get("skipped", result.get("skipped_count", 0)) or 0),
+        "requests": int(result.get("requests", result.get("requests_used", 0)) or 0),
+    }
+
+
 def _build_match_sync_report(
     *,
     session: Session,
@@ -1785,6 +1891,16 @@ def _build_persisted_match_sync_run_payload(
         "requests_used": run.requests_used,
         **groups,
     }
+    if run.sync_type == "fixtures_range":
+        report.update(
+            {
+                "target_count": run.created_count + run.updated_count + run.skipped_count,
+                "success_count": run.created_count + run.updated_count,
+                "skipped_count": run.skipped_count,
+                "created_count": run.created_count,
+                "updated_count": run.updated_count,
+            }
+        )
     return {"sync_run": build_data_sync_run_payload(run), "report": report}
 
 
@@ -2154,6 +2270,79 @@ def _run_match_list_fixtures_results_sync(match_ids: list[int]) -> dict[str, Any
     }
 
 
+def _run_match_list_fixture_range_sync(
+    start_time: datetime,
+    end_time: datetime,
+    league_name: str | None = None,
+) -> dict[str, Any]:
+    start_time = _as_beijing_datetime(start_time)
+    end_time = _as_beijing_datetime(end_time)
+    settings = load_project_settings()
+    provider = build_api_football_provider(settings)
+    enabled_league_ids = {
+        str(league.api_football_id)
+        for league in settings.leagues
+        if league.enabled
+    }
+    configured_league_names_by_id = {
+        str(league.api_football_id): league.name
+        for league in settings.leagues
+    }
+    fixtures = []
+    seen_match_ids: set[str] = set()
+    query_date = start_time.date()
+    while query_date <= end_time.date():
+        payload = provider.client.get(
+            "fixtures",
+            {
+                "date": query_date.isoformat(),
+                "timezone": "Asia/Shanghai",
+            },
+        )
+        for fixture in map_fixtures(payload):
+            if fixture.source_league_id not in enabled_league_ids:
+                continue
+            if fixture.source_match_id in seen_match_ids:
+                continue
+            kickoff_time = _as_beijing_datetime(fixture.kickoff_time)
+            if kickoff_time < start_time or kickoff_time > end_time:
+                continue
+            if league_name and not _fixture_matches_league_filter(
+                fixture_league_name=fixture.league_name,
+                fixture_country=fixture.country,
+                configured_league_name=configured_league_names_by_id.get(fixture.source_league_id),
+                league_name=league_name,
+            ):
+                continue
+            seen_match_ids.add(fixture.source_match_id)
+            fixtures.append(fixture)
+        query_date += timedelta(days=1)
+    with _open_session_for_web_sync() as session:
+        result = upsert_fixtures(session, fixtures)
+    return {
+        "created": result.created_matches,
+        "updated": result.updated_matches,
+        "skipped": 0,
+        "requests": provider.client.request_count,
+    }
+
+
+def _fixture_matches_league_filter(
+    *,
+    fixture_league_name: str,
+    fixture_country: str,
+    configured_league_name: str | None,
+    league_name: str,
+) -> bool:
+    candidates = {
+        fixture_league_name,
+        league_internal_name(fixture_league_name, fixture_country),
+    }
+    if configured_league_name:
+        candidates.add(configured_league_name)
+    return league_name in candidates
+
+
 def _is_live_match_for_result_sync(match: Match, *, now: datetime | None = None) -> bool:
     live_values = {"live", "in_play", "halftime", "1h", "2h", "ht", "et", "bt", "p", "int", "susp"}
     status_values = {
@@ -2343,6 +2532,13 @@ def _parse_optional_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value
     return datetime.fromisoformat(str(value))
+
+
+def _as_beijing_datetime(value: datetime) -> datetime:
+    timezone = ZoneInfo(BEIJING_TIMEZONE)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone)
+    return value.astimezone(timezone)
 
 
 def _build_training_dataset_file_payload(path: Path) -> dict[str, Any]:

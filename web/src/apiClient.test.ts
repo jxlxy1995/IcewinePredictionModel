@@ -8,6 +8,7 @@ import {
   loadPaperRecommendationWorkspace,
   recordPaperCandidates,
   startTrainingFullRefresh,
+  syncFixtureRange,
   syncFilteredMatchListFixturesResults,
   syncSingleMatchOdds
 } from "./apiClient";
@@ -328,6 +329,58 @@ describe("apiClient", () => {
         search: "hiro",
         start_time: "2026-05-30T00:00",
         status_filter: "not_started"
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+  });
+
+  it("syncs fixture range with current time filters", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        sync_run: {
+          id: 1,
+          sync_type: "fixtures_range",
+          started_at: "2026-05-30T10:00:00+08:00",
+          finished_at: "2026-05-30T10:01:00+08:00",
+          status: "success",
+          days: 0,
+          created_count: 3,
+          updated_count: 2,
+          skipped_count: 0,
+          requests_used: 2,
+          error_message: null
+        },
+        report: {
+          sync_type: "fixtures_range",
+          started_at: "2026-05-30T10:00:00+08:00",
+          finished_at: "2026-05-30T10:01:00+08:00",
+          target_count: 5,
+          success_count: 5,
+          failed_count: 0,
+          skipped_count: 0,
+          requests_used: 2,
+          created_count: 3,
+          updated_count: 2,
+          success: [],
+          failed: [],
+          skipped: []
+        }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncFixtureRange({
+      end_time: "2026-05-31T12:00",
+      league_name: "J1 League",
+      start_time: "2026-05-30T00:00"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/match-list/sync/fixtures-range", {
+      body: JSON.stringify({
+        end_time: "2026-05-31T12:00",
+        league_name: "J1 League",
+        start_time: "2026-05-30T00:00"
       }),
       headers: { "Content-Type": "application/json" },
       method: "POST"

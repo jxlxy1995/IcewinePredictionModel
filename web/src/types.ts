@@ -519,6 +519,8 @@ export type MatchSyncReport = {
   failed_count: number;
   skipped_count: number;
   requests_used: number;
+  created_count?: number;
+  updated_count?: number;
   success: MatchSyncItem[];
   failed: MatchSyncItem[];
   skipped: MatchSyncItem[];

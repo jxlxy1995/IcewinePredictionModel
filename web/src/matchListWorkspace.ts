@@ -71,6 +71,12 @@ export function summarizeMatchDetail(detail: MatchDetail) {
 }
 
 export function buildMatchSyncSummary(report: MatchSyncReport): MatchSyncSummary {
+  if (report.sync_type === "fixtures_range") {
+    return {
+      title: "赛程拉取结果",
+      line: `新增 ${report.created_count ?? 0} 场，更新 ${report.updated_count ?? 0} 场，跳过 ${report.skipped_count}，请求 ${report.requests_used}`
+    };
+  }
   return {
     title: report.sync_type === "odds" ? "赔率同步结果" : "赛程/赛果同步结果",
     line: `目标 ${report.target_count} 场，成功 ${report.success_count}，失败 ${report.failed_count}，跳过 ${report.skipped_count}，请求 ${report.requests_used}`

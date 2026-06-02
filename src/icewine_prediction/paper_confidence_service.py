@@ -103,6 +103,7 @@ def strategy_family(strategy_key: str) -> str:
     mapping = {
         "asian_away_cover_hgb_edge_v1": "asian_away_hgb",
         "asian_away_cover_hgb_bucket_v2": "asian_away_hgb",
+        "asian_home_cover_hgb_favorite_bucket_v1": "asian_home_hgb",
         "total_goals_hgb_bucket_v2": "total_goals_hgb",
         "total_goals_hgb_low_line_bucket_v3": "total_goals_hgb",
     }

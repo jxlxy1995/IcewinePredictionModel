@@ -46,6 +46,7 @@ from icewine_prediction.oddspapi_sync_runner import (
 from icewine_prediction.paper_strategy_registry import (
     BUCKET_V2_STRATEGY,
     DEFAULT_STRATEGY,
+    HOME_FAVORITE_BUCKET_V1_STRATEGY,
     TOTAL_GOALS_BUCKET_V2_STRATEGY,
     TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
 )
@@ -512,8 +513,18 @@ def _scored_row(
 def _bucket_strategy_rows(row: PaperQueueRow) -> list[PaperQueueRow]:
     if row.market_type == "total_goals":
         return _total_goals_bucket_rows(row)
-    bucket_row = _v2_row(row)
-    return [bucket_row] if bucket_row is not None else []
+    return _asian_handicap_bucket_rows(row)
+
+
+def _asian_handicap_bucket_rows(row: PaperQueueRow) -> list[PaperQueueRow]:
+    rows = []
+    away_row = _v2_row(row)
+    if away_row is not None:
+        rows.append(away_row)
+    home_row = _home_favorite_v1_row(row)
+    if home_row is not None:
+        rows.append(home_row)
+    return rows
 
 
 def _v2_row(row: PaperQueueRow) -> PaperQueueRow | None:
@@ -538,6 +549,34 @@ def _v2_row(row: PaperQueueRow) -> PaperQueueRow | None:
             "strategy_key": BUCKET_V2_STRATEGY.strategy_key,
             "strategy_display_name": BUCKET_V2_STRATEGY.display_name,
             "signal_version": BUCKET_V2_STRATEGY.signal_version,
+        }
+    )
+
+
+def _home_favorite_v1_row(row: PaperQueueRow) -> PaperQueueRow | None:
+    if row.side != "home_cover" or row.edge is None:
+        return None
+    home_bucket = _home_line_bucket(row.line)
+    bucket_thresholds = HOME_FAVORITE_BUCKET_V1_STRATEGY.line_bucket_thresholds or {}
+    threshold = bucket_thresholds.get(home_bucket)
+    if threshold is None or row.edge < threshold:
+        return None
+    return PaperQueueRow(
+        **{
+            **row.__dict__,
+            "status": "candidate",
+            "line_bucket": home_bucket,
+            "risk_tags": (
+                f"line_bucket:{home_bucket}",
+                *(
+                    (HOME_FAVORITE_BUCKET_V1_STRATEGY.risk_tag,)
+                    if HOME_FAVORITE_BUCKET_V1_STRATEGY.risk_tag is not None
+                    else ()
+                ),
+            ),
+            "strategy_key": HOME_FAVORITE_BUCKET_V1_STRATEGY.strategy_key,
+            "strategy_display_name": HOME_FAVORITE_BUCKET_V1_STRATEGY.display_name,
+            "signal_version": HOME_FAVORITE_BUCKET_V1_STRATEGY.signal_version,
         }
     )
 
@@ -592,6 +631,13 @@ def _status_for_score(
         if score.edge < total_goals_threshold:
             return "below_threshold"
         return "candidate"
+    if score.side == "home_cover":
+        home_favorite_threshold = _home_favorite_threshold(line_bucket=line_bucket)
+        if home_favorite_threshold is None:
+            return "unsupported_bucket"
+        if score.edge < home_favorite_threshold:
+            return "below_threshold"
+        return "candidate"
     if score.side != "away_cover":
         return "non_away_cover"
     if score.edge < edge_threshold:
@@ -613,6 +659,11 @@ def _total_goals_bucket_threshold(
     if not thresholds:
         return None
     return min(thresholds)
+
+
+def _home_favorite_threshold(*, line_bucket: str) -> Decimal | None:
+    home_bucket = _home_line_bucket_from_away_bucket(line_bucket)
+    return (HOME_FAVORITE_BUCKET_V1_STRATEGY.line_bucket_thresholds or {}).get(home_bucket)
 
 
 def _normalize_scores(result: PaperQueueScoreResult) -> list[PaperQueueScore]:
@@ -1041,6 +1092,25 @@ def _line_bucket(line: Decimal | None) -> str:
     if line == 0:
         return "pickem"
     return "away_underdog"
+
+
+def _home_line_bucket(line: Decimal | None) -> str:
+    if line is None:
+        return "unknown"
+    if line < 0:
+        return "home_favorite"
+    if line == 0:
+        return "pickem"
+    return "home_underdog"
+
+
+def _home_line_bucket_from_away_bucket(line_bucket: str) -> str:
+    mapping = {
+        "away_favorite": "home_underdog",
+        "away_underdog": "home_favorite",
+        "pickem": "pickem",
+    }
+    return mapping.get(line_bucket, "unknown")
 
 
 def _recommended_handicap(side: str | None, line: Decimal | None) -> str | None:

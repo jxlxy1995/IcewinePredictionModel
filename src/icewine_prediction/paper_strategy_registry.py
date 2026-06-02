@@ -8,6 +8,8 @@ ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY = "asian_away_cover_hgb_edge_v1"
 ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME = "亚盘客队方向 · HGB边际 v1"
 ASIAN_AWAY_COVER_HGB_BUCKET_V2_KEY = "asian_away_cover_hgb_bucket_v2"
 ASIAN_AWAY_COVER_HGB_BUCKET_V2_NAME = "亚盘客队方向 · HGB分盘口桶 v2"
+ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_KEY = "asian_home_cover_hgb_favorite_bucket_v1"
+ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_NAME = "亚盘主队让球方向 · HGB分盘口桶 v1"
 TOTAL_GOALS_HGB_BUCKET_V2_KEY = "total_goals_hgb_bucket_v2"
 TOTAL_GOALS_HGB_BUCKET_V2_NAME = "大小球方向 · HGB分盘口桶 v2"
 TOTAL_GOALS_HGB_LOW_LINE_BUCKET_V3_KEY = "total_goals_hgb_low_line_bucket_v3"
@@ -53,6 +55,19 @@ BUCKET_V2_STRATEGY = PaperStrategy(
     },
     risk_tag="strategy:bucket_v2",
 )
+HOME_FAVORITE_BUCKET_V1_STRATEGY = PaperStrategy(
+    strategy_key=ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_KEY,
+    display_name=ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_NAME,
+    market_type="asian_handicap",
+    side="home_cover",
+    edge_threshold=Decimal("0.1500"),
+    model_name=DEFAULT_MODEL_NAME,
+    signal_version="v1",
+    line_bucket_thresholds={
+        "home_favorite": Decimal("0.1500"),
+    },
+    risk_tag="strategy:asian_home_favorite_bucket_v1",
+)
 TOTAL_GOALS_BUCKET_V2_STRATEGY = PaperStrategy(
     strategy_key=TOTAL_GOALS_HGB_BUCKET_V2_KEY,
     display_name=TOTAL_GOALS_HGB_BUCKET_V2_NAME,
@@ -84,6 +99,7 @@ TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY = PaperStrategy(
 STRATEGIES = (
     DEFAULT_STRATEGY,
     BUCKET_V2_STRATEGY,
+    HOME_FAVORITE_BUCKET_V1_STRATEGY,
     TOTAL_GOALS_BUCKET_V2_STRATEGY,
     TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
 )

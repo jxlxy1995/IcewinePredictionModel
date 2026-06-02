@@ -9,6 +9,8 @@ from icewine_prediction.paper_recommendation_queue_service import PaperQueueRow
 from icewine_prediction.paper_recommendation_tracking_service import (
     ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
     ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
+    ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_KEY,
+    ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_NAME,
     backfill_paper_record_from_candidate,
     build_paper_tracking_workspace,
     create_paper_record_from_queue_row,
@@ -55,6 +57,35 @@ def test_create_paper_record_from_v2_candidate_preserves_strategy(session):
     assert record.strategy_key == "asian_away_cover_hgb_bucket_v2"
     assert record.strategy_display_name == "亚盘客队方向 · HGB分盘口桶 v2"
     assert record.signal_version == "v2"
+
+
+def test_create_paper_record_from_home_favorite_candidate_preserves_strategy(session):
+    match = _seed_match(session)
+    row = _queue_row(
+        match,
+        status="candidate",
+        line=Decimal("-0.50"),
+        market_type="asian_handicap",
+        side="home_cover",
+        recommended_handicap="主队 -0.50",
+        odds=Decimal("1.950"),
+        edge=Decimal("0.1500"),
+        line_bucket="home_favorite",
+        risk_tags=("line_bucket:home_favorite", "strategy:asian_home_favorite_bucket_v1"),
+        strategy_key=ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_KEY,
+        strategy_display_name=ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_NAME,
+        signal_version="v1",
+    )
+
+    record = create_paper_record_from_queue_row(session, row, recorded_at=_now())
+
+    assert record.strategy_key == ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_KEY
+    assert record.strategy_display_name == ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_NAME
+    assert record.market_type == "asian_handicap"
+    assert record.side == "home_cover"
+    assert record.recommended_handicap == "主队 -0.50"
+    assert record.line_bucket == "home_favorite"
+    assert record.signal_version == "v1"
 
 
 def test_create_paper_record_from_total_goals_bucket_candidate_preserves_strategy(session):
@@ -342,6 +373,7 @@ def _queue_row(
     strategy_key: str = ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
     strategy_display_name: str = ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
     signal_version: str = "v1",
+    edge: Decimal = Decimal("0.1164"),
 ) -> PaperQueueRow:
     return PaperQueueRow(
         match_id=match.id,
@@ -361,7 +393,7 @@ def _queue_row(
         odds=odds,
         model_probability=Decimal("0.6044"),
         market_probability=Decimal("0.4880"),
-        edge=Decimal("0.1164"),
+        edge=edge,
         line_bucket=line_bucket,
         risk_tags=risk_tags,
         strategy_key=strategy_key,

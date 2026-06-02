@@ -768,6 +768,175 @@ def test_build_paper_recommendation_queue_adds_v2_away_favorite_candidate(sessio
     assert v2.risk_tags == ("line_bucket:away_favorite", "strategy:bucket_v2")
 
 
+def test_build_paper_recommendation_queue_adds_home_favorite_v1_candidate(session):
+    league = League(name="Allsvenskan", country_or_region="Sweden", level=1, is_enabled=True)
+    home = Team(canonical_name="Malmo FF")
+    away = Team(canonical_name="IFK Goteborg")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="home-favorite",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=now,
+            data_source="api_football",
+            bookmaker="Bet365",
+            asian_handicap=Decimal("-0.50"),
+            home_odds=Decimal("1.95"),
+            away_odds=Decimal("1.95"),
+            total_line=Decimal("2.75"),
+            over_odds=Decimal("1.90"),
+            under_odds=Decimal("2.00"),
+            match_winner_home_odds=Decimal("2.10"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("3.40"),
+        )
+    )
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=lambda row: PaperQueueScore(
+            side="home_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1500"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    candidate = next(row for row in report.rows if row.strategy_key == "asian_home_cover_hgb_favorite_bucket_v1")
+    assert candidate.status == "candidate"
+    assert candidate.market_type == "asian_handicap"
+    assert candidate.side == "home_cover"
+    assert candidate.line_bucket == "home_favorite"
+    assert candidate.recommended_handicap == "主队 -0.50"
+    assert candidate.signal_version == "v1"
+    assert candidate.risk_tags == (
+        "line_bucket:home_favorite",
+        "strategy:asian_home_favorite_bucket_v1",
+    )
+
+
+def test_build_paper_recommendation_queue_does_not_add_home_favorite_v1_outside_bucket(session):
+    league = League(name="Allsvenskan", country_or_region="Sweden", level=1, is_enabled=True)
+    home = Team(canonical_name="Malmo FF")
+    away = Team(canonical_name="IFK Goteborg")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="home-underdog",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=now,
+            data_source="api_football",
+            bookmaker="Bet365",
+            asian_handicap=Decimal("0.50"),
+            home_odds=Decimal("1.95"),
+            away_odds=Decimal("1.95"),
+            total_line=Decimal("2.75"),
+            over_odds=Decimal("1.90"),
+            under_odds=Decimal("2.00"),
+            match_winner_home_odds=Decimal("2.10"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("3.40"),
+        )
+    )
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=lambda row: PaperQueueScore(
+            side="home_cover",
+            model_probability=Decimal("0.7000"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.2000"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    assert not any(row.strategy_key == "asian_home_cover_hgb_favorite_bucket_v1" for row in report.rows)
+
+
+def test_build_paper_recommendation_queue_does_not_add_home_favorite_v1_below_threshold(session):
+    league = League(name="Allsvenskan", country_or_region="Sweden", level=1, is_enabled=True)
+    home = Team(canonical_name="Malmo FF")
+    away = Team(canonical_name="IFK Goteborg")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="home-favorite-below-threshold",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=now,
+            data_source="api_football",
+            bookmaker="Bet365",
+            asian_handicap=Decimal("-0.50"),
+            home_odds=Decimal("1.95"),
+            away_odds=Decimal("1.95"),
+            total_line=Decimal("2.75"),
+            over_odds=Decimal("1.90"),
+            under_odds=Decimal("2.00"),
+            match_winner_home_odds=Decimal("2.10"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("3.40"),
+        )
+    )
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=lambda row: PaperQueueScore(
+            side="home_cover",
+            model_probability=Decimal("0.6499"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1499"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    assert not any(row.strategy_key == "asian_home_cover_hgb_favorite_bucket_v1" for row in report.rows)
+
+
 def test_build_paper_recommendation_queue_adds_total_goals_bucket_strategy_candidate(session):
     league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
     home = Team(canonical_name="Rosenborg")

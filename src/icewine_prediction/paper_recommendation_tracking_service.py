@@ -11,6 +11,8 @@ from icewine_prediction.paper_recommendation_queue_service import PaperQueueRow
 from icewine_prediction.paper_strategy_registry import (
     ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
     ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
+    ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_KEY,
+    ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_NAME,
     DEFAULT_STRATEGY,
     STRATEGIES,
     PaperStrategy,

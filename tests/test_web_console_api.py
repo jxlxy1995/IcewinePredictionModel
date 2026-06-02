@@ -972,6 +972,7 @@ def test_web_console_api_records_v2_paper_candidate_by_strategy_key(tmp_path):
     assert {strategy["strategy_key"] for strategy in workspace["strategies"]} == {
         "asian_away_cover_hgb_edge_v1",
         "asian_away_cover_hgb_bucket_v2",
+        "asian_home_cover_hgb_favorite_bucket_v1",
         "total_goals_hgb_bucket_v2",
         "total_goals_hgb_low_line_bucket_v3",
     }

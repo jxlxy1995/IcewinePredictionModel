@@ -271,16 +271,20 @@ export function DashboardPage() {
     if (isLoading || loadedLazyViews.has(activeView)) {
       return;
     }
-    setLoadedLazyViews(new Set([...loadedLazyViews, activeView]));
+    const markLazyViewLoaded = () => {
+      setLoadedLazyViews((current) => new Set([...current, activeView]));
+    };
     if (activeView === "matchList") {
       setMatchListAction("refresh");
       refreshMatchListWorkspace(setData, matchListFilters)
+        .then(markLazyViewLoaded)
         .catch((error) => setMatchListError(formatActionError("刷新比赛列表失败", error)))
         .finally(() => setMatchListAction(null));
     }
     if (activeView === "oddspapiAudit") {
       loadOddspapiBackfillAudit().then((audit) => {
         setData((current) => ({ ...current, oddspapiBackfillAudit: audit }));
+        markLazyViewLoaded();
       });
     }
     if (activeView === "models") {
@@ -288,6 +292,7 @@ export function DashboardPage() {
       loadTrainingWorkspace()
         .then((workspace) => {
           setData((current) => ({ ...current, trainingWorkspace: workspace }));
+          markLazyViewLoaded();
         })
         .catch(() => setTrainingError("读取训练工作台失败"))
         .finally(() => setTrainingAction(null));
@@ -295,6 +300,7 @@ export function DashboardPage() {
     if (activeView === "paperTracking") {
       setPaperAction("refresh");
       refreshPaperWorkspace(setData, paperFilters)
+        .then(markLazyViewLoaded)
         .catch(() => setPaperError("刷新纸面跟踪失败"))
         .finally(() => setPaperAction(null));
     }
@@ -302,7 +308,10 @@ export function DashboardPage() {
       const firstLeague = data.leagues[0];
       if (firstLeague?.season != null) {
         loadTeamDisplayNameWorkspace(firstLeague.league_id, firstLeague.season)
-          .then(setTeamDisplayWorkspace)
+          .then((workspace) => {
+            setTeamDisplayWorkspace(workspace);
+            markLazyViewLoaded();
+          })
           .catch(() => setDisplayWorkspaceError("读取球队中文名维护列表失败"));
       }
     }
@@ -311,7 +320,10 @@ export function DashboardPage() {
       if (firstMatchId) {
         setSelectedOddsMatchId(firstMatchId);
         loadMatchOddsTrend(firstMatchId)
-          .then(setOddsTrends)
+          .then((trends) => {
+            setOddsTrends(trends);
+            markLazyViewLoaded();
+          })
           .catch(() => setOddsTrendError("读取首场赔率走势失败"));
       }
     }

@@ -45,7 +45,7 @@ SELECTED_BOOKMAKERS = "pinnacle"
 TERMINAL_HISTORICAL_ODDS_STATUSES = {"empty", "unavailable", "unmatched"}
 HISTORICAL_ODDS_TIMEOUT_ATTEMPTS = 2
 COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT = 100
-COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW = timedelta(minutes=8)
+COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW = timedelta(minutes=15)
 COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS = {
     "asian_handicap": {"home", "away"},
     "total_goals": {"over", "under"},

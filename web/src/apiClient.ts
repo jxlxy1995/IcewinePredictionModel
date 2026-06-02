@@ -197,11 +197,7 @@ export async function loadPaperRecommendationWorkspace(
     query.set(key, value);
   }
   const suffix = query.toString() ? `?${query.toString()}` : "";
-  try {
-    return await getJson<PaperRecommendationWorkspace>(`/api/paper-recommendations/workspace${suffix}`);
-  } catch {
-    return mockPaperRecommendationWorkspace;
-  }
+  return await getJson<PaperRecommendationWorkspace>(`/api/paper-recommendations/workspace${suffix}`);
 }
 
 export async function loadMatchListWorkspace(params: {

@@ -66,6 +66,28 @@ const apiPayloads: Record<string, unknown> = {
     new_complete_matches: null,
     artifact_paths: {}
   },
+  "/api/paper-recommendations/workspace": {
+    strategies: [],
+    candidates: [],
+    records: [],
+    summary: {
+      total_records: 12,
+      pending_records: 2,
+      settled_records: 10,
+      void_records: 0,
+      candidate_count: 0,
+      total_stake_units: "10.00",
+      total_profit_units: "1.140",
+      hit_rate: "0.6000",
+      roi: "0.1140"
+    },
+    groups: {
+      by_strategy: [],
+      by_league: [],
+      by_line_bucket: [],
+      by_manual_adjustment: []
+    }
+  },
   "/api/match-list/workspace": {
     filters: {
       end_time: "2026-05-31T12:00:00+08:00",
@@ -129,15 +151,15 @@ describe("apiClient", () => {
     expect(data.recommendationRecords).toEqual([]);
   });
 
-  it("falls back only for the requested optional workspace", async () => {
+  it("throws paper workspace API failures instead of returning mock data", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("paper endpoint failed", { status: 500 }))
     );
 
-    const workspace = await loadPaperRecommendationWorkspace();
-
-    expect(workspace.summary.total_records).toBeGreaterThan(0);
+    await expect(loadPaperRecommendationWorkspace()).rejects.toThrow(
+      "paper endpoint failed"
+    );
   });
 
   it("loads paper workspace with replay window params", async () => {

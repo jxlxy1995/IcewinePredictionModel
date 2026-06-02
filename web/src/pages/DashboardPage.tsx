@@ -29,7 +29,7 @@ import {
   startTrainingFullRefresh,
   markTeamDisplayNameWorkspaceDone,
   editPaperRecord,
-  recordPaperCandidate,
+  recordPaperCandidates,
   runTrainingWorkflowAction,
   saveTeamDisplayNames,
   settlePaperRecords,
@@ -76,6 +76,10 @@ import {
   buildPaperRecordGroups,
   buildPaperSummaryCards
 } from "../paperRecommendationWorkspace";
+import {
+  formatPaperBatchRecordMessage,
+  formatPaperSingleRecordMessage
+} from "../paperBatchRecordMessage";
 import {
   buildMatchFreshnessCards,
   buildMatchSyncSummary,
@@ -635,13 +639,21 @@ export function DashboardPage() {
               setPaperAction("batch-record");
               setPaperError(null);
               setPaperMessage(null);
-              Promise.all(
-                candidates.map((candidate) =>
-                  recordPaperCandidate(candidate.match_id, candidate.strategy_key, paperFilters)
-                )
+              recordPaperCandidates(
+                candidates.map((candidate) => ({
+                  match_id: candidate.match_id,
+                  strategy_key: candidate.strategy_key
+                })),
+                paperFilters
               )
-                .then(() => refreshPaperWorkspace(setData, paperFilters))
-                .then(() => setPaperMessage(`已记录 ${candidates.length} 条纸面观察`))
+                .then((workspace) => {
+                  setData((current) => ({ ...current, paperRecommendations: workspace }));
+                  setPaperMessage(
+                    workspace.batch_result
+                      ? formatPaperBatchRecordMessage(workspace.batch_result)
+                      : `已记录 ${candidates.length} 条纸面观察`
+                  );
+                })
                 .catch(() => setPaperError("批量记录纸面观察失败"))
                 .finally(() => setPaperAction(null));
             }}
@@ -659,9 +671,18 @@ export function DashboardPage() {
               setPaperAction(`record-${candidate.match_id}`);
               setPaperError(null);
               setPaperMessage(null);
-              recordPaperCandidate(candidate.match_id, candidate.strategy_key, paperFilters)
-                .then(() => refreshPaperWorkspace(setData, paperFilters))
-                .then(() => setPaperMessage("已记录纸面观察"))
+              recordPaperCandidates(
+                [{ match_id: candidate.match_id, strategy_key: candidate.strategy_key }],
+                paperFilters
+              )
+                .then((workspace) => {
+                  setData((current) => ({ ...current, paperRecommendations: workspace }));
+                  setPaperMessage(
+                    workspace.batch_result
+                      ? formatPaperSingleRecordMessage(workspace.batch_result)
+                      : "已记录纸面观察"
+                  );
+                })
                 .catch(() => setPaperError("记录纸面观察失败"))
                 .finally(() => setPaperAction(null));
             }}

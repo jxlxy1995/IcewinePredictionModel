@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Callable, Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from icewine_prediction.baseline_edge_backtest_service import (
     FEATURES,
@@ -33,7 +34,7 @@ from icewine_prediction.feature_service import (
     OddsMarketAggregate,
     build_match_odds_features,
 )
-from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, TrainingRun
+from icewine_prediction.models import HistoricalOddsSnapshot, Match, TrainingRun
 from icewine_prediction.oddspapi_sync_runner import (
     COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT,
     COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW,
@@ -67,6 +68,10 @@ TOTAL_GOALS_PROBABILITY_FIELDS = (
 TOTAL_GOALS_ODDS_FIELDS = ("total_goals_over_odds", "total_goals_under_odds")
 MAX_CANDIDATE_ODDS_LEAD_TIME = timedelta(hours=3)
 MIN_CANDIDATE_ODDS_LEAD_TIME = timedelta(0)
+_SCORER_CACHE: dict[
+    tuple[tuple[Path, int | None, int | None], int],
+    Callable[[dict[str, str]], PaperQueueScoreResult],
+] = {}
 
 
 @dataclass(frozen=True)
@@ -166,7 +171,7 @@ def build_paper_recommendation_queue(
     if prefetch_odds and odds_prefetcher is not None and near_start_fixture_ids:
         prefetch_result = _normalize_prefetch_result(odds_prefetcher(near_start_fixture_ids))
     resolved_feature_csv_path = _resolve_feature_csv_path(session, feature_csv_path)
-    model_scorer = scorer or _train_live_scorer(resolved_feature_csv_path)
+    model_scorer = scorer or _cached_live_scorer(resolved_feature_csv_path)
     matches = _list_candidate_matches(
         session,
         now=now,
@@ -174,6 +179,7 @@ def build_paper_recommendation_queue(
         start_time=start_time,
         end_time=end_time,
     )
+    team_prior_states = _team_prior_states_by_match(session, matches)
     historical_snapshots_by_match_id = _historical_snapshots_by_match_id(session, matches)
     rows = [
         row
@@ -184,6 +190,7 @@ def build_paper_recommendation_queue(
             edge_threshold=threshold,
             display_name_service=display_name_service,
             historical_snapshots=historical_snapshots_by_match_id.get(match.id, []),
+            team_prior_states=team_prior_states,
         )
     ]
     window_start = start_time or now
@@ -310,10 +317,10 @@ def _list_candidate_matches(
     query = (
         session.query(Match)
         .options(
-            joinedload(Match.league).joinedload(League.matches),
+            joinedload(Match.league),
             joinedload(Match.home_team),
             joinedload(Match.away_team),
-            joinedload(Match.odds_snapshots),
+            selectinload(Match.odds_snapshots),
         )
         .order_by(Match.kickoff_time.asc(), Match.id.asc())
     )
@@ -372,9 +379,14 @@ def _build_queue_rows(
     edge_threshold: Decimal,
     display_name_service: DisplayNameService | None = None,
     historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
+    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None = None,
 ) -> list[PaperQueueRow]:
     historical_snapshots = historical_snapshots or []
-    feature_row = _live_feature_row(match, historical_snapshots=historical_snapshots)
+    feature_row = _live_feature_row(
+        match,
+        historical_snapshots=historical_snapshots,
+        team_prior_states=team_prior_states,
+    )
     diagnostic_rows = []
     asian_line = _decimal_from_row(feature_row, "asian_handicap_close_line")
     asian_odds = _decimal_from_row(feature_row, "asian_handicap_away_odds")
@@ -642,14 +654,27 @@ def _live_feature_row(
     match: Match,
     *,
     historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
+    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None = None,
 ) -> dict[str, str]:
     odds_features = (
         _historical_odds_features(match, historical_snapshots)
         if historical_snapshots
         else build_match_odds_features(match)
     )
-    home_state = _team_prior_state(match, side="home")
-    away_state = _team_prior_state(match, side="away")
+    home_state = (
+        team_prior_states.get((match.id, "home"))
+        if team_prior_states is not None
+        else _team_prior_state(match, side="home")
+    )
+    away_state = (
+        team_prior_states.get((match.id, "away"))
+        if team_prior_states is not None
+        else _team_prior_state(match, side="away")
+    )
+    if home_state is None:
+        home_state = _team_prior_state(match, side="home")
+    if away_state is None:
+        away_state = _team_prior_state(match, side="away")
     row = {feature: "" for feature in FEATURES}
     row.update(
         {
@@ -705,6 +730,70 @@ def _team_prior_state(match: Match, *, side: str) -> _TeamPriorState:
         and (prior.home_team_id == target_team_id or prior.away_team_id == target_team_id)
     ]
     prior_matches.sort(key=lambda item: (item.kickoff_time, item.id))
+    return _team_prior_state_from_matches(
+        prior_matches,
+        target_team_id=target_team_id,
+        side=side,
+        kickoff=match.kickoff_time,
+    )
+
+
+def _team_prior_states_by_match(
+    session: Session,
+    matches: list[Match],
+) -> dict[tuple[int, str], _TeamPriorState]:
+    if not matches:
+        return {}
+    league_ids = {match.league_id for match in matches}
+    team_ids = {
+        team_id
+        for match in matches
+        for team_id in (match.home_team_id, match.away_team_id)
+    }
+    max_kickoff = max(match.kickoff_time for match in matches)
+    prior_rows = (
+        session.query(Match)
+        .filter(Match.status == "finished")
+        .filter(Match.league_id.in_(league_ids))
+        .filter(Match.kickoff_time < max_kickoff)
+        .filter(Match.home_score.isnot(None))
+        .filter(Match.away_score.isnot(None))
+        .filter(or_(Match.home_team_id.in_(team_ids), Match.away_team_id.in_(team_ids)))
+        .order_by(Match.kickoff_time.asc(), Match.id.asc())
+        .all()
+    )
+    prior_by_team: dict[tuple[int, int], list[Match]] = {}
+    for prior in prior_rows:
+        prior_by_team.setdefault((prior.league_id, prior.home_team_id), []).append(prior)
+        prior_by_team.setdefault((prior.league_id, prior.away_team_id), []).append(prior)
+
+    states: dict[tuple[int, str], _TeamPriorState] = {}
+    for match in matches:
+        for side, target_team_id in (
+            ("home", match.home_team_id),
+            ("away", match.away_team_id),
+        ):
+            prior_matches = [
+                prior
+                for prior in prior_by_team.get((match.league_id, target_team_id), [])
+                if _naive_datetime(prior.kickoff_time) < _naive_datetime(match.kickoff_time)
+            ]
+            states[(match.id, side)] = _team_prior_state_from_matches(
+                prior_matches,
+                target_team_id=target_team_id,
+                side=side,
+                kickoff=match.kickoff_time,
+            )
+    return states
+
+
+def _team_prior_state_from_matches(
+    prior_matches: list[Match],
+    *,
+    target_team_id: int,
+    side: str,
+    kickoff: datetime,
+) -> _TeamPriorState:
     points = wins = draws = losses = goals_for = goals_against = 0
     venue_matches = venue_points = 0
     for prior in prior_matches:
@@ -826,6 +915,25 @@ def _train_live_scorer(feature_csv_path: Path) -> Callable[[dict[str, str]], Pap
     with feature_csv_path.open(encoding="utf-8", newline="") as file:
         rows = list(csv.DictReader(file))
     return train_paper_queue_scorer_from_rows(rows)
+
+
+def _cached_live_scorer(feature_csv_path: Path) -> Callable[[dict[str, str]], PaperQueueScoreResult]:
+    cache_key = (_feature_file_fingerprint(feature_csv_path), id(_train_live_scorer))
+    cached = _SCORER_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    scorer = _train_live_scorer(feature_csv_path)
+    _SCORER_CACHE.clear()
+    _SCORER_CACHE[cache_key] = scorer
+    return scorer
+
+
+def _feature_file_fingerprint(feature_csv_path: Path) -> tuple[Path, int | None, int | None]:
+    try:
+        stat = feature_csv_path.stat()
+    except FileNotFoundError:
+        return (feature_csv_path, None, None)
+    return (feature_csv_path, stat.st_mtime_ns, stat.st_size)
 
 
 def train_paper_queue_scorer_from_rows(

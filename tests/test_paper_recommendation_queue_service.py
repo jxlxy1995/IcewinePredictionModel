@@ -8,6 +8,8 @@ from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScore,
     build_paper_recommendation_queue,
     format_paper_recommendation_queue_report,
+    _team_prior_state,
+    _team_prior_states_by_match,
 )
 
 
@@ -228,6 +230,116 @@ def test_build_paper_recommendation_queue_allows_explicit_feature_path_override(
     )
 
     assert captured == [Path("local_data/training/manual.csv")]
+
+
+def test_build_paper_recommendation_queue_reuses_cached_scorer_for_same_feature_file(
+    session,
+    monkeypatch,
+):
+    feature_path = Path("local_data/training/latest.csv")
+    session.add(
+        TrainingRun(
+            run_type="full_refresh",
+            status="success",
+            started_at=datetime(2026, 5, 31, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            finished_at=datetime(2026, 5, 31, 12, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+            snapshot_tag="20260531-1200",
+            current_step="finalize",
+            dynamic_feature_path=str(feature_path),
+        )
+    )
+    session.commit()
+    captured = []
+
+    def fake_train_live_scorer(path):
+        captured.append(path)
+        return lambda row: None
+
+    monkeypatch.setattr(
+        "icewine_prediction.paper_recommendation_queue_service._train_live_scorer",
+        fake_train_live_scorer,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.paper_recommendation_queue_service._feature_file_fingerprint",
+        lambda path: (path, 123, 456),
+    )
+
+    build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 31, 14, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        hours=1,
+    )
+    build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 31, 15, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        hours=1,
+    )
+
+    assert captured == [feature_path]
+
+
+def test_team_prior_states_by_match_matches_legacy_team_form(session):
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    other_home = Team(canonical_name="Molde")
+    other_away = Team(canonical_name="Tromso")
+    session.add_all([league, home, away, other_home, other_away])
+    session.flush()
+    session.add_all(
+        [
+            Match(
+                league=league,
+                home_team=home,
+                away_team=other_away,
+                kickoff_time=datetime(2026, 5, 20, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                status="finished",
+                home_score=2,
+                away_score=0,
+            ),
+            Match(
+                league=league,
+                home_team=other_home,
+                away_team=away,
+                kickoff_time=datetime(2026, 5, 21, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                status="finished",
+                home_score=1,
+                away_score=1,
+            ),
+            Match(
+                league=league,
+                home_team=away,
+                away_team=home,
+                kickoff_time=datetime(2026, 5, 22, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                status="finished",
+                home_score=0,
+                away_score=1,
+            ),
+        ]
+    )
+    first = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+    )
+    second = Match(
+        league=league,
+        home_team=away,
+        away_team=home,
+        kickoff_time=datetime(2026, 5, 31, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+    )
+    session.add_all([first, second])
+    session.commit()
+
+    states = _team_prior_states_by_match(session, [first, second])
+
+    assert states[(first.id, "home")] == _team_prior_state(first, side="home")
+    assert states[(first.id, "away")] == _team_prior_state(first, side="away")
+    assert states[(second.id, "home")] == _team_prior_state(second, side="home")
+    assert states[(second.id, "away")] == _team_prior_state(second, side="away")
 
 
 def test_build_paper_recommendation_queue_marks_early_upcoming_odds_not_ready(session):

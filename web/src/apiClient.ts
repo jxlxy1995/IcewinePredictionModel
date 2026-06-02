@@ -295,6 +295,16 @@ export async function recordPaperCandidate(
   });
 }
 
+export async function recordPaperCandidates(
+  candidates: Array<{ match_id: number; strategy_key?: string }>,
+  params: PaperRecommendationWorkspaceParams = {}
+): Promise<PaperRecommendationWorkspace> {
+  return await postJson<PaperRecommendationWorkspace>("/api/paper-recommendations/records/batch", {
+    candidates,
+    ...params
+  });
+}
+
 export async function editPaperRecord(
   recordId: number,
   payload: { current_market_line: string; current_odds: string; manual_note: string }

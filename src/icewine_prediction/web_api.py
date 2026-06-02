@@ -643,6 +643,95 @@ def create_web_app(
             clear_cache_prefix("paper-recommendation-workspace")
             return build_paper_record_payload(record)
 
+    @app.post("/api/paper-recommendations/records/batch")
+    def create_paper_recommendation_records_batch(payload: dict[str, Any]) -> dict[str, Any]:
+        requested_candidates = payload.get("candidates", [])
+        if not isinstance(requested_candidates, list) or not requested_candidates:
+            raise HTTPException(status_code=400, detail="paper batch requires candidates")
+        skipped_candidates: list[dict[str, Any]] = []
+        created_count = 0
+        with session_factory() as session:
+            queue_report = build_paper_recommendation_queue(
+                session,
+                now=clock(),
+                hours=int(payload.get("hours", 72)),
+                near_start_hours=int(payload.get("near_start_hours", 6)),
+                start_time=_parse_optional_datetime(payload.get("start_time")),
+                end_time=_parse_optional_datetime(payload.get("end_time")),
+                edge_threshold=str(payload.get("edge_threshold", "0.10")),
+                scorer=paper_queue_scorer,
+                display_name_service=display_name_service,
+            )
+            for item in requested_candidates:
+                if not isinstance(item, dict):
+                    skipped_candidates.append(
+                        {
+                            "match_id": None,
+                            "strategy_key": None,
+                            "reason": "invalid paper candidate payload",
+                        }
+                    )
+                    continue
+                strategy_key = item.get("strategy_key")
+                try:
+                    match_id = int(item["match_id"])
+                except (KeyError, TypeError, ValueError):
+                    skipped_candidates.append(
+                        {
+                            "match_id": None,
+                            "strategy_key": strategy_key,
+                            "reason": "invalid paper candidate match_id",
+                        }
+                    )
+                    continue
+                row = next(
+                    (
+                        candidate
+                        for candidate in queue_report.rows
+                        if candidate.match_id == match_id
+                        and (strategy_key is None or candidate.strategy_key == strategy_key)
+                    ),
+                    None,
+                )
+                if row is None:
+                    skipped_candidates.append(
+                        {
+                            "match_id": match_id,
+                            "strategy_key": strategy_key,
+                            "reason": "纸面候选不存在",
+                        }
+                    )
+                    continue
+                try:
+                    create_paper_record_from_queue_row(
+                        session,
+                        row,
+                        recorded_at=clock(),
+                    )
+                except ValueError as error:
+                    skipped_candidates.append(
+                        {
+                            "match_id": match_id,
+                            "strategy_key": strategy_key,
+                            "reason": str(error),
+                        }
+                    )
+                    continue
+                created_count += 1
+            if created_count > 0:
+                clear_cache_prefix("paper-recommendation-workspace")
+            workspace_payload = _build_paper_tracking_workspace_payload_from_queue_report(
+                session,
+                queue_report,
+            )
+            workspace_payload["batch_result"] = {
+                "requested_count": len(requested_candidates),
+                "created_count": created_count,
+                "skipped_count": len(skipped_candidates),
+                "skipped": skipped_candidates,
+            }
+            return workspace_payload
+
     @app.post("/api/paper-recommendations/records/backfill")
     def backfill_paper_recommendation_record(payload: dict[str, Any]) -> dict[str, Any]:
         match_id = int(payload["match_id"])
@@ -872,6 +961,13 @@ def _build_paper_recommendation_workspace_response(
         scorer=scorer,
         display_name_service=display_name_service,
     )
+    return _build_paper_tracking_workspace_payload_from_queue_report(session, queue_report)
+
+
+def _build_paper_tracking_workspace_payload_from_queue_report(
+    session: Session,
+    queue_report,
+) -> dict[str, Any]:
     workspace = build_paper_tracking_workspace(
         session,
         candidates=[row for row in queue_report.rows if row.status == "candidate"],

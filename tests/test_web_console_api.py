@@ -990,6 +990,191 @@ def test_web_console_api_records_v2_paper_candidate_by_strategy_key(tmp_path):
     assert payload["signal_version"] == "v2"
 
 
+def test_web_console_api_batch_records_paper_candidates_with_single_queue_build(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="Premier Division", country_or_region="Ireland", level=1)
+        home = Team(canonical_name="Drogheda United")
+        away = Team(canonical_name="Waterford")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 2, 45, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+            source_name="api_football",
+            source_match_id="17446",
+        )
+        session.add_all([league, home, away, match])
+        session.flush()
+        session.add(
+            OddsSnapshot(
+                match=match,
+                captured_at=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                data_source="api_football",
+                bookmaker="Pinnacle",
+                asian_handicap=Decimal("-0.50"),
+                home_odds=Decimal("1.990"),
+                away_odds=Decimal("1.930"),
+                total_line=Decimal("2.50"),
+                over_odds=Decimal("1.90"),
+                under_odds=Decimal("2.00"),
+                match_winner_home_odds=Decimal("2.10"),
+                match_winner_draw_odds=Decimal("3.25"),
+                match_winner_away_odds=Decimal("3.40"),
+            )
+        )
+        session.commit()
+
+    scorer_calls = []
+
+    def fake_scorer(row):
+        from icewine_prediction.paper_recommendation_queue_service import PaperQueueScore
+
+        scorer_calls.append(row["match_id"])
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.7100"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.2100"),
+            model_name="fake_hgb",
+        )
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            paper_queue_scorer=fake_scorer,
+            clock=lambda: datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    response = client.post(
+        "/api/paper-recommendations/records/batch",
+        json={
+            "candidates": [
+                {"match_id": match.id, "strategy_key": "asian_away_cover_hgb_edge_v1"},
+                {"match_id": match.id, "strategy_key": "asian_away_cover_hgb_bucket_v2"},
+            ],
+            "hours": 6,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [record["strategy_key"] for record in payload["records"]] == [
+        "asian_away_cover_hgb_bucket_v2",
+        "asian_away_cover_hgb_edge_v1",
+    ]
+    assert payload["summary"]["total_records"] == 2
+    assert scorer_calls == [str(match.id)]
+
+
+def test_web_console_api_batch_records_skip_duplicate_paper_candidates(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="Premier Division", country_or_region="Ireland", level=1)
+        home = Team(canonical_name="Drogheda United")
+        away = Team(canonical_name="Waterford")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 2, 45, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+            source_name="api_football",
+            source_match_id="17446",
+        )
+        session.add_all([league, home, away, match])
+        session.flush()
+        session.add(
+            OddsSnapshot(
+                match=match,
+                captured_at=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                data_source="api_football",
+                bookmaker="Pinnacle",
+                asian_handicap=Decimal("-0.50"),
+                home_odds=Decimal("1.990"),
+                away_odds=Decimal("1.930"),
+                total_line=Decimal("2.50"),
+                over_odds=Decimal("1.90"),
+                under_odds=Decimal("2.00"),
+                match_winner_home_odds=Decimal("2.10"),
+                match_winner_draw_odds=Decimal("3.25"),
+                match_winner_away_odds=Decimal("3.40"),
+            )
+        )
+        session.commit()
+
+    scorer_calls = []
+
+    def fake_scorer(row):
+        from icewine_prediction.paper_recommendation_queue_service import PaperQueueScore
+
+        scorer_calls.append(row["match_id"])
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.7100"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.2100"),
+            model_name="fake_hgb",
+        )
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            paper_queue_scorer=fake_scorer,
+            clock=lambda: datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    first_response = client.post(
+        "/api/paper-recommendations/records/batch",
+        json={
+            "candidates": [{"match_id": match.id, "strategy_key": "asian_away_cover_hgb_edge_v1"}],
+            "hours": 6,
+        },
+    )
+    assert first_response.status_code == 200
+    scorer_calls.clear()
+
+    response = client.post(
+        "/api/paper-recommendations/records/batch",
+        json={
+            "candidates": [
+                {"match_id": match.id, "strategy_key": "asian_away_cover_hgb_edge_v1"},
+                {"match_id": match.id, "strategy_key": "asian_away_cover_hgb_bucket_v2"},
+            ],
+            "hours": 6,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["batch_result"] == {
+        "requested_count": 2,
+        "created_count": 1,
+        "skipped_count": 1,
+        "skipped": [
+            {
+                "match_id": match.id,
+                "strategy_key": "asian_away_cover_hgb_edge_v1",
+                "reason": "duplicate active paper recommendation record",
+            }
+        ],
+    }
+    assert [record["strategy_key"] for record in payload["records"]] == [
+        "asian_away_cover_hgb_bucket_v2",
+        "asian_away_cover_hgb_edge_v1",
+    ]
+    assert scorer_calls == [str(match.id)]
+
+
 def test_web_console_api_paper_workspace_cache_varies_by_latest_training_run(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

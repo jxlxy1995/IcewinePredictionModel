@@ -371,6 +371,19 @@ export type PaperGroupSummary = {
   roi: string;
 };
 
+export type PaperBatchRecordSkippedItem = {
+  match_id: number | null;
+  strategy_key: string | null;
+  reason: string;
+};
+
+export type PaperBatchRecordResult = {
+  requested_count: number;
+  created_count: number;
+  skipped_count: number;
+  skipped: PaperBatchRecordSkippedItem[];
+};
+
 export type PaperRecommendationWorkspace = {
   strategies: PaperStrategy[];
   candidates: PaperCandidate[];
@@ -382,6 +395,7 @@ export type PaperRecommendationWorkspace = {
     by_line_bucket: PaperGroupSummary[];
     by_manual_adjustment: PaperGroupSummary[];
   };
+  batch_result?: PaperBatchRecordResult;
 };
 
 export type DataSyncFreshness = {

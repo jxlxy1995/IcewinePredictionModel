@@ -6,6 +6,7 @@ import {
   loadMatchListWorkspace,
   loadMatchSyncRunDetail,
   loadPaperRecommendationWorkspace,
+  recordPaperCandidates,
   startTrainingFullRefresh,
   syncFilteredMatchListFixturesResults,
   syncSingleMatchOdds
@@ -177,6 +178,37 @@ describe("apiClient", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/paper-recommendations/workspace?end_time=2026-05-30T23%3A59&start_time=2026-05-30T00%3A00"
     );
+  });
+
+  it("records paper candidates with one batch request", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json(apiPayloads["/api/paper-recommendations/workspace"])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await recordPaperCandidates(
+      [
+        { match_id: 17446, strategy_key: "asian_away_cover_hgb_edge_v1" },
+        { match_id: 17446, strategy_key: "asian_away_cover_hgb_bucket_v2" }
+      ],
+      {
+        end_time: "2026-05-30T23:59",
+        start_time: "2026-05-30T00:00"
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/paper-recommendations/records/batch", {
+      body: JSON.stringify({
+        candidates: [
+          { match_id: 17446, strategy_key: "asian_away_cover_hgb_edge_v1" },
+          { match_id: 17446, strategy_key: "asian_away_cover_hgb_bucket_v2" }
+        ],
+        end_time: "2026-05-30T23:59",
+        start_time: "2026-05-30T00:00"
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
   });
 
   it("loads latest training run", async () => {

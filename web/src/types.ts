@@ -384,6 +384,14 @@ export type PaperBatchRecordResult = {
   skipped: PaperBatchRecordSkippedItem[];
 };
 
+export type PaperRecommendationDiagnostics = {
+  total_matches: number;
+  candidate_count: number;
+  candidate_match_count: number;
+  status_counts: Record<string, number>;
+  edge_threshold: string;
+};
+
 export type PaperRecommendationWorkspace = {
   strategies: PaperStrategy[];
   candidates: PaperCandidate[];
@@ -395,6 +403,7 @@ export type PaperRecommendationWorkspace = {
     by_line_bucket: PaperGroupSummary[];
     by_manual_adjustment: PaperGroupSummary[];
   };
+  diagnostics?: PaperRecommendationDiagnostics;
   batch_result?: PaperBatchRecordResult;
 };
 

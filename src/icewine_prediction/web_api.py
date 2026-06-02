@@ -972,7 +972,9 @@ def _build_paper_tracking_workspace_payload_from_queue_report(
         session,
         candidates=[row for row in queue_report.rows if row.status == "candidate"],
     )
-    return build_paper_tracking_workspace_payload(workspace)
+    payload = build_paper_tracking_workspace_payload(workspace)
+    payload["diagnostics"] = build_paper_recommendation_diagnostics_payload(queue_report)
+    return payload
 
 
 def build_league_coverage(
@@ -1870,6 +1872,18 @@ def build_paper_tracking_workspace_payload(workspace) -> dict[str, Any]:
                 build_paper_group_payload(group) for group in workspace.by_manual_adjustment
             ],
         },
+    }
+
+
+def build_paper_recommendation_diagnostics_payload(report) -> dict[str, Any]:
+    return {
+        "total_matches": report.total_matches,
+        "candidate_count": report.candidate_count,
+        "candidate_match_count": len(
+            {row.match_id for row in report.rows if row.status == "candidate"}
+        ),
+        "status_counts": report.status_counts,
+        "edge_threshold": _format_decimal(report.edge_threshold, "0.0000"),
     }
 
 

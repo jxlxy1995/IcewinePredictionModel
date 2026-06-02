@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildPaperCandidateGroups,
   buildPaperCandidateRows,
+  buildPaperDiagnosticCards,
   buildPaperRecordGroups,
   buildPaperSummaryCards,
   defaultPaperRecommendationDateRange,
+  explainPaperCandidateSignal,
   formatPaperRecordStatus,
   formatPaperSettlementResult
 } from "./paperRecommendationWorkspace";
@@ -117,6 +119,17 @@ const workspace: PaperRecommendationWorkspace = {
         roi: "0.4400"
       }
     ]
+  },
+  diagnostics: {
+    total_matches: 3,
+    candidate_count: 1,
+    candidate_match_count: 1,
+    edge_threshold: "0.1000",
+    status_counts: {
+      below_threshold: 1,
+      candidate: 1,
+      odds_status_not_ready: 1
+    }
   }
 };
 
@@ -137,6 +150,30 @@ describe("paperRecommendationWorkspace", () => {
     expect(range).toEqual({
       start_time: "2026-06-01T00:00",
       end_time: "2026-06-02T00:00"
+    });
+  });
+
+  it("builds paper diagnostic cards from queue status counts", () => {
+    expect(buildPaperDiagnosticCards(workspace)).toEqual([
+      { label: "扫描比赛", value: "3", meta: "候选窗口内" },
+      { label: "候选比赛", value: "1", meta: "唯一比赛" },
+      { label: "候选信号", value: "1", meta: "可记录信号" },
+      { label: "赔率不合格", value: "1", meta: "无赔率/未就绪/过期" },
+      { label: "未过阈值", value: "1", meta: "edge < 0.1000" },
+      { label: "未出分", value: "0", meta: "模型无结果" }
+    ]);
+  });
+
+  it("explains a paper candidate signal with probabilities and edge formula", () => {
+    expect(explainPaperCandidateSignal(workspace.candidates[0])).toEqual({
+      title: "亚盘客队方向 · HGB边际 v1",
+      formula: "edge = 模型概率 0.6500 - 市场概率 0.5000 = 0.1500",
+      verdict: "高于阈值 0.1000，进入纸面候选。",
+      facts: [
+        "盘口/选择：客队 +0.50 @ 1.930",
+        "市场类型：亚盘",
+        "风险标签：line_bucket:away_underdog"
+      ]
     });
   });
 

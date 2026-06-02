@@ -745,6 +745,13 @@ def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
     assert workspace_response.status_code == 200
     workspace = workspace_response.json()
     assert workspace["summary"]["candidate_count"] == 1
+    assert workspace["diagnostics"] == {
+        "total_matches": 1,
+        "candidate_count": 1,
+        "candidate_match_count": 1,
+        "status_counts": {"candidate": 1},
+        "edge_threshold": "0.1000",
+    }
     assert workspace["candidates"][0]["recommended_handicap"] == "客队 +0.50"
     assert workspace["strategies"][0]["display_name"] == "亚盘客队方向 · HGB边际 v1"
 

@@ -80,6 +80,11 @@ from icewine_prediction.baseline_total_goals_v3_signal_research_service import (
     TotalGoalsV3SignalCandidateSummary,
     TotalGoalsV3SideBucketSummary,
 )
+from icewine_prediction.baseline_model_consensus_signal_research_service import (
+    BaselineModelConsensusSignalResearchReport,
+    ModelConsensusBucketSummary,
+    ModelConsensusSignalCandidateSummary,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     AsianHandicapModelEvaluation,
     BaselineAsianHandicapModelReport,
@@ -1316,6 +1321,66 @@ def test_samples_baseline_total_goals_v3_signal_research_command_writes_report(m
     assert "top over@mid_2.75 threshold 0.0800 roi 0.1200" in result.stdout
 
 
+def test_samples_baseline_model_consensus_signal_research_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path, *, thresholds, confirmation_threshold, train_ratio, validation_ratio, fold_count):
+        captured["csv_path"] = str(csv_path)
+        captured["thresholds"] = thresholds
+        captured["confirmation_threshold"] = confirmation_threshold
+        captured["train_ratio"] = train_ratio
+        captured["validation_ratio"] = validation_ratio
+        captured["fold_count"] = fold_count
+        return _baseline_model_consensus_signal_research_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_model_consensus_signal_research_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_model_consensus_signal_research_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-model-consensus-signal-research",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/model-tests/model-consensus.md",
+            "--thresholds",
+            "0.06,0.10",
+            "--confirmation-threshold",
+            "0.02",
+            "--train-ratio",
+            "0.50",
+            "--validation-ratio",
+            "0.20",
+            "--fold-count",
+            "3",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\model-tests\\model-consensus.md")
+    assert captured["thresholds"] == ("0.06", "0.10")
+    assert captured["confirmation_threshold"] == "0.02"
+    assert captured["train_ratio"] == "0.50"
+    assert captured["validation_ratio"] == "0.20"
+    assert captured["fold_count"] == 3
+    assert "baseline model-consensus signal research written" in result.stdout
+    assert "promotable 1 watchlist 0 rejected 0" in result.stdout
+    assert "top asian_handicap:confirmed:home_cover@home_favorite threshold 0.1000 roi 0.1200" in result.stdout
+
+
 def test_format_training_sample_line_uses_match_result_and_weight():
     display_service = DisplayNameService(
         DisplayNames(
@@ -2386,6 +2451,47 @@ def _baseline_total_goals_v3_signal_research_report() -> BaselineTotalGoalsV3Sig
         baseline_v2_count=40,
         baseline_v2_profit=Decimal("4.8000"),
         baseline_v2_roi=Decimal("0.1200"),
+    )
+
+
+def _baseline_model_consensus_signal_research_report() -> BaselineModelConsensusSignalResearchReport:
+    candidate = ModelConsensusSignalCandidateSummary(
+        signal_bucket="asian_handicap:confirmed:home_cover@home_favorite",
+        market_type="asian_handicap",
+        agreement_bucket="confirmed",
+        side_bucket="home_cover@home_favorite",
+        threshold=Decimal("0.1000"),
+        rating="promotable",
+        candidate_count=40,
+        wins=24,
+        hit_rate=Decimal("0.6000"),
+        positive_roi_folds=4,
+        profit=Decimal("4.8000"),
+        roi=Decimal("0.1200"),
+        worst_fold_roi=Decimal("-0.1000"),
+        avg_raw_edge=Decimal("0.1300"),
+        avg_calibrated_edge=Decimal("0.0400"),
+    )
+    return BaselineModelConsensusSignalResearchReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=10,
+        fold_count=2,
+        train_ratio=Decimal("0.5000"),
+        validation_ratio=Decimal("0.2000"),
+        thresholds=(Decimal("0.0600"), Decimal("0.1000")),
+        confirmation_threshold=Decimal("0.0200"),
+        model_name="raw_hgb_vs_calibrated_hgb_team_form_plus_all_markets",
+        candidate_summaries=[candidate],
+        bucket_summaries=[
+            ModelConsensusBucketSummary(
+                signal_bucket="asian_handicap:confirmed:home_cover@home_favorite",
+                candidate_count=40,
+                best_rating="promotable",
+                best_threshold=Decimal("0.1000"),
+                best_roi=Decimal("0.1200"),
+                best_positive_roi_folds=4,
+            )
+        ],
     )
 
 

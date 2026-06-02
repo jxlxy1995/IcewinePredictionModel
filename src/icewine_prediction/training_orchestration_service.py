@@ -34,6 +34,10 @@ from icewine_prediction.baseline_total_goals_v3_signal_research_service import (
     build_baseline_total_goals_v3_signal_research_report,
     write_baseline_total_goals_v3_signal_research_report,
 )
+from icewine_prediction.baseline_model_consensus_signal_research_service import (
+    build_baseline_model_consensus_signal_research_report,
+    write_baseline_model_consensus_signal_research_report,
+)
 from icewine_prediction.baseline_dynamic_feature_set_service import (
     build_baseline_dynamic_feature_set,
     write_baseline_dynamic_feature_set_csv,
@@ -110,6 +114,12 @@ class TrainingSnapshotPaths:
                     self.away_cover_stability_report_path.name.replace(
                         "baseline-away-cover-stability-v1.md",
                         "baseline-total-goals-v3-signal-research.md",
+                    )
+                ),
+                "model_consensus_signal_research": self.away_cover_stability_report_path.with_name(
+                    self.away_cover_stability_report_path.name.replace(
+                        "baseline-away-cover-stability-v1.md",
+                        "baseline-model-consensus-signal-research.md",
                     )
                 ),
             },
@@ -323,6 +333,11 @@ def build_default_training_experiments() -> tuple[TrainingExperiment, ...]:
             report_filename="baseline-total-goals-v3-signal-research.md",
             runner=_write_total_goals_v3_signal_research,
         ),
+        TrainingExperiment(
+            key="model_consensus_signal_research",
+            report_filename="baseline-model-consensus-signal-research.md",
+            runner=_write_model_consensus_signal_research,
+        ),
     )
 
 
@@ -511,6 +526,11 @@ def _write_total_goals_bucket_sandbox(paths: TrainingSnapshotPaths, output_path:
 def _write_total_goals_v3_signal_research(paths: TrainingSnapshotPaths, output_path: Path) -> None:
     report = build_baseline_total_goals_v3_signal_research_report(paths.dynamic_feature_path)
     write_baseline_total_goals_v3_signal_research_report(report, output_path)
+
+
+def _write_model_consensus_signal_research(paths: TrainingSnapshotPaths, output_path: Path) -> None:
+    report = build_baseline_model_consensus_signal_research_report(paths.dynamic_feature_path)
+    write_baseline_model_consensus_signal_research_report(report, output_path)
 
 
 def _parse_datetime(value: str) -> datetime:

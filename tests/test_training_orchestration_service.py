@@ -140,12 +140,16 @@ def test_build_training_snapshot_paths_uses_snapshot_tag(tmp_path):
     assert paths.experiment_report_paths["total_goals_v3_signal_research"].name == (
         "20260530-1323-baseline-total-goals-v3-signal-research.md"
     )
+    assert paths.experiment_report_paths["model_consensus_signal_research"].name == (
+        "20260530-1323-baseline-model-consensus-signal-research.md"
+    )
 
 
-def test_default_training_experiments_include_total_goals_v3_signal_research():
+def test_default_training_experiments_include_signal_research_reports():
     keys = {experiment.key for experiment in build_default_training_experiments()}
 
     assert "total_goals_v3_signal_research" in keys
+    assert "model_consensus_signal_research" in keys
 
 
 def test_extract_last_trained_match_summary_uses_latest_kickoff_and_display_names(tmp_path):

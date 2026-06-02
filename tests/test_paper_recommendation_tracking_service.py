@@ -86,6 +86,32 @@ def test_create_paper_record_from_total_goals_bucket_candidate_preserves_strateg
     assert record.signal_version == "v2"
 
 
+def test_create_paper_record_from_total_goals_low_line_v3_candidate_preserves_strategy(session):
+    match = _seed_match(session)
+    row = _queue_row(
+        match,
+        status="candidate",
+        line=Decimal("2.25"),
+        market_type="total_goals",
+        side="over",
+        recommended_handicap="澶?2.25",
+        odds=Decimal("1.900"),
+        line_bucket="low_<=2.25",
+        risk_tags=("line_bucket:low_<=2.25", "strategy:total_goals_low_line_bucket_v3"),
+        strategy_key="total_goals_hgb_low_line_bucket_v3",
+        strategy_display_name="澶у皬鐞冧綆鐩樺彛鏂瑰悜 路 HGB鍒嗙洏鍙ｆ《 v3",
+        signal_version="v3",
+    )
+
+    record = create_paper_record_from_queue_row(session, row, recorded_at=_now())
+
+    assert record.strategy_key == "total_goals_hgb_low_line_bucket_v3"
+    assert record.market_type == "total_goals"
+    assert record.side == "over"
+    assert record.line_bucket == "low_<=2.25"
+    assert record.signal_version == "v3"
+
+
 def test_create_paper_record_allows_parallel_strategy_records_for_same_match(session):
     match = _seed_match(session)
     v1_row = _queue_row(match, status="candidate", line=Decimal("-0.50"))

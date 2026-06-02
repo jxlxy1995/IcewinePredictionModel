@@ -842,6 +842,78 @@ def test_build_paper_recommendation_queue_adds_total_goals_bucket_strategy_candi
     ] == []
 
 
+def test_build_paper_recommendation_queue_adds_total_goals_low_line_v3_candidate(session):
+    match, now = _seed_total_goals_priced_match(session, total_line=Decimal("2.25"))
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=lambda row: PaperQueueScore(
+            market_type="total_goals",
+            side="over",
+            model_probability=Decimal("0.5600"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.0600"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    candidate = next(row for row in report.rows if row.strategy_key == "total_goals_hgb_low_line_bucket_v3")
+    assert candidate.status == "candidate"
+    assert candidate.match_id == match.id
+    assert candidate.market_type == "total_goals"
+    assert candidate.side == "over"
+    assert candidate.line_bucket == "low_<=2.25"
+    assert candidate.signal_version == "v3"
+    assert candidate.risk_tags == (
+        "line_bucket:low_<=2.25",
+        "strategy:total_goals_low_line_bucket_v3",
+    )
+
+
+def test_build_paper_recommendation_queue_uses_low_line_v3_side_thresholds(session):
+    _, now = _seed_total_goals_priced_match(session, total_line=Decimal("2.25"))
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=lambda row: PaperQueueScore(
+            market_type="total_goals",
+            side="under",
+            model_probability=Decimal("0.6100"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1100"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    total_rows = [row for row in report.rows if row.market_type == "total_goals"]
+    assert total_rows[0].status == "below_threshold"
+    assert not any(row.strategy_key == "total_goals_hgb_low_line_bucket_v3" for row in report.rows)
+
+
+def test_build_paper_recommendation_queue_does_not_add_low_line_v3_outside_low_bucket(session):
+    _, now = _seed_total_goals_priced_match(session, total_line=Decimal("2.50"))
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=lambda row: PaperQueueScore(
+            market_type="total_goals",
+            side="over",
+            model_probability=Decimal("0.7000"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.2000"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    assert not any(row.strategy_key == "total_goals_hgb_low_line_bucket_v3" for row in report.rows)
+
+
 def test_build_paper_recommendation_queue_keeps_total_goals_candidate_without_asian_odds(session):
     league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
     home = Team(canonical_name="Rosenborg")
@@ -973,6 +1045,46 @@ def test_format_paper_recommendation_queue_report_includes_candidate_detail(sess
     assert "Recommended handicap" in text
     assert "Candidates" in text
     assert str(report.total_matches) in text
+
+
+def _seed_total_goals_priced_match(
+    session,
+    *,
+    total_line: Decimal,
+) -> tuple[Match, datetime]:
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    session.add_all([league, home, away])
+    session.flush()
+    now = datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id=f"priced-total-{total_line}",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=now,
+            data_source="api_football",
+            bookmaker="Bet365",
+            total_line=total_line,
+            over_odds=Decimal("1.90"),
+            under_odds=Decimal("2.00"),
+            match_winner_home_odds=Decimal("2.10"),
+            match_winner_draw_odds=Decimal("3.25"),
+            match_winner_away_odds=Decimal("3.40"),
+        )
+    )
+    session.commit()
+    return match, now
 
 
 def _add_historical_market_pair(

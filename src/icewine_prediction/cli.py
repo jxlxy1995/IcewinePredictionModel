@@ -80,6 +80,11 @@ from icewine_prediction.baseline_total_goals_bucket_sandbox_service import (
     build_baseline_total_goals_bucket_sandbox_report,
     write_baseline_total_goals_bucket_sandbox_report,
 )
+from icewine_prediction.baseline_total_goals_v3_signal_research_service import (
+    BaselineTotalGoalsV3SignalResearchReport,
+    build_baseline_total_goals_v3_signal_research_report,
+    write_baseline_total_goals_v3_signal_research_report,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     BaselineAsianHandicapModelReport,
     build_baseline_asian_handicap_model_report,
@@ -1004,6 +1009,32 @@ def format_baseline_total_goals_bucket_sandbox_command_result(
             f"{summary.strategy_key} bets {summary.candidate_count} "
             f"positive {summary.positive_roi_folds}/{report.fold_count} "
             f"roi {summary.roi if summary.roi is not None else '-'}"
+        )
+    return "\n".join(lines)
+
+
+def format_baseline_total_goals_v3_signal_research_command_result(
+    *,
+    report_path: str,
+    report: BaselineTotalGoalsV3SignalResearchReport,
+) -> str:
+    rating_counts = {
+        rating: sum(1 for summary in report.candidate_summaries if summary.rating == rating)
+        for rating in ("promotable", "watchlist", "rejected")
+    }
+    lines = [
+        "baseline total-goals v3 signal research written",
+        f"report: {report_path}",
+        (
+            f"promotable {rating_counts['promotable']} "
+            f"watchlist {rating_counts['watchlist']} rejected {rating_counts['rejected']}"
+        ),
+    ]
+    if report.candidate_summaries:
+        top = report.candidate_summaries[0]
+        lines.append(
+            f"top {top.side_bucket} threshold {top.threshold} "
+            f"roi {top.roi if top.roi is not None else '-'}"
         )
     return "\n".join(lines)
 
@@ -2488,6 +2519,38 @@ def samples_baseline_total_goals_bucket_sandbox(
     write_baseline_total_goals_bucket_sandbox_report(report, Path(report_path))
     typer.echo(
         format_baseline_total_goals_bucket_sandbox_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-total-goals-v3-signal-research")
+def samples_baseline_total_goals_v3_signal_research(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260529.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/妯″瀷瀹為獙/20260529-baseline-total-goals-v3-signal-research.md",
+        "--report-path",
+    ),
+    thresholds: str = typer.Option("0.06,0.08,0.10,0.12,0.15,0.18,0.20", "--thresholds"),
+    train_ratio: str = typer.Option("0.60", "--train-ratio"),
+    validation_ratio: str = typer.Option("0.10", "--validation-ratio"),
+    fold_count: int = typer.Option(5, "--fold-count"),
+):
+    threshold_values = tuple(value.strip() for value in thresholds.split(",") if value.strip())
+    report = build_baseline_total_goals_v3_signal_research_report(
+        Path(csv_path),
+        thresholds=threshold_values,
+        train_ratio=train_ratio,
+        validation_ratio=validation_ratio,
+        fold_count=fold_count,
+    )
+    write_baseline_total_goals_v3_signal_research_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_total_goals_v3_signal_research_command_result(
             report_path=report_path,
             report=report,
         )

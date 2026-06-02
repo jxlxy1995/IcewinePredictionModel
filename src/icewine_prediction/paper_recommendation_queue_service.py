@@ -47,6 +47,7 @@ from icewine_prediction.paper_strategy_registry import (
     BUCKET_V2_STRATEGY,
     DEFAULT_STRATEGY,
     TOTAL_GOALS_BUCKET_V2_STRATEGY,
+    TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
 )
 
 
@@ -451,13 +452,12 @@ def _build_queue_rows(
         )
         if scored is None:
             continue
-        bucket_row = _bucket_strategy_row(scored)
+        bucket_rows = _bucket_strategy_rows(scored)
         if scored.market_type == DEFAULT_STRATEGY.market_type:
             rows.append(scored)
         elif scored.status != "candidate":
             rows.append(scored)
-        if bucket_row is not None:
-            rows.append(bucket_row)
+        rows.extend(bucket_rows)
     return rows or diagnostic_rows
 
 
@@ -509,10 +509,11 @@ def _scored_row(
     )
 
 
-def _bucket_strategy_row(row: PaperQueueRow) -> PaperQueueRow | None:
+def _bucket_strategy_rows(row: PaperQueueRow) -> list[PaperQueueRow]:
     if row.market_type == "total_goals":
-        return _total_goals_bucket_v2_row(row)
-    return _v2_row(row)
+        return _total_goals_bucket_rows(row)
+    bucket_row = _v2_row(row)
+    return [bucket_row] if bucket_row is not None else []
 
 
 def _v2_row(row: PaperQueueRow) -> PaperQueueRow | None:
@@ -541,10 +542,19 @@ def _v2_row(row: PaperQueueRow) -> PaperQueueRow | None:
     )
 
 
-def _total_goals_bucket_v2_row(row: PaperQueueRow) -> PaperQueueRow | None:
+def _total_goals_bucket_rows(row: PaperQueueRow) -> list[PaperQueueRow]:
+    rows = []
+    for strategy in (TOTAL_GOALS_BUCKET_V2_STRATEGY, TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY):
+        strategy_row = _total_goals_strategy_row(row, strategy)
+        if strategy_row is not None:
+            rows.append(strategy_row)
+    return rows
+
+
+def _total_goals_strategy_row(row: PaperQueueRow, strategy) -> PaperQueueRow | None:
     if row.market_type != "total_goals" or row.side is None or row.edge is None:
         return None
-    bucket_thresholds = TOTAL_GOALS_BUCKET_V2_STRATEGY.line_bucket_thresholds or {}
+    bucket_thresholds = strategy.line_bucket_thresholds or {}
     threshold = bucket_thresholds.get(f"{row.side}@{row.line_bucket}")
     if threshold is None or row.edge < threshold:
         return None
@@ -555,14 +565,14 @@ def _total_goals_bucket_v2_row(row: PaperQueueRow) -> PaperQueueRow | None:
             "risk_tags": (
                 *row.risk_tags,
                 *(
-                    (TOTAL_GOALS_BUCKET_V2_STRATEGY.risk_tag,)
-                    if TOTAL_GOALS_BUCKET_V2_STRATEGY.risk_tag is not None
+                    (strategy.risk_tag,)
+                    if strategy.risk_tag is not None
                     else ()
                 ),
             ),
-            "strategy_key": TOTAL_GOALS_BUCKET_V2_STRATEGY.strategy_key,
-            "strategy_display_name": TOTAL_GOALS_BUCKET_V2_STRATEGY.display_name,
-            "signal_version": TOTAL_GOALS_BUCKET_V2_STRATEGY.signal_version,
+            "strategy_key": strategy.strategy_key,
+            "strategy_display_name": strategy.display_name,
+            "signal_version": strategy.signal_version,
         }
     )
 
@@ -576,9 +586,10 @@ def _status_for_score(
     if score.market_type == "total_goals":
         if score.side not in {"over", "under"}:
             return "unsupported_side"
-        if _total_goals_bucket_threshold(score, line_bucket=line_bucket) is None:
+        total_goals_threshold = _total_goals_bucket_threshold(score, line_bucket=line_bucket)
+        if total_goals_threshold is None:
             return "unsupported_bucket"
-        if score.edge < edge_threshold:
+        if score.edge < total_goals_threshold:
             return "below_threshold"
         return "candidate"
     if score.side != "away_cover":
@@ -593,8 +604,15 @@ def _total_goals_bucket_threshold(
     *,
     line_bucket: str,
 ) -> Decimal | None:
-    bucket_thresholds = TOTAL_GOALS_BUCKET_V2_STRATEGY.line_bucket_thresholds or {}
-    return bucket_thresholds.get(f"{score.side}@{line_bucket}")
+    side_bucket = f"{score.side}@{line_bucket}"
+    thresholds = [
+        threshold
+        for strategy in (TOTAL_GOALS_BUCKET_V2_STRATEGY, TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY)
+        if (threshold := (strategy.line_bucket_thresholds or {}).get(side_bucket)) is not None
+    ]
+    if not thresholds:
+        return None
+    return min(thresholds)
 
 
 def _normalize_scores(result: PaperQueueScoreResult) -> list[PaperQueueScore]:

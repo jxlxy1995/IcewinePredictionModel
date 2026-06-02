@@ -194,6 +194,7 @@ def test_strategy_family_maps_known_signals():
     assert strategy_family("asian_away_cover_hgb_edge_v1") == "asian_away_hgb"
     assert strategy_family("asian_away_cover_hgb_bucket_v2") == "asian_away_hgb"
     assert strategy_family("total_goals_hgb_bucket_v2") == "total_goals_hgb"
+    assert strategy_family("total_goals_hgb_low_line_bucket_v3") == "total_goals_hgb"
     assert strategy_family("new_signal") == "unknown"
 
 

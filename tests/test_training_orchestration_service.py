@@ -9,6 +9,7 @@ from icewine_prediction.database import (
 )
 from icewine_prediction.models import TrainingRun
 from icewine_prediction.training_orchestration_service import (
+    build_default_training_experiments,
     build_training_snapshot_paths,
     extract_last_trained_match_summary,
     TrainingRunAlreadyRunning,
@@ -136,6 +137,15 @@ def test_build_training_snapshot_paths_uses_snapshot_tag(tmp_path):
     assert paths.experiment_report_paths["total_goals_bucket_sandbox_v2"].name == (
         "20260530-1323-baseline-total-goals-bucket-sandbox-v2.md"
     )
+    assert paths.experiment_report_paths["total_goals_v3_signal_research"].name == (
+        "20260530-1323-baseline-total-goals-v3-signal-research.md"
+    )
+
+
+def test_default_training_experiments_include_total_goals_v3_signal_research():
+    keys = {experiment.key for experiment in build_default_training_experiments()}
+
+    assert "total_goals_v3_signal_research" in keys
 
 
 def test_extract_last_trained_match_summary_uses_latest_kickoff_and_display_names(tmp_path):

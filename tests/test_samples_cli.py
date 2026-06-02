@@ -75,6 +75,11 @@ from icewine_prediction.baseline_total_goals_bucket_sandbox_service import (
     BaselineTotalGoalsBucketSandboxReport,
     TotalGoalsBucketSandboxStrategySummary,
 )
+from icewine_prediction.baseline_total_goals_v3_signal_research_service import (
+    BaselineTotalGoalsV3SignalResearchReport,
+    TotalGoalsV3SignalCandidateSummary,
+    TotalGoalsV3SideBucketSummary,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     AsianHandicapModelEvaluation,
     BaselineAsianHandicapModelReport,
@@ -1255,6 +1260,62 @@ def test_samples_baseline_total_goals_bucket_sandbox_command_writes_report(monke
     assert "total_goals_hgb_bucket_v2 bets 4 positive 2/2 roi 0.1000" in result.stdout
 
 
+def test_samples_baseline_total_goals_v3_signal_research_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    def fake_build(csv_path, *, thresholds, train_ratio, validation_ratio, fold_count):
+        captured["csv_path"] = str(csv_path)
+        captured["thresholds"] = thresholds
+        captured["train_ratio"] = train_ratio
+        captured["validation_ratio"] = validation_ratio
+        captured["fold_count"] = fold_count
+        return _baseline_total_goals_v3_signal_research_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_baseline_total_goals_v3_signal_research_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_baseline_total_goals_v3_signal_research_report",
+        fake_write,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-total-goals-v3-signal-research",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/model-tests/total-goals-v3.md",
+            "--thresholds",
+            "0.06,0.08",
+            "--train-ratio",
+            "0.50",
+            "--validation-ratio",
+            "0.20",
+            "--fold-count",
+            "3",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\model-tests\\total-goals-v3.md")
+    assert captured["thresholds"] == ("0.06", "0.08")
+    assert captured["train_ratio"] == "0.50"
+    assert captured["validation_ratio"] == "0.20"
+    assert captured["fold_count"] == 3
+    assert "baseline total-goals v3 signal research written" in result.stdout
+    assert "promotable 1 watchlist 0 rejected 0" in result.stdout
+    assert "top over@mid_2.75 threshold 0.0800 roi 0.1200" in result.stdout
+
+
 def test_format_training_sample_line_uses_match_result_and_weight():
     display_service = DisplayNameService(
         DisplayNames(
@@ -2279,6 +2340,52 @@ def _baseline_total_goals_bucket_sandbox_report() -> BaselineTotalGoalsBucketSan
         ],
         fold_reports=[],
         bucket_summaries=[],
+    )
+
+
+def _baseline_total_goals_v3_signal_research_report() -> BaselineTotalGoalsV3SignalResearchReport:
+    candidate = TotalGoalsV3SignalCandidateSummary(
+        side_bucket="over@mid_2.75",
+        side="over",
+        total_line_bucket="mid_2.75",
+        threshold=Decimal("0.0800"),
+        rating="promotable",
+        candidate_count=40,
+        wins=24,
+        hit_rate=Decimal("0.6000"),
+        positive_roi_folds=4,
+        profit=Decimal("4.8000"),
+        roi=Decimal("0.1200"),
+        worst_fold_roi=Decimal("-0.1000"),
+        overlap_count=40,
+        overlap_share=Decimal("1.0000"),
+        incremental_count=0,
+        incremental_profit=Decimal("0.0000"),
+        incremental_roi=None,
+    )
+    return BaselineTotalGoalsV3SignalResearchReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=10,
+        fold_count=2,
+        train_ratio=Decimal("0.5000"),
+        validation_ratio=Decimal("0.2000"),
+        thresholds=(Decimal("0.0600"), Decimal("0.0800")),
+        market_type="total_goals",
+        model_name="raw_hgb_team_form_plus_all_markets",
+        candidate_summaries=[candidate],
+        side_bucket_summaries=[
+            TotalGoalsV3SideBucketSummary(
+                side_bucket="over@mid_2.75",
+                candidate_count=40,
+                best_rating="promotable",
+                best_threshold=Decimal("0.0800"),
+                best_roi=Decimal("0.1200"),
+                best_positive_roi_folds=4,
+            )
+        ],
+        baseline_v2_count=40,
+        baseline_v2_profit=Decimal("4.8000"),
+        baseline_v2_roi=Decimal("0.1200"),
     )
 
 

@@ -12,7 +12,7 @@
 2. 将 selected robust 规则抽成共享模块，避免报告和推荐链路规则漂移。
 3. 纸面推荐优先使用 scheduled 比赛的 oddspapi historical 快照。
 4. 未开赛比赛硬过滤不鲁棒候选。
-5. 已完赛历史窗口只标记鲁棒结果，不移除候选，方便验收和回放。
+5. 已完赛历史窗口改为模拟真实未开赛操作：不通过鲁棒过滤的候选同样舍弃。
 6. API 和前端类型透出 robustness 诊断字段。
 
 ## 推荐阅读顺序
@@ -39,9 +39,9 @@
 | `asian_home_cover_hgb_favorite_bucket_v1` | filter | T-15 | 4 | 0.0800 | stable | stable | any |
 | `total_goals_hgb_bucket_v2` | filter | T-15 | 2 | 0.1200 | stable | any | any |
 | `total_goals_hgb_low_line_bucket_v3` | filter | T-15 | 3 | 0.1200 | stable | any | any |
-| `total_goals_hgb_confirmed_under_mid_275_v1` | observe | T-15 | 3 | 0.1200 | stable | any | any |
+| `total_goals_hgb_confirmed_under_mid_275_v1` | filter | T-15 | 3 | 0.1200 | stable | any | any |
 
-`observe` 表示只计算并暴露鲁棒性诊断，不硬过滤。当前 `confirmed_under_mid_275` 样本较薄，所以先保持 observe。
+`confirmed_under_mid_275` 已改为正常 filter 模式，和其他策略使用同一套舍弃规则。后续如果新口径下表现不佳，再单独重跑并考虑移除该策略。
 
 ## 回测结果摘要
 
@@ -66,41 +66,23 @@
 
 ## 当前推荐链路行为
 
-### Scheduled 未开赛比赛
+### Scheduled 与 Finished 统一口径
 
-当比赛是 `scheduled` 且有可用 oddspapi historical 快照时：
+当比赛有可用 oddspapi historical 快照时，scheduled 未开赛队列和 finished 历史回填使用同一套候选发现与保留逻辑：
 
-1. 先用 latest historical 快照构造 feature row。
-2. 按已有 6 个纸面策略生成候选。
-3. 对 `status == "candidate"` 的候选，在 T-25/T-20/T-15/T-10/T-5 窗口重跑同一 scorer。
-4. 如果 selected robust 规则不通过，状态改为 `robustness_filtered`。
-5. `robustness_filtered` 不进入可记录候选列表。
+1. 构造标准快照组：`T-25 / T-20 / T-15 / T-10 / T-5 / latest`。
+2. 每个可用 `match + timepoint` feature row 只跑一次 scorer。
+3. scorer 输出继续完整套用 `paper_strategy_registry.py` 中所有策略规则，不为省时间跳过策略判断。
+4. 任一标准时点命中策略后，进入 `match_id + strategy_key + market_type + side` 观察组。
+5. 对该策略在固定目标时点 `T-25/T-20/T-15/T-10/T-5` 的 score 做 selected robustness rule 评估。
+6. 规则通过才返回 `status == "candidate"`。
+7. 规则不通过则直接舍弃，不返回 `robustness_filtered` 候选行。
 
-### Finished 已完赛历史窗口
-
-当比赛是 `finished` 时：
-
-1. 仍然计算 robustness 诊断。
-2. 如果规则不通过，候选保持 `status == "candidate"`。
-3. 追加风险标签 `robustness:filtered`。
-4. API 返回 `robustness_status == "filtered"` 等字段。
-
-这样做是为了历史验收时不丢样本。另一位开发者可以直接跑某一天历史比赛，看候选中哪些会在实战 scheduled 链路被硬过滤。
+finished 历史回填的目的改为模拟真实未开赛操作，因此不再保留不鲁棒候选。简单诊断字段会统计有多少比赛因为发现了候选但未达到鲁棒过滤级别而被舍弃。
 
 ### Unavailable
 
-如果没有足够的目标时点快照，候选保留，并标记：
-
-- `robustness_status == "unavailable"`
-- `risk_tags` 追加 `robustness:unavailable`
-
-### Observe
-
-`total_goals_hgb_confirmed_under_mid_275_v1` 目前是 observe：
-
-- 不硬过滤。
-- 返回 robustness 字段。
-- 作为后续样本积累和规则再验证的观察项。
+如果没有足够的目标时点快照，当前实战候选不会因为 `unavailable` 被保留为可记录候选；只有通过 selected robustness rule 的候选会进入返回列表。live snapshot 缺少多时点上下文时仍走原 live fallback，不做 historical robustness 硬过滤。
 
 ## Latest / T-15 / Robust Discovery 对齐报告
 
@@ -140,28 +122,24 @@ python -m icewine_prediction.cli samples baseline-paper-discovery-alignment `
 - 这份报告的目的不是证明 latest 或 T-15 谁更优，而是暴露不同 discovery 口径会切出不同候选池。
 - 当前最需要统一的是：未开赛候选生成、训练 / 回测发现候选、finished 历史回填发现候选，三者应尽量走同一个 discovery engine。
 
-## 建议由下一位开发者实现：多时点联合 Discovery Engine
+## 已实现：第一版多时点联合 Discovery Engine
 
-这一步尚未实现，建议由下一位开发者继续完成。推荐设计如下：
+第一版已实现为多时点 union discovery + 统一鲁棒过滤。当前采用更克制的二元保留策略：
 
 1. 不再把 `latest historical` 当作唯一发现入口。
 2. 对同一场比赛构造标准快照组：`T-25 / T-20 / T-15 / T-10 / T-5 / latest`。
 3. 每个时点都跑同一套 scorer 和 `paper_strategy_registry.py` 中的 strategy rules。
 4. 按 `match_id + strategy_key + market_type + side` 聚合成一个候选观察组。
 5. 候选发现采用 multi-timepoint union：任一标准时点命中即可进入观察候选池。
-6. 候选状态不要只做二元 kept / filtered，建议分层：
-   - `robust`：多时点同方向命中，min edge 达标，bucket 没明显漂移。
-   - `timing_divergent`：只在 T-15 或 latest 等部分时点命中，方向未冲突，但时点敏感。
-   - `weak`：命中时点少或 min edge 不稳定。
-   - `rejected`：方向变化、bucket 变化过大，或 selected robustness rule 明确不通过。
-7. 正式推荐链路可以先只允许 `robust`，并把 `timing_divergent` 放进候选但降级展示 / 禁止叠加加码；是否允许出手需要单独回测。
-8. finished 历史回填不要丢弃非 robust 候选，仍应保留并标记状态，方便验证过滤器效能。
-9. 多信号复合评分应消费统一 discovery engine 的输出，而不是各入口各自生成候选后再合并。
+6. 第一版暂不引入 `robust / timing_divergent / weak / rejected` 分层。
+7. 正式推荐链路和 finished 历史回填都只返回通过 selected robustness rule 的候选。
+8. 未通过规则的候选不返回为候选行，只计入简单舍弃比赛数诊断。
+9. 后续如需研究 `timing_divergent` 等分层，应另行回测后再接入。
 
 验收重点：
 
 - scheduled 未开赛页面、finished 历史回填、研究报告对同一场比赛使用同一套 discovery 结果。
-- `latest-only`、`T15-only`、`robust kept not latest` 这几类候选在页面或报告里可追踪。
+- 第一版页面/API 只返回通过规则的候选；`latest-only`、`T15-only`、`robust kept not latest` 仍主要通过研究报告追踪。
 - 不能把 `T-15 命中但 latest 不命中` 自动命名为过时或低质量；只能标记为 `timing_divergent`，再由回测决定是否降权。
 - 当前 `baseline_paper_discovery_alignment_service.py` 可以作为验收基线：新 discovery engine 落地后，应能复现或解释该报告里的集合拆分差异。
 
@@ -178,6 +156,7 @@ python -m icewine_prediction.cli samples baseline-paper-discovery-alignment `
 - `robustness_seen_count`
 - `robustness_min_edge`
 - `robustness_observed_targets`
+- `discarded_by_robustness_match_count`
 
 前端类型位于 `web/src/types.ts` 的 `PaperCandidate`。
 
@@ -195,19 +174,18 @@ python -m icewine_prediction.cli samples baseline-paper-discovery-alignment `
 
 本轮 robust 过滤发生在候选记录前：
 
-- scheduled 中不鲁棒的候选不会进入可记录候选。
-- finished 中不鲁棒的候选会保留并标记，方便历史验收。
+- scheduled 和 finished 中不鲁棒的候选都不会进入可记录候选。
+- finished 历史回填现在用于模拟真实未开赛操作，而不是保留 filtered 样本做候选展示。
 
 当前没有把 robust 状态直接纳入 `confidence_score`。如果后续要加，建议单独设计并回测。
 
 ## 验收 Checklist
 
-- [ ] 运行某个 scheduled 未开赛窗口，确认不通过规则的候选状态为 `robustness_filtered`。
-- [ ] 确认 `robustness_filtered` 不出现在可记录候选列表中。
-- [ ] 运行某个 finished 历史窗口，确认候选仍保留为 `candidate`。
-- [ ] 在 finished 候选中检查 `robustness_status`、`robustness_seen_count`、`robustness_min_edge`、`robustness_observed_targets`。
-- [ ] 确认 finished 中不通过规则的候选带 `risk_tags: robustness:filtered`。
-- [ ] 确认 `total_goals_hgb_confirmed_under_mid_275_v1` 为 observe，不硬过滤。
+- [ ] 运行某个 scheduled 未开赛窗口，确认不通过规则的候选不返回为候选行。
+- [ ] 运行某个 finished 历史窗口，确认不通过规则的候选同样不返回为候选行。
+- [ ] 确认 `discarded_by_robustness_match_count` 会统计发现过候选但最终被舍弃的比赛数。
+- [ ] 在保留候选中检查 `robustness_status == "kept"`、`robustness_seen_count`、`robustness_min_edge`、`robustness_observed_targets`。
+- [ ] 确认 `total_goals_hgb_confirmed_under_mid_275_v1` 为 filter，和其他策略使用同样舍弃规则。
 - [ ] 确认 confidence/stake 评分仍基于 paper records，而不是 queue rows。
 - [ ] 确认批量记录接口仍只记录 `status == "candidate"` 的候选。
 
@@ -260,13 +238,13 @@ npm run build
 
 1. `docs/模型实验/` 下报告文件受 `.gitignore` 影响，通常不会进入提交。
 2. 前端目前只是类型承接 robustness 字段，尚未做专门 UI 展示。
-3. `confirmed_under_mid_275` 当前样本太少，暂不硬过滤。
+3. `confirmed_under_mid_275` 当前已改为 filter；如新口径表现不佳，后续可单独重跑并考虑移除。
 4. 当前 robust 过滤只作用于 oddspapi historical 快照链路；live snapshot 缺多时点上下文时不会被硬过滤。
-5. finished 历史窗口只标记不过滤，是为了方便验证过滤器工作效能。
+5. finished 历史窗口现在和 scheduled 使用同一保留策略，用于模拟真实未开赛操作。
 
 ## 建议下一步
 
-1. 在纸面推荐页面展示 robustness 状态、seen count、min edge、observed targets。
-2. 用 5.30 全天 finished 历史窗口验收：候选是否保留、robustness 字段是否正常。
-3. 对比 finished 候选中 `robustness_status == "kept"` 与 `filtered` 的实际收益。
+1. 在纸面推荐页面展示 robustness 状态、seen count、min edge、observed targets，以及简单舍弃比赛数。
+2. 用 5.30 全天 finished 历史窗口验收：返回候选是否等同真实未开赛操作，舍弃比赛数是否合理。
+3. 单独重跑 `total_goals_hgb_confirmed_under_mid_275_v1` 在新生成候选口径下的表现，如表现不佳考虑移除。
 4. 再决定是否将 robustness 结果纳入 `paper_confidence_service.py` 的 confidence score 或 stake cap。

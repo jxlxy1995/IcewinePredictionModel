@@ -92,6 +92,5 @@ DEFAULT_SELECTED_ROBUSTNESS_RULES: dict[str, SelectedExecutionRobustnessRule] = 
         allow_bucket_changed=True,
         allow_line_changed=True,
         require_side_unchanged=True,
-        mode="observe",
     ),
 }

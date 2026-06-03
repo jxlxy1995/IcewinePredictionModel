@@ -157,6 +157,7 @@ class PaperRecommendationQueueReport:
     near_start_fixture_ids: list[str]
     prefetch_result: dict[str, Any] | None
     rows: list[PaperQueueRow]
+    discarded_by_robustness_match_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -190,6 +191,20 @@ class _ExecutionRobustnessEvaluation:
     seen_count: int
     min_edge: Decimal | None
     observed_targets: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class _TimepointFeature:
+    label: str
+    target: int | None
+    snapshots: list[HistoricalOddsSnapshot]
+    feature_row: dict[str, str]
+
+
+@dataclass(frozen=True)
+class _DiscoveredStrategyRow:
+    row: PaperQueueRow
+    target: int | None
 
 
 def build_paper_recommendation_queue(
@@ -227,10 +242,10 @@ def build_paper_recommendation_queue(
     )
     team_prior_states = _team_prior_states_by_match(session, matches)
     historical_snapshots_by_match_id = _historical_snapshots_by_match_id(session, matches)
-    rows = [
-        row
-        for match in matches
-        for row in _build_queue_rows(
+    rows = []
+    discarded_by_robustness_match_ids: set[int] = set()
+    for match in matches:
+        match_rows, match_discarded = _build_queue_rows_with_diagnostics(
             match,
             scorer=model_scorer,
             edge_threshold=threshold,
@@ -238,7 +253,9 @@ def build_paper_recommendation_queue(
             historical_snapshots=historical_snapshots_by_match_id.get(match.id, []),
             team_prior_states=team_prior_states,
         )
-    ]
+        rows.extend(match_rows)
+        if match_discarded:
+            discarded_by_robustness_match_ids.add(match.id)
     window_start = start_time or now
     window_end = end_time or now + timedelta(hours=hours)
     status_counts = _count_statuses(rows)
@@ -257,6 +274,7 @@ def build_paper_recommendation_queue(
         near_start_fixture_ids=near_start_fixture_ids,
         prefetch_result=prefetch_result,
         rows=rows,
+        discarded_by_robustness_match_count=len(discarded_by_robustness_match_ids),
     )
 
 
@@ -427,6 +445,26 @@ def _build_queue_rows(
     historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
     team_prior_states: dict[tuple[int, str], _TeamPriorState] | None = None,
 ) -> list[PaperQueueRow]:
+    rows, _ = _build_queue_rows_with_diagnostics(
+        match,
+        scorer=scorer,
+        edge_threshold=edge_threshold,
+        display_name_service=display_name_service,
+        historical_snapshots=historical_snapshots,
+        team_prior_states=team_prior_states,
+    )
+    return rows
+
+
+def _build_queue_rows_with_diagnostics(
+    match: Match,
+    *,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
+    edge_threshold: Decimal,
+    display_name_service: DisplayNameService | None = None,
+    historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
+    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None = None,
+) -> tuple[list[PaperQueueRow], bool]:
     historical_snapshots = (
         historical_snapshots
         if _should_use_historical_snapshots(match, historical_snapshots or [])
@@ -485,10 +523,21 @@ def _build_queue_rows(
                 historical_snapshot_count=historical_snapshot_count,
             )
         )
+    if diagnostic_rows and historical_snapshots:
+        return diagnostic_rows, False
+    if historical_snapshots:
+        return _multi_timepoint_candidate_rows(
+            match,
+            scorer=scorer,
+            edge_threshold=edge_threshold,
+            display_name_service=display_name_service,
+            historical_snapshots=historical_snapshots,
+            team_prior_states=team_prior_states,
+        )
     scores = _normalize_scores(scorer(feature_row))
     if not scores:
         if diagnostic_rows:
-            return diagnostic_rows
+            return diagnostic_rows, False
         return [
             _row(
                 match,
@@ -501,7 +550,7 @@ def _build_queue_rows(
                 execution_target=execution_target,
                 historical_snapshot_count=historical_snapshot_count,
             )
-        ]
+        ], False
     rows = list(diagnostic_rows)
     for score in scores:
         if score.market_type == "asian_handicap" and diagnostic_rows:
@@ -533,7 +582,7 @@ def _build_queue_rows(
         display_name_service=display_name_service,
         historical_snapshots=historical_snapshots,
         team_prior_states=team_prior_states,
-    )
+    ), False
 
 
 def _should_use_historical_snapshots(
@@ -547,6 +596,402 @@ def _should_use_historical_snapshots(
     return _has_complete_historical_odds_market_pair(
         historical_snapshots,
         market_type="asian_handicap",
+    )
+
+
+def _multi_timepoint_candidate_rows(
+    match: Match,
+    *,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
+    edge_threshold: Decimal,
+    display_name_service: DisplayNameService | None,
+    historical_snapshots: list[HistoricalOddsSnapshot],
+    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None,
+) -> tuple[list[PaperQueueRow], bool]:
+    timepoint_features = _timepoint_features_for_match(
+        match,
+        historical_snapshots=historical_snapshots,
+        team_prior_states=team_prior_states,
+    )
+    if not timepoint_features:
+        return [], False
+    scored_by_label = _scored_rows_by_timepoint(
+        match,
+        scorer=scorer,
+        edge_threshold=edge_threshold,
+        display_name_service=display_name_service,
+        historical_snapshot_count=len(historical_snapshots),
+        timepoint_features=timepoint_features,
+    )
+    discovered = _discover_strategy_rows_for_timepoints(
+        timepoint_features=timepoint_features,
+        scored_by_label=scored_by_label,
+    )
+    observations = _robustness_observations_from_timepoints(
+        timepoint_features=timepoint_features,
+        scored_by_label=scored_by_label,
+    )
+    by_key: dict[tuple[str, str, str | None], list[_DiscoveredStrategyRow]] = {}
+    for item in discovered:
+        by_key.setdefault(
+            (item.row.strategy_key, item.row.market_type, item.row.side),
+            [],
+        ).append(item)
+    kept_rows = []
+    discarded = False
+    for key, items in by_key.items():
+        all_items = _strategy_items_for_key(
+            key,
+            timepoint_features=timepoint_features,
+            scored_by_label=scored_by_label,
+        )
+        representative_item = _representative_discovered_row(all_items or items)
+        representative = representative_item.row
+        rule = DEFAULT_SELECTED_ROBUSTNESS_RULES.get(representative.strategy_key)
+        if rule is None:
+            kept_rows.append(_row_as_candidate(representative))
+            continue
+        evaluation = _evaluate_execution_robustness(
+            observations.get(key, []),
+            rule=rule,
+        )
+        if evaluation.status == "kept":
+            kept_rows.append(_row_with_robustness(_row_as_candidate(representative), evaluation))
+        else:
+            discarded = True
+    return kept_rows, discarded
+
+
+def _timepoint_features_for_match(
+    match: Match,
+    *,
+    historical_snapshots: list[HistoricalOddsSnapshot],
+    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None,
+) -> list[_TimepointFeature]:
+    features = []
+    for target in DEFAULT_EXECUTION_ROBUSTNESS_TARGETS:
+        target_snapshots = _historical_snapshots_for_execution_target(
+            match,
+            historical_snapshots=historical_snapshots,
+            target_minutes_before_kickoff=target,
+            tolerance_minutes=DEFAULT_EXECUTION_ROBUSTNESS_TOLERANCE_MINUTES,
+        )
+        if not target_snapshots:
+            continue
+        features.append(
+            _TimepointFeature(
+                label=f"T-{target}",
+                target=target,
+                snapshots=target_snapshots,
+                feature_row=_live_feature_row(
+                    match,
+                    historical_snapshots=target_snapshots,
+                    team_prior_states=team_prior_states,
+                ),
+            )
+        )
+    latest_snapshots = _latest_historical_snapshots_for_match(
+        match,
+        historical_snapshots=historical_snapshots,
+    )
+    if latest_snapshots:
+        features.append(
+            _TimepointFeature(
+                label="latest_historical",
+                target=None,
+                snapshots=latest_snapshots,
+                feature_row=_live_feature_row(
+                    match,
+                    historical_snapshots=latest_snapshots,
+                    team_prior_states=team_prior_states,
+                ),
+            )
+        )
+    return features
+
+
+def _discover_strategy_rows_for_timepoints(
+    *,
+    timepoint_features: list[_TimepointFeature],
+    scored_by_label: dict[str, list[PaperQueueRow]],
+) -> list[_DiscoveredStrategyRow]:
+    discovered = []
+    for timepoint in timepoint_features:
+        for row in scored_by_label.get(timepoint.label, []):
+            if row.status == "candidate":
+                discovered.append(_DiscoveredStrategyRow(row=row, target=timepoint.target))
+    return discovered
+
+
+def _robustness_observations_from_timepoints(
+    *,
+    timepoint_features: list[_TimepointFeature],
+    scored_by_label: dict[str, list[PaperQueueRow]],
+) -> dict[tuple[str, str, str | None], list[_ExecutionRobustnessObservation]]:
+    observations: dict[tuple[str, str, str | None], list[_ExecutionRobustnessObservation]] = {}
+    seen: set[tuple[tuple[str, str, str | None], int]] = set()
+    for timepoint in timepoint_features:
+        if timepoint.target is None:
+            continue
+        for row in scored_by_label.get(timepoint.label, []):
+            for observation_row in _strategy_observation_rows_for_scored(row):
+                if observation_row.edge is None:
+                    continue
+                key = (
+                    observation_row.strategy_key,
+                    observation_row.market_type,
+                    observation_row.side,
+                )
+                seen_key = (key, timepoint.target)
+                if seen_key in seen:
+                    continue
+                seen.add(seen_key)
+                observations.setdefault(key, []).append(
+                    _ExecutionRobustnessObservation(
+                        target=timepoint.target,
+                        side=observation_row.side,
+                        line=observation_row.line,
+                        line_bucket=observation_row.line_bucket,
+                        edge=observation_row.edge,
+                    )
+                )
+    return observations
+
+
+def _scored_rows_by_timepoint(
+    match: Match,
+    *,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
+    edge_threshold: Decimal,
+    display_name_service: DisplayNameService | None,
+    historical_snapshot_count: int,
+    timepoint_features: list[_TimepointFeature],
+) -> dict[str, list[PaperQueueRow]]:
+    rows_by_label = {}
+    for timepoint in timepoint_features:
+        rows_by_label[timepoint.label] = _strategy_rows_for_feature_row(
+            match,
+            scorer=scorer,
+            edge_threshold=edge_threshold,
+            feature_row=timepoint.feature_row,
+            display_name_service=display_name_service,
+            historical_snapshots=timepoint.snapshots,
+            odds_source="oddspapi_historical",
+            execution_target=timepoint.label,
+            historical_snapshot_count=historical_snapshot_count,
+        )
+    return rows_by_label
+
+
+def _representative_discovered_row(
+    items: list[_DiscoveredStrategyRow],
+) -> _DiscoveredStrategyRow:
+    primary = next((item for item in items if item.target == 15), None)
+    if primary is not None:
+        return primary
+    fixed = [item for item in items if item.target is not None]
+    if fixed:
+        return max(fixed, key=lambda item: item.row.edge or Decimal("0"))
+    return max(items, key=lambda item: item.row.edge or Decimal("0"))
+
+
+def _strategy_items_for_key(
+    key: tuple[str, str, str | None],
+    *,
+    timepoint_features: list[_TimepointFeature],
+    scored_by_label: dict[str, list[PaperQueueRow]],
+) -> list[_DiscoveredStrategyRow]:
+    items = []
+    for timepoint in timepoint_features:
+        for row in scored_by_label.get(timepoint.label, []):
+            for observation_row in _strategy_observation_rows_for_scored(row):
+                if (
+                    observation_row.strategy_key,
+                    observation_row.market_type,
+                    observation_row.side,
+                ) == key and observation_row.edge is not None:
+                    items.append(_DiscoveredStrategyRow(row=observation_row, target=timepoint.target))
+    return items
+
+
+def _strategy_observation_rows_for_scored(row: PaperQueueRow) -> list[PaperQueueRow]:
+    rows = []
+    if row.market_type == DEFAULT_STRATEGY.market_type:
+        rows.append(
+            PaperQueueRow(
+                **{
+                    **row.__dict__,
+                    "strategy_key": DEFAULT_STRATEGY.strategy_key,
+                    "strategy_display_name": DEFAULT_STRATEGY.display_name,
+                    "signal_version": DEFAULT_STRATEGY.signal_version,
+                }
+            )
+        )
+        away_row = _v2_observation_row(row)
+        if away_row is not None:
+            rows.append(away_row)
+        home_row = _home_favorite_observation_row(row)
+        if home_row is not None:
+            rows.append(home_row)
+    elif row.market_type == "total_goals":
+        rows.extend(_total_goals_observation_rows(row))
+    return rows
+
+
+def _v2_observation_row(row: PaperQueueRow) -> PaperQueueRow | None:
+    if row.side != "away_cover" or row.edge is None:
+        return None
+    bucket_thresholds = BUCKET_V2_STRATEGY.line_bucket_thresholds or {}
+    if row.line_bucket not in bucket_thresholds:
+        return None
+    return PaperQueueRow(
+        **{
+            **row.__dict__,
+            "strategy_key": BUCKET_V2_STRATEGY.strategy_key,
+            "strategy_display_name": BUCKET_V2_STRATEGY.display_name,
+            "signal_version": BUCKET_V2_STRATEGY.signal_version,
+            "risk_tags": (
+                *row.risk_tags,
+                *(
+                    (BUCKET_V2_STRATEGY.risk_tag,)
+                    if BUCKET_V2_STRATEGY.risk_tag is not None
+                    else ()
+                ),
+            ),
+        }
+    )
+
+
+def _home_favorite_observation_row(row: PaperQueueRow) -> PaperQueueRow | None:
+    if row.side != "home_cover" or row.edge is None:
+        return None
+    home_bucket = _home_line_bucket(row.line)
+    bucket_thresholds = HOME_FAVORITE_BUCKET_V1_STRATEGY.line_bucket_thresholds or {}
+    if home_bucket not in bucket_thresholds:
+        return None
+    return PaperQueueRow(
+        **{
+            **row.__dict__,
+            "line_bucket": home_bucket,
+            "risk_tags": (
+                f"line_bucket:{home_bucket}",
+                *(
+                    (HOME_FAVORITE_BUCKET_V1_STRATEGY.risk_tag,)
+                    if HOME_FAVORITE_BUCKET_V1_STRATEGY.risk_tag is not None
+                    else ()
+                ),
+            ),
+            "strategy_key": HOME_FAVORITE_BUCKET_V1_STRATEGY.strategy_key,
+            "strategy_display_name": HOME_FAVORITE_BUCKET_V1_STRATEGY.display_name,
+            "signal_version": HOME_FAVORITE_BUCKET_V1_STRATEGY.signal_version,
+        }
+    )
+
+
+def _total_goals_observation_rows(row: PaperQueueRow) -> list[PaperQueueRow]:
+    rows = []
+    if row.side is None or row.edge is None:
+        return rows
+    for strategy in (
+        TOTAL_GOALS_BUCKET_V2_STRATEGY,
+        TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
+        TOTAL_GOALS_CONFIRMED_UNDER_MID_275_V1_STRATEGY,
+    ):
+        bucket_thresholds = strategy.line_bucket_thresholds or {}
+        if f"{row.side}@{row.line_bucket}" not in bucket_thresholds:
+            continue
+        if strategy.strategy_key == TOTAL_GOALS_CONFIRMED_UNDER_MID_275_V1_STRATEGY.strategy_key:
+            if "model_consensus:confirmed" not in row.risk_tags:
+                continue
+            risk_tags = tuple(tag for tag in row.risk_tags if not tag.startswith("strategy:"))
+        else:
+            risk_tags = row.risk_tags
+        rows.append(
+            PaperQueueRow(
+                **{
+                    **row.__dict__,
+                    "risk_tags": (
+                        *risk_tags,
+                        *(
+                            (strategy.risk_tag,)
+                            if strategy.risk_tag is not None
+                            else ()
+                        ),
+                    ),
+                    "strategy_key": strategy.strategy_key,
+                    "strategy_display_name": strategy.display_name,
+                    "signal_version": strategy.signal_version,
+                }
+            )
+        )
+    return rows
+
+
+def _row_as_candidate(row: PaperQueueRow) -> PaperQueueRow:
+    if row.status == "candidate":
+        return row
+    return PaperQueueRow(
+        **{
+            **row.__dict__,
+            "status": "candidate",
+        }
+    )
+
+
+def _row_with_robustness(
+    row: PaperQueueRow,
+    evaluation: _ExecutionRobustnessEvaluation,
+) -> PaperQueueRow:
+    return PaperQueueRow(
+        **{
+            **row.__dict__,
+            "robustness_mode": evaluation.mode,
+            "robustness_status": evaluation.status,
+            "robustness_primary_target": evaluation.primary_target,
+            "robustness_seen_count": evaluation.seen_count,
+            "robustness_min_edge": evaluation.min_edge,
+            "robustness_observed_targets": evaluation.observed_targets,
+        }
+    )
+
+
+def _latest_historical_snapshots_for_match(
+    match: Match,
+    *,
+    historical_snapshots: list[HistoricalOddsSnapshot],
+) -> list[HistoricalOddsSnapshot]:
+    selected = []
+    kickoff_time = _match_snapshot_timeline_kickoff_time(match)
+    for market_type in ("asian_handicap", "total_goals", "match_winner"):
+        pairs = _pair_market_snapshots(
+            [snapshot for snapshot in historical_snapshots if snapshot.market_type == market_type],
+            market_type=market_type,
+        )
+        pair = _select_latest_pre_kickoff_pair(pairs, kickoff_time=kickoff_time)
+        if pair is not None:
+            selected.extend(_snapshots_from_pair(match, pair))
+    return selected
+
+
+def _select_latest_pre_kickoff_pair(
+    pairs: list[_PairedMarketSnapshot],
+    *,
+    kickoff_time: datetime,
+) -> _PairedMarketSnapshot | None:
+    kickoff = _comparable_datetime(kickoff_time)
+    candidates = [
+        pair
+        for pair in pairs
+        if _comparable_datetime(pair.snapshot_time) <= kickoff
+    ]
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda pair: (
+            _comparable_datetime(pair.snapshot_time),
+            -pair.balance_gap,
+        ),
     )
 
 

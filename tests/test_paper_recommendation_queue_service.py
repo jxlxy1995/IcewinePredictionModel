@@ -640,27 +640,7 @@ def test_build_paper_recommendation_queue_replays_finished_match_with_historical
     )
     session.add(match)
     session.flush()
-    _add_historical_market_pair(
-        session,
-        match,
-        market_type="asian_handicap",
-        line=Decimal("-0.50"),
-        outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
-    )
-    _add_historical_market_pair(
-        session,
-        match,
-        market_type="total_goals",
-        line=Decimal("2.50"),
-        outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
-    )
-    _add_historical_market_pair(
-        session,
-        match,
-        market_type="match_winner",
-        line=Decimal("0.00"),
-        outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
-    )
+    _add_complete_historical_markets_at_targets(session, match)
     _add_complete_historical_odds(session, match)
     session.commit()
 
@@ -710,27 +690,7 @@ def test_build_paper_recommendation_queue_uses_historical_odds_for_scheduled_mat
     )
     session.add(match)
     session.flush()
-    _add_historical_market_pair(
-        session,
-        match,
-        market_type="asian_handicap",
-        line=Decimal("-0.50"),
-        outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
-    )
-    _add_historical_market_pair(
-        session,
-        match,
-        market_type="total_goals",
-        line=Decimal("2.50"),
-        outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
-    )
-    _add_historical_market_pair(
-        session,
-        match,
-        market_type="match_winner",
-        line=Decimal("0.00"),
-        outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
-    )
+    _add_complete_historical_markets_at_targets(session, match)
     session.commit()
 
     def fake_scorer(row):
@@ -758,8 +718,8 @@ def test_build_paper_recommendation_queue_uses_historical_odds_for_scheduled_mat
     assert candidate.status == "candidate"
     assert candidate.source_match_id == "scheduled-priced"
     assert candidate.odds_source == "oddspapi_historical"
-    assert candidate.execution_target == "latest_historical"
-    assert candidate.historical_snapshot_count == 7
+    assert candidate.execution_target == "T-15"
+    assert candidate.historical_snapshot_count == 35
 
 
 def test_confirmed_under_mid_275_uses_filter_mode():
@@ -912,15 +872,8 @@ def test_build_paper_recommendation_queue_filters_candidate_without_robust_targe
     )
 
     assert report.candidate_count == 0
-    row = report.rows[0]
-    assert row.status == "robustness_filtered"
-    assert "robustness:filtered" in row.risk_tags
-    assert row.robustness_mode == "filter"
-    assert row.robustness_status == "filtered"
-    assert row.robustness_primary_target == 15
-    assert row.robustness_seen_count == 4
-    assert row.robustness_min_edge == Decimal("0.1319")
-    assert row.robustness_observed_targets == (5, 10, 15, 20)
+    assert report.rows == []
+    assert report.discarded_by_robustness_match_count == 1
 
 
 def test_build_paper_recommendation_queue_filters_finished_candidate_like_scheduled(session):
@@ -1054,7 +1007,6 @@ def test_build_paper_recommendation_queue_reuses_robustness_target_scores_across
     )
 
     assert {row.strategy_key for row in report.rows} == {
-        "asian_away_cover_hgb_edge_v1",
         "asian_away_cover_hgb_bucket_v2",
     }
     assert report.candidate_count == 1
@@ -1849,6 +1801,34 @@ def _add_historical_market_pair_at_target(
                 snapshot_time=snapshot_time,
                 period="fulltime",
             )
+        )
+
+
+def _add_complete_historical_markets_at_targets(session, match: Match) -> None:
+    for target_minutes in (25, 20, 15, 10, 5):
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="asian_handicap",
+            line=Decimal("-0.50"),
+            outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="total_goals",
+            line=Decimal("2.50"),
+            outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="match_winner",
+            line=Decimal("0.00"),
+            outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
         )
 
 

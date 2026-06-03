@@ -1046,9 +1046,9 @@ def test_run_oddspapi_sync_for_session_skips_quality_complete_historical_odds(se
     assert raw_client.calls == []
 
 
-def test_run_oddspapi_sync_for_session_refetches_when_complete_odds_are_not_inside_eight_minutes(session):
+def test_run_oddspapi_sync_for_session_refetches_when_complete_odds_are_not_inside_fifteen_minutes(session):
     match = _match(session)
-    _add_complete_historical_snapshots(session, match, minutes_before_kickoff=11)
+    _add_complete_historical_snapshots(session, match, minutes_before_kickoff=18)
     session.commit()
     raw_client = FakeOddsPapiClient()
     client = OddsPapiSyncClient(raw_client)
@@ -1151,9 +1151,20 @@ def test_run_oddspapi_sync_for_session_refetches_requested_pre_kickoff_match_wit
     ]
 
 
-def test_run_oddspapi_sync_for_session_skips_requested_match_with_quality_complete_finished_odds(session):
+def test_run_oddspapi_sync_for_session_refetches_requested_match_with_quality_complete_finished_odds(session):
     match = _match(session)
     _add_complete_historical_snapshots(session, match, minutes_before_kickoff=6)
+    session.add(
+        OddsSourceMatch(
+            match_id=match.id,
+            source_name="oddspapi",
+            source_fixture_id="oddspapi-fixture-1",
+            matched_at=datetime(2026, 5, 24, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            match_confidence=Decimal("1.0000"),
+            match_reason="cached",
+            historical_odds_status="success",
+        )
+    )
     session.commit()
     raw_client = FakeOddsPapiClient()
     client = OddsPapiSyncClient(raw_client)
@@ -1166,9 +1177,12 @@ def test_run_oddspapi_sync_for_session_skips_requested_match_with_quality_comple
         match_ids={match.id},
     )
 
-    assert result.processed_match_count == 0
-    assert result.skipped_existing_odds_count == 1
-    assert raw_client.calls == []
+    assert result.processed_match_count == 1
+    assert result.skipped_existing_odds_count == 0
+    assert [call[0] for call in raw_client.calls] == [
+        "markets",
+        "historical-odds",
+    ]
 
 
 def test_run_oddspapi_sync_for_session_reuses_existing_source_match(session):

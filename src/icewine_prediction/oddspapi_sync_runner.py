@@ -1281,7 +1281,7 @@ def select_oddspapi_candidate_matches(
             continue
         if league_ids is not None and str(match.league.source_league_id) not in league_ids:
             continue
-        if _has_complete_historical_odds(
+        if not match_ids and _has_complete_historical_odds(
             session,
             match.id,
             match.kickoff_time,

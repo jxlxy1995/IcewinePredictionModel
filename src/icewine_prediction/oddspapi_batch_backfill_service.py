@@ -751,7 +751,7 @@ def _count_candidate_matches_for_league(
         [
             match
             for match in query.all()
-            if not _has_complete_historical_odds(session, match.id, match.kickoff_time)
+            if match_ids or not _has_complete_historical_odds(session, match.id, match.kickoff_time)
         ]
     )
 

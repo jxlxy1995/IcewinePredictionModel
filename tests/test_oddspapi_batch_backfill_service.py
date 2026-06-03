@@ -83,11 +83,17 @@ def _get_or_create_test_team(session, canonical_name: str) -> Team:
     return Team(canonical_name=canonical_name)
 
 
-def _add_complete_historical_snapshots(session, match, *, count: int = 120) -> None:
+def _add_complete_historical_snapshots(
+    session,
+    match,
+    *,
+    count: int = 120,
+    minutes_before_kickoff: int = 90,
+) -> None:
     kickoff_time = match.kickoff_time
     if kickoff_time.tzinfo is None:
         kickoff_time = kickoff_time.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
-    snapshot_time = kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=90)
+    snapshot_time = kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=minutes_before_kickoff)
     markets = [
         ("asian_handicap", Decimal("-0.25"), ("home", "away")),
         ("total_goals", Decimal("2.50"), ("over", "under")),
@@ -272,7 +278,7 @@ def test_count_candidate_matches_uses_same_filters_as_sync_selector(session):
             historical_odds_status=None,
         )
     )
-    _add_complete_historical_snapshots(session, completed_match)
+    _add_complete_historical_snapshots(session, completed_match, minutes_before_kickoff=6)
     session.commit()
 
     count = batch_service._count_candidate_matches_for_league(
@@ -302,6 +308,23 @@ def test_count_candidate_matches_includes_existing_incomplete_historical_odds(se
         from_date=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
         skip_match_ids=None,
         match_ids=None,
+    )
+
+    assert count == 1
+
+
+def test_count_candidate_matches_includes_targeted_complete_historical_odds(session):
+    complete_match = _batch_match(session, source_match_id="targeted-complete")
+    _add_complete_historical_snapshots(session, complete_match, minutes_before_kickoff=6)
+    session.commit()
+
+    count = batch_service._count_candidate_matches_for_league(
+        session=session,
+        league_id="169",
+        season=2026,
+        from_date=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
+        skip_match_ids=None,
+        match_ids={complete_match.id},
     )
 
     assert count == 1

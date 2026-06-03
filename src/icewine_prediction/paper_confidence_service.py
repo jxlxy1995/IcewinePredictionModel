@@ -106,6 +106,9 @@ def strategy_family(strategy_key: str) -> str:
         "asian_home_cover_hgb_favorite_bucket_v1": "asian_home_hgb",
         "total_goals_hgb_bucket_v2": "total_goals_hgb",
         "total_goals_hgb_low_line_bucket_v3": "total_goals_hgb",
+        "total_goals_distribution_hgb_confirmed_under_high_300_v1": "total_goals_distribution_hgb",
+        "total_goals_distribution_hgb_confirmed_over_mid_250_v1": "total_goals_distribution_hgb",
+        "total_goals_hgb_confirmed_under_low_225_v1": "total_goals_hgb",
     }
     return mapping.get(strategy_key, "unknown")
 
@@ -152,11 +155,11 @@ def confidence_score_for_group(
     score_int = max(0, min(100, int(score.quantize(Decimal("1"), rounding=ROUND_HALF_UP))))
     stake = stake_for_score(score_int)
     cap_reason = "none"
-    if len(families) == 1 and len(records) > 1 and stake > Decimal("1.25"):
-        stake = Decimal("1.25")
+    if len(families) == 1 and len(records) > 1 and stake > Decimal("2.00"):
+        stake = Decimal("2.00")
         cap_reason = "same_family_cap"
-    elif len(families) == 1 and stake > Decimal("1.00"):
-        stake = Decimal("1.00")
+    elif len(families) == 1 and stake > Decimal("1.50"):
+        stake = Decimal("1.50")
         cap_reason = "single_family_limited_history"
     return score_int, stake, cap_reason
 

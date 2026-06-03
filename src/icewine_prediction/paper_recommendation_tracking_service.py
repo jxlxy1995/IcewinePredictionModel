@@ -269,7 +269,7 @@ def build_paper_tracking_workspace(
         candidates=candidates,
         records=records,
         summary=_summarize(records, candidate_count=len(candidates)),
-        by_strategy=_group(records, lambda record: record.strategy_display_name),
+        by_strategy=_group(records, _current_strategy_display_name),
         by_league=_group(records, lambda record: record.league_display_name or record.league_name),
         by_line_bucket=_group(records, lambda record: record.line_bucket or "unknown"),
         by_manual_adjustment=_group(
@@ -412,6 +412,13 @@ def _group(
             )
         )
     return sorted(summaries, key=lambda item: (item.group_name != "人工调整", item.group_name))
+
+
+def _current_strategy_display_name(record: PaperRecommendationRecord) -> str:
+    strategy = strategy_for_key(record.strategy_key)
+    if strategy is not None:
+        return strategy.display_name
+    return record.strategy_display_name
 
 
 def _settled_records(records: list[PaperRecommendationRecord]) -> list[PaperRecommendationRecord]:

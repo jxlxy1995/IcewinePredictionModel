@@ -58,7 +58,7 @@ def test_build_paper_confidence_workspace_groups_same_direction_strategy_records
     assert group.signal_families == ("asian_away_hgb",)
     assert group.representative_strategy_key == "asian_away_cover_hgb_bucket_v2"
     assert group.flat_profit_units == Decimal("0.930")
-    assert group.weighted_profit_units == Decimal("1.163")
+    assert group.weighted_profit_units == Decimal("1.395")
     assert workspace.summary.flat_profit_units == Decimal("0.930")
 
 
@@ -177,20 +177,39 @@ def test_confidence_stake_caps_same_family_support(session):
             match,
             status="candidate",
             line=Decimal("-0.50"),
-            edge=Decimal("0.2800"),
+            edge=Decimal("0.5000"),
             strategy_key="asian_away_cover_hgb_bucket_v2",
             strategy_display_name="亚盘客队方向 · HGB分盘口桶 v2",
             signal_version="v2",
-            risk_tags=("line_bucket:away_underdog", "strategy:bucket_v2"),
+            risk_tags=(
+                "line_bucket:away_underdog",
+                "model_consensus:confirmed",
+                "strategy:bucket_v2",
+            ),
         ),
         recorded_at=_now(),
     )
 
     group = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all()).groups[0]
 
-    assert group.confidence_score >= 75
-    assert group.suggested_stake_units == Decimal("1.25")
+    assert group.confidence_score >= 90
+    assert group.suggested_stake_units == Decimal("2.00")
     assert group.stake_cap_reason == "same_family_cap"
+
+
+def test_confidence_stake_caps_single_family_single_signal_at_one_and_half(session):
+    match = _seed_match(session, home_score=1, away_score=1, status="finished")
+    create_paper_record_from_queue_row(
+        session,
+        _queue_row(match, status="candidate", line=Decimal("-0.50"), edge=Decimal("0.5000")),
+        recorded_at=_now(),
+    )
+
+    group = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all()).groups[0]
+
+    assert group.confidence_score >= 80
+    assert group.suggested_stake_units == Decimal("1.50")
+    assert group.stake_cap_reason == "single_family_limited_history"
 
 
 def test_confidence_score_boosts_model_consensus_confirmed_support(session):
@@ -265,7 +284,7 @@ def test_low_line_v3_limits_own_score_contribution(session):
             recommended_handicap="大 2.25",
             line=Decimal("2.25"),
             odds=Decimal("1.900"),
-            edge=Decimal("0.2600"),
+            edge=Decimal("0.5000"),
             line_bucket="low_<=2.25",
             risk_tags=("line_bucket:low_<=2.25", "strategy:total_goals_low_line_bucket_v3"),
             strategy_key="total_goals_hgb_low_line_bucket_v3",
@@ -294,7 +313,7 @@ def test_low_line_v3_does_not_cap_same_direction_group_when_stronger_signal_supp
             recommended_handicap="澶?2.25",
             line=Decimal("2.25"),
             odds=Decimal("1.900"),
-            edge=Decimal("0.2600"),
+            edge=Decimal("0.5000"),
             line_bucket="low_<=2.25",
             risk_tags=("line_bucket:low_<=2.25", "strategy:total_goals_low_line_bucket_v3"),
             strategy_key="total_goals_hgb_low_line_bucket_v3",
@@ -313,9 +332,13 @@ def test_low_line_v3_does_not_cap_same_direction_group_when_stronger_signal_supp
             recommended_handicap="澶?2.75",
             line=Decimal("2.75"),
             odds=Decimal("1.920"),
-            edge=Decimal("0.2600"),
+            edge=Decimal("0.5000"),
             line_bucket="mid_2.75",
-            risk_tags=("line_bucket:mid_2.75", "strategy:total_goals_bucket_v2"),
+            risk_tags=(
+                "line_bucket:mid_2.75",
+                "model_consensus:confirmed",
+                "strategy:total_goals_bucket_v2",
+            ),
             strategy_key="total_goals_hgb_bucket_v2",
             strategy_display_name="澶у皬鐞冩柟鍚?路 HGB鍒嗙洏鍙ｆ《 v2",
             signal_version="v2",
@@ -325,8 +348,8 @@ def test_low_line_v3_does_not_cap_same_direction_group_when_stronger_signal_supp
 
     group = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all()).groups[0]
 
-    assert group.confidence_score >= 75
-    assert group.suggested_stake_units == Decimal("1.25")
+    assert group.confidence_score >= 90
+    assert group.suggested_stake_units == Decimal("2.00")
     assert group.stake_cap_reason == "same_family_cap"
 
 
@@ -349,6 +372,18 @@ def test_strategy_family_maps_known_signals():
     assert strategy_family("asian_home_cover_hgb_favorite_bucket_v1") == "asian_home_hgb"
     assert strategy_family("total_goals_hgb_bucket_v2") == "total_goals_hgb"
     assert strategy_family("total_goals_hgb_low_line_bucket_v3") == "total_goals_hgb"
+    assert (
+        strategy_family("total_goals_distribution_hgb_confirmed_under_high_300_v1")
+        == "total_goals_distribution_hgb"
+    )
+    assert (
+        strategy_family("total_goals_distribution_hgb_confirmed_over_mid_250_v1")
+        == "total_goals_distribution_hgb"
+    )
+    assert (
+        strategy_family("total_goals_hgb_confirmed_under_low_225_v1")
+        == "total_goals_hgb"
+    )
     assert strategy_family("new_signal") == "unknown"
 
 

@@ -954,6 +954,9 @@ def test_web_console_api_records_v2_paper_candidate_by_strategy_key(tmp_path):
         "asian_home_cover_hgb_favorite_bucket_v1",
         "total_goals_hgb_bucket_v2",
         "total_goals_hgb_low_line_bucket_v3",
+        "total_goals_distribution_hgb_confirmed_under_high_300_v1",
+        "total_goals_distribution_hgb_confirmed_over_mid_250_v1",
+        "total_goals_hgb_confirmed_under_low_225_v1",
     }
     assert {candidate["strategy_key"] for candidate in workspace["candidates"]} == {
         "asian_away_cover_hgb_edge_v1",
@@ -1064,7 +1067,7 @@ def test_web_console_api_batch_records_paper_candidates_with_single_queue_build(
         "asian_away_cover_hgb_bucket_v2",
     ]
     assert simulation["groups"][0]["signal_families"] == ["asian_away_hgb"]
-    assert simulation["groups"][0]["suggested_stake_units"] == "1.25"
+    assert simulation["groups"][0]["suggested_stake_units"] == "1.50"
     assert simulation["groups"][0]["home_team_logo_url"] == "https://img.example/home.png"
     assert simulation["groups"][0]["away_team_logo_url"] == "https://img.example/away.png"
     assert simulation["groups"][0]["home_score"] is None

@@ -14,7 +14,26 @@ TOTAL_GOALS_HGB_BUCKET_V2_KEY = "total_goals_hgb_bucket_v2"
 TOTAL_GOALS_HGB_BUCKET_V2_NAME = "大小球方向 · HGB分盘口桶 v2"
 TOTAL_GOALS_HGB_LOW_LINE_BUCKET_V3_KEY = "total_goals_hgb_low_line_bucket_v3"
 TOTAL_GOALS_HGB_LOW_LINE_BUCKET_V3_NAME = "大小球低盘口方向 · HGB分盘口桶 v3"
+TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_UNDER_HIGH_300_V1_KEY = (
+    "total_goals_distribution_hgb_confirmed_under_high_300_v1"
+)
+TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_UNDER_HIGH_300_V1_NAME = (
+    "大小球高盘小球方向 · 分布模型+HGB确认 v1"
+)
+TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_OVER_MID_250_V1_KEY = (
+    "total_goals_distribution_hgb_confirmed_over_mid_250_v1"
+)
+TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_OVER_MID_250_V1_NAME = (
+    "大小球2.50大球方向 · 分布模型+HGB确认 v1"
+)
+TOTAL_GOALS_HGB_CONFIRMED_UNDER_LOW_225_V1_KEY = (
+    "total_goals_hgb_confirmed_under_low_225_v1"
+)
+TOTAL_GOALS_HGB_CONFIRMED_UNDER_LOW_225_V1_NAME = (
+    "大小球低盘小球方向 · HGB确认 v1"
+)
 DEFAULT_MODEL_NAME = "raw_hgb_team_form_plus_all_markets"
+TOTAL_GOALS_DISTRIBUTION_MODEL_NAME = "poisson_total_goals_distribution"
 DEFAULT_SIGNAL_VERSION = "v1"
 
 
@@ -100,12 +119,54 @@ TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY = PaperStrategy(
     },
     risk_tag="strategy:total_goals_low_line_bucket_v3",
 )
+TOTAL_GOALS_DISTRIBUTION_UNDER_HIGH_300_V1_STRATEGY = PaperStrategy(
+    strategy_key=TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_UNDER_HIGH_300_V1_KEY,
+    display_name=TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_UNDER_HIGH_300_V1_NAME,
+    market_type="total_goals",
+    side="under",
+    edge_threshold=Decimal("0.0000"),
+    model_name=TOTAL_GOALS_DISTRIBUTION_MODEL_NAME,
+    signal_version="v1",
+    line_bucket_thresholds={
+        "under@high_>=3.00": Decimal("0.0000"),
+    },
+    risk_tag="strategy:total_goals_distribution_hgb_confirmed_under_high_300_v1",
+)
+TOTAL_GOALS_DISTRIBUTION_OVER_MID_250_V1_STRATEGY = PaperStrategy(
+    strategy_key=TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_OVER_MID_250_V1_KEY,
+    display_name=TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_OVER_MID_250_V1_NAME,
+    market_type="total_goals",
+    side="over",
+    edge_threshold=Decimal("0.0000"),
+    model_name=TOTAL_GOALS_DISTRIBUTION_MODEL_NAME,
+    signal_version="v1",
+    line_bucket_thresholds={
+        "over@mid_2.50": Decimal("0.0000"),
+    },
+    risk_tag="strategy:total_goals_distribution_hgb_confirmed_over_mid_250_v1",
+)
+TOTAL_GOALS_HGB_CONFIRMED_UNDER_LOW_225_V1_STRATEGY = PaperStrategy(
+    strategy_key=TOTAL_GOALS_HGB_CONFIRMED_UNDER_LOW_225_V1_KEY,
+    display_name=TOTAL_GOALS_HGB_CONFIRMED_UNDER_LOW_225_V1_NAME,
+    market_type="total_goals",
+    side="under",
+    edge_threshold=Decimal("0.0400"),
+    model_name=DEFAULT_MODEL_NAME,
+    signal_version="v1",
+    line_bucket_thresholds={
+        "under@low_<=2.25": Decimal("0.0400"),
+    },
+    risk_tag="strategy:total_goals_hgb_confirmed_under_low_225_v1",
+)
 STRATEGIES = (
     DEFAULT_STRATEGY,
     BUCKET_V2_STRATEGY,
     HOME_FAVORITE_BUCKET_V1_STRATEGY,
     TOTAL_GOALS_BUCKET_V2_STRATEGY,
     TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
+    TOTAL_GOALS_DISTRIBUTION_UNDER_HIGH_300_V1_STRATEGY,
+    TOTAL_GOALS_DISTRIBUTION_OVER_MID_250_V1_STRATEGY,
+    TOTAL_GOALS_HGB_CONFIRMED_UNDER_LOW_225_V1_STRATEGY,
 )
 
 

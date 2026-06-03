@@ -333,6 +333,35 @@ def test_settle_paper_records_supports_total_goals_records(session):
     assert record.profit_units == Decimal("1.000")
 
 
+def test_tracking_workspace_by_strategy_uses_current_registered_display_name(session):
+    match = _seed_match(session, home_score=1, away_score=1, status="finished")
+    create_paper_record_from_queue_row(
+        session,
+        _queue_row(
+            match,
+            status="candidate",
+            line=Decimal("3.00"),
+            market_type="total_goals",
+            side="under",
+            recommended_handicap="小 3.00",
+            odds=Decimal("2.000"),
+            line_bucket="high_>=3.00",
+            risk_tags=(
+                "line_bucket:high_>=3.00",
+                "strategy:total_goals_distribution_hgb_confirmed_under_high_300_v1",
+            ),
+            strategy_key="total_goals_distribution_hgb_confirmed_under_high_300_v1",
+            strategy_display_name="Total goals high-line under - distribution + HGB confirmed v1",
+            signal_version="v1",
+        ),
+        recorded_at=_now(),
+    )
+
+    workspace = build_paper_tracking_workspace(session, candidates=[])
+
+    assert workspace.by_strategy[0].group_name == "大小球高盘小球方向 · 分布模型+HGB确认 v1"
+
+
 def _seed_match(
     session,
     *,

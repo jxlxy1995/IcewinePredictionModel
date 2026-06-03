@@ -326,8 +326,21 @@ def test_train_paper_queue_scorer_passes_numpy_labels_to_calibrated_model(monkey
     scores = scorer(_training_row("home_cover", "over"))
 
     assert len(seen_label_arrays) == 2
-    assert len(scores) == 2
-    assert all(score.calibrated_side is not None for score in scores)
+    assert len(scores) == 3
+    hgb_scores = [
+        score
+        for score in scores
+        if score.model_name == "raw_hgb_team_form_plus_all_markets"
+    ]
+    distribution_scores = [
+        score
+        for score in scores
+        if score.model_name == "poisson_total_goals_distribution"
+    ]
+    assert len(hgb_scores) == 2
+    assert len(distribution_scores) == 1
+    assert all(score.calibrated_side is not None for score in hgb_scores)
+    assert distribution_scores[0].calibrated_side is None
 
 
 def test_team_prior_states_by_match_matches_legacy_team_form(session):
@@ -1549,6 +1562,167 @@ def test_build_paper_recommendation_queue_adds_total_goals_low_line_v3_candidate
         "line_bucket:low_<=2.25",
         "strategy:total_goals_low_line_bucket_v3",
     )
+
+
+def test_build_paper_recommendation_queue_adds_total_goals_low_line_under_confirmed_candidate(session):
+    match, now = _seed_total_goals_priced_match(session, total_line=Decimal("2.25"))
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=lambda row: PaperQueueScore(
+            market_type="total_goals",
+            side="under",
+            model_probability=Decimal("0.5400"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.0400"),
+            model_name="fake_hgb",
+            calibrated_side="under",
+            calibrated_edge=Decimal("0.0100"),
+        ),
+    )
+
+    candidate = next(
+        row
+        for row in report.rows
+        if row.strategy_key == "total_goals_hgb_confirmed_under_low_225_v1"
+    )
+    assert candidate.status == "candidate"
+    assert candidate.match_id == match.id
+    assert candidate.market_type == "total_goals"
+    assert candidate.side == "under"
+    assert candidate.line_bucket == "low_<=2.25"
+    assert candidate.signal_version == "v1"
+    assert candidate.risk_tags == (
+        "line_bucket:low_<=2.25",
+        "model_consensus:confirmed",
+        "strategy:total_goals_hgb_confirmed_under_low_225_v1",
+    )
+
+
+def test_build_paper_recommendation_queue_adds_total_goals_distribution_confirmed_candidates(session):
+    _, now = _seed_total_goals_priced_match(session, total_line=Decimal("3.00"))
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=lambda row: [
+            PaperQueueScore(
+                market_type="total_goals",
+                side="under",
+                model_probability=Decimal("0.6248"),
+                market_probability=Decimal("0.5000"),
+                edge=Decimal("0.1248"),
+                model_name="fake_hgb",
+            ),
+            PaperQueueScore(
+                market_type="total_goals",
+                side="under",
+                model_probability=Decimal("0.6127"),
+                market_probability=Decimal("0.5000"),
+                edge=Decimal("0.1127"),
+                model_name="poisson_total_goals_distribution",
+            ),
+        ],
+    )
+
+    candidate = next(
+        row
+        for row in report.rows
+        if row.strategy_key == "total_goals_distribution_hgb_confirmed_under_high_300_v1"
+    )
+    assert candidate.status == "candidate"
+    assert candidate.market_type == "total_goals"
+    assert candidate.side == "under"
+    assert candidate.line_bucket == "high_>=3.00"
+    assert candidate.model_probability == Decimal("0.6127")
+    assert candidate.edge == Decimal("0.1127")
+    assert candidate.risk_tags == (
+        "line_bucket:high_>=3.00",
+        "strategy:total_goals_distribution_hgb_confirmed_under_high_300_v1",
+    )
+
+
+def test_build_paper_recommendation_queue_applies_robustness_to_distribution_confirmed_candidates(session):
+    league = League(name="Distribution Robust League", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Distribution Home")
+    away = Team(canonical_name="Distribution Away")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="distribution-robust",
+    )
+    session.add(match)
+    session.flush()
+    for target_minutes in (30, 25, 20, 10):
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="asian_handicap",
+            line=Decimal("-0.50"),
+            outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="total_goals",
+            line=Decimal("3.00"),
+            outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="match_winner",
+            line=Decimal("0.00"),
+            outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
+        )
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 30, 2, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+        hours=2,
+        scorer=lambda row: [
+            PaperQueueScore(
+                market_type="total_goals",
+                side="under",
+                model_probability=Decimal("0.6248"),
+                market_probability=Decimal(row["total_goals_under_implied_probability"]),
+                edge=Decimal("0.1248"),
+                model_name="fake_hgb",
+            ),
+            PaperQueueScore(
+                market_type="total_goals",
+                side="under",
+                model_probability=Decimal("0.6127"),
+                market_probability=Decimal(row["total_goals_under_implied_probability"]),
+                edge=Decimal("0.1127"),
+                model_name="poisson_total_goals_distribution",
+            ),
+        ],
+    )
+
+    candidate = next(
+        row
+        for row in report.rows
+        if row.strategy_key == "total_goals_distribution_hgb_confirmed_under_high_300_v1"
+    )
+    assert candidate.status == "candidate"
+    assert candidate.robustness_status == "kept"
+    assert candidate.robustness_seen_count == 4
+    assert candidate.robustness_observed_targets == (10, 20, 25, 30)
 
 
 def test_build_paper_recommendation_queue_uses_low_line_v3_side_thresholds(session):

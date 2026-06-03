@@ -4,6 +4,7 @@ import csv
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
+from math import exp, factorial
 from pathlib import Path
 from typing import Callable, Any
 from zoneinfo import ZoneInfo
@@ -59,6 +60,10 @@ from icewine_prediction.paper_strategy_registry import (
     DEFAULT_STRATEGY,
     HOME_FAVORITE_BUCKET_V1_STRATEGY,
     TOTAL_GOALS_BUCKET_V2_STRATEGY,
+    TOTAL_GOALS_DISTRIBUTION_MODEL_NAME,
+    TOTAL_GOALS_DISTRIBUTION_OVER_MID_250_V1_STRATEGY,
+    TOTAL_GOALS_DISTRIBUTION_UNDER_HIGH_300_V1_STRATEGY,
+    TOTAL_GOALS_HGB_CONFIRMED_UNDER_LOW_225_V1_STRATEGY,
     TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
 )
 
@@ -553,6 +558,7 @@ def _build_queue_rows_with_diagnostics(
             )
         ], False
     rows = list(diagnostic_rows)
+    scored_rows = []
     for score in scores:
         if score.market_type == "asian_handicap" and diagnostic_rows:
             continue
@@ -569,12 +575,14 @@ def _build_queue_rows_with_diagnostics(
         )
         if scored is None:
             continue
+        scored_rows.append(scored)
         bucket_rows = _bucket_strategy_rows(scored)
         if scored.market_type == DEFAULT_STRATEGY.market_type:
             rows.append(scored)
-        elif scored.status != "candidate":
+        elif scored.status != "candidate" and not _is_total_goals_distribution_row(scored):
             rows.append(scored)
         rows.extend(bucket_rows)
+    rows.extend(_total_goals_distribution_confirmed_rows(scored_rows))
     return _apply_execution_robustness_to_rows(
         rows or diagnostic_rows,
         match=match,
@@ -877,10 +885,20 @@ def _total_goals_observation_rows(row: PaperQueueRow) -> list[PaperQueueRow]:
     rows = []
     if row.side is None or row.edge is None:
         return rows
+    if row.strategy_key in {
+        TOTAL_GOALS_DISTRIBUTION_UNDER_HIGH_300_V1_STRATEGY.strategy_key,
+        TOTAL_GOALS_DISTRIBUTION_OVER_MID_250_V1_STRATEGY.strategy_key,
+    }:
+        rows.append(row)
     for strategy in (
         TOTAL_GOALS_BUCKET_V2_STRATEGY,
         TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
+        TOTAL_GOALS_HGB_CONFIRMED_UNDER_LOW_225_V1_STRATEGY,
     ):
+        if strategy == TOTAL_GOALS_HGB_CONFIRMED_UNDER_LOW_225_V1_STRATEGY and (
+            "model_consensus:confirmed" not in row.risk_tags
+        ):
+            continue
         bucket_thresholds = strategy.line_bucket_thresholds or {}
         if f"{row.side}@{row.line_bucket}" not in bucket_thresholds:
             continue
@@ -1175,6 +1193,7 @@ def _strategy_rows_for_feature_row(
     historical_snapshot_count: int,
 ) -> list[PaperQueueRow]:
     rows = []
+    scored_rows = []
     for score in _normalize_scores(scorer(feature_row)):
         scored = _scored_row(
             match,
@@ -1189,12 +1208,14 @@ def _strategy_rows_for_feature_row(
         )
         if scored is None:
             continue
+        scored_rows.append(scored)
         bucket_rows = _bucket_strategy_rows(scored)
         if scored.market_type == DEFAULT_STRATEGY.market_type:
             rows.append(scored)
-        elif scored.status != "candidate":
+        elif scored.status != "candidate" and not _is_total_goals_distribution_row(scored):
             rows.append(scored)
         rows.extend(bucket_rows)
+    rows.extend(_total_goals_distribution_confirmed_rows(scored_rows))
     return rows
 
 
@@ -1347,6 +1368,8 @@ def _scored_row(
     risk_tags = _risk_tags(line_bucket, feature_row)
     if _is_model_consensus_confirmed(score):
         risk_tags = (*risk_tags, "model_consensus:confirmed")
+    if score.model_name == TOTAL_GOALS_DISTRIBUTION_MODEL_NAME:
+        risk_tags = (*risk_tags, "model:total_goals_distribution")
     return _row(
         match,
         status=status,
@@ -1443,11 +1466,53 @@ def _total_goals_bucket_rows(row: PaperQueueRow) -> list[PaperQueueRow]:
     for strategy in (
         TOTAL_GOALS_BUCKET_V2_STRATEGY,
         TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
+        TOTAL_GOALS_HGB_CONFIRMED_UNDER_LOW_225_V1_STRATEGY,
     ):
+        if strategy == TOTAL_GOALS_HGB_CONFIRMED_UNDER_LOW_225_V1_STRATEGY and (
+            "model_consensus:confirmed" not in row.risk_tags
+        ):
+            continue
         strategy_row = _total_goals_strategy_row(row, strategy)
         if strategy_row is not None:
             rows.append(strategy_row)
     return rows
+
+
+def _total_goals_distribution_confirmed_rows(rows: list[PaperQueueRow]) -> list[PaperQueueRow]:
+    hgb_rows = [
+        row
+        for row in rows
+        if row.market_type == "total_goals"
+        and not _is_total_goals_distribution_row(row)
+        and row.side is not None
+        and row.edge is not None
+        and row.edge >= Decimal("0.0000")
+    ]
+    distribution_rows = [
+        row
+        for row in rows
+        if row.market_type == "total_goals"
+        and _is_total_goals_distribution_row(row)
+        and row.side is not None
+        and row.edge is not None
+        and row.edge >= Decimal("0.0000")
+    ]
+    confirmed = []
+    for distribution_row in distribution_rows:
+        if not any(hgb_row.side == distribution_row.side for hgb_row in hgb_rows):
+            continue
+        for strategy in (
+            TOTAL_GOALS_DISTRIBUTION_UNDER_HIGH_300_V1_STRATEGY,
+            TOTAL_GOALS_DISTRIBUTION_OVER_MID_250_V1_STRATEGY,
+        ):
+            strategy_row = _total_goals_strategy_row(distribution_row, strategy)
+            if strategy_row is not None:
+                confirmed.append(strategy_row)
+    return confirmed
+
+
+def _is_total_goals_distribution_row(row: PaperQueueRow) -> bool:
+    return "model:total_goals_distribution" in row.risk_tags
 
 
 def _total_goals_strategy_row(row: PaperQueueRow, strategy) -> PaperQueueRow | None:
@@ -1461,19 +1526,21 @@ def _total_goals_strategy_row(row: PaperQueueRow, strategy) -> PaperQueueRow | N
         **{
             **row.__dict__,
             "status": "candidate",
-            "risk_tags": (
-                *row.risk_tags,
-                *(
-                    (strategy.risk_tag,)
-                    if strategy.risk_tag is not None
-                    else ()
-                ),
-            ),
+            "risk_tags": _strategy_risk_tags(row, strategy),
             "strategy_key": strategy.strategy_key,
             "strategy_display_name": strategy.display_name,
             "signal_version": strategy.signal_version,
         }
     )
+
+
+def _strategy_risk_tags(row: PaperQueueRow, strategy) -> tuple[str, ...]:
+    base_tags = tuple(
+        tag for tag in row.risk_tags if tag != "model:total_goals_distribution"
+    )
+    if strategy.risk_tag is None:
+        return base_tags
+    return (*base_tags, strategy.risk_tag)
 
 
 def _status_for_score(
@@ -1911,6 +1978,11 @@ def train_paper_queue_scorer_from_rows(
     )
     total_goals_model = None
     total_goals_calibrated_model = None
+    total_goals_distribution_mean = (
+        _total_goals_distribution_mean(total_goals_train_rows)
+        if total_goals_train_rows
+        else None
+    )
     if total_goals_train_rows:
         total_goals_model = _raw_model()
         total_goals_model.fit(
@@ -1948,6 +2020,13 @@ def train_paper_queue_scorer_from_rows(
             )
             if total_goals_score is not None:
                 scores.append(total_goals_score)
+        if total_goals_distribution_mean is not None:
+            total_goals_distribution_score = _score_total_goals_distribution(
+                row,
+                mean_goals=total_goals_distribution_mean,
+            )
+            if total_goals_distribution_score is not None:
+                scores.append(total_goals_distribution_score)
         return scores
 
     return score
@@ -1998,6 +2077,94 @@ def _score_market(
         calibrated_side=calibrated_side,
         calibrated_edge=calibrated_edge,
     )
+
+
+def _total_goals_distribution_mean(rows: list[dict[str, str]]) -> Decimal:
+    totals = [
+        Decimal(row["target_total_goals"])
+        for row in rows
+        if row.get("target_total_goals", "") != ""
+    ]
+    if not totals:
+        raise ValueError("total goals distribution scorer requires total goals targets")
+    return _quantize(sum(totals, Decimal("0")) / Decimal(len(totals)))
+
+
+def _score_total_goals_distribution(
+    row: dict[str, str],
+    *,
+    mean_goals: Decimal,
+) -> PaperQueueScore | None:
+    line = _decimal_from_row(row, "total_goals_close_line")
+    market_probabilities = _market_probabilities(row, TOTAL_GOALS_PROBABILITY_FIELDS)
+    if line is None or market_probabilities is None:
+        return None
+    over_probability, under_probability = _poisson_total_goals_probability(mean_goals, line)
+    probabilities = (over_probability, under_probability)
+    side_index = max(
+        range(len(TOTAL_GOALS_SIDE_LABELS)),
+        key=lambda index: probabilities[index] - market_probabilities[index],
+    )
+    model_probability = _quantize(probabilities[side_index])
+    market_probability = _quantize(market_probabilities[side_index])
+    edge = _quantize(model_probability - market_probability)
+    if edge < Decimal("0.0000"):
+        return None
+    return PaperQueueScore(
+        market_type="total_goals",
+        side=TOTAL_GOALS_SIDE_LABELS[side_index],
+        model_probability=model_probability,
+        market_probability=market_probability,
+        edge=edge,
+        model_name=TOTAL_GOALS_DISTRIBUTION_MODEL_NAME,
+    )
+
+
+def _poisson_total_goals_probability(mean_goals: Decimal, line: Decimal) -> tuple[Decimal, Decimal]:
+    first_line, second_line = _split_quarter_line(line)
+    first = _poisson_total_goals_half_line_probability(mean_goals, first_line)
+    second = _poisson_total_goals_half_line_probability(mean_goals, second_line)
+    return (
+        _quantize((first[0] + second[0]) / Decimal("2")),
+        _quantize((first[1] + second[1]) / Decimal("2")),
+    )
+
+
+def _poisson_total_goals_half_line_probability(
+    mean_goals: Decimal,
+    line: Decimal,
+) -> tuple[Decimal, Decimal]:
+    mean = float(mean_goals)
+    if line == line.to_integral_value():
+        total_goals = int(line)
+        push_probability = _poisson_pmf(total_goals, mean)
+        under_probability = sum(
+            (_poisson_pmf(goals, mean) for goals in range(total_goals)),
+            Decimal("0"),
+        )
+        over_probability = Decimal("1") - under_probability - push_probability
+        return (
+            _quantize(over_probability + push_probability * Decimal("0.5")),
+            _quantize(under_probability + push_probability * Decimal("0.5")),
+        )
+    threshold = int(line.to_integral_value(rounding=ROUND_HALF_UP))
+    if Decimal(threshold) < line:
+        threshold += 1
+    under_probability = sum(
+        (_poisson_pmf(goals, mean) for goals in range(threshold)),
+        Decimal("0"),
+    )
+    return _quantize(Decimal("1") - under_probability), _quantize(under_probability)
+
+
+def _poisson_pmf(goals: int, mean: float) -> Decimal:
+    return Decimal(str(exp(-mean) * mean**goals / factorial(goals)))
+
+
+def _split_quarter_line(line: Decimal) -> tuple[Decimal, Decimal]:
+    if abs(line * Decimal("100")) % Decimal("50") == Decimal("25"):
+        return line - Decimal("0.25"), line + Decimal("0.25")
+    return line, line
 
 
 def _line_bucket(line: Decimal | None) -> str:

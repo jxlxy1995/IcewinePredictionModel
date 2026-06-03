@@ -8,6 +8,7 @@ from icewine_prediction.cli import (
     app,
     format_baseline_execution_robustness_command_result,
     format_baseline_execution_robustness_grid_command_result,
+    format_baseline_paper_discovery_alignment_command_result,
     format_baseline_t15_signal_comparison_command_result,
     format_baseline_training_dataset_command_result,
     format_historical_odds_market_feature_line,
@@ -103,6 +104,11 @@ from icewine_prediction.baseline_execution_robustness_grid_service import (
 from icewine_prediction.baseline_execution_robustness_filter_service import (
     BaselineExecutionRobustnessFilterReport,
     ExecutionRobustnessFilterStrategySummary,
+)
+from icewine_prediction.baseline_paper_discovery_alignment_service import (
+    BaselinePaperDiscoveryAlignmentReport,
+    PaperDiscoveryAlignmentStrategySummary,
+    PaperDiscoveryGroupMetrics,
 )
 from icewine_prediction.baseline_asian_handicap_model_service import (
     AsianHandicapModelEvaluation,
@@ -315,6 +321,15 @@ def test_samples_group_exposes_baseline_execution_robustness_filter_help():
 
     assert result.exit_code == 0
     assert "baseline-execution-robustness-filter" in result.stdout
+
+
+def test_samples_group_exposes_baseline_paper_discovery_alignment_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-paper-discovery-alignment" in result.stdout
 
 
 def test_samples_group_exposes_baseline_edge_backtest_help():
@@ -1752,6 +1767,85 @@ def test_samples_baseline_execution_robustness_filter_command_writes_report(monk
     assert "asian_away_cover_hgb_edge_v1 raw 10 roi 0.1000 kept 6 roi 0.2500 filtered 4 roi -0.1250" in result.stdout
 
 
+def test_samples_baseline_paper_discovery_alignment_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+    fake_session = object()
+
+    class FakeSessionFactory:
+        def __call__(self):
+            return self
+
+        def __enter__(self):
+            return fake_session
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    def fake_build(
+        session,
+        csv_path,
+        *,
+        source_name,
+        bookmaker,
+        execution_targets,
+        primary_target,
+        tolerance_minutes,
+    ):
+        captured["session"] = session
+        captured["csv_path"] = str(csv_path)
+        captured["source_name"] = source_name
+        captured["bookmaker"] = bookmaker
+        captured["execution_targets"] = execution_targets
+        captured["primary_target"] = primary_target
+        captured["tolerance_minutes"] = tolerance_minutes
+        return _baseline_paper_discovery_alignment_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr("icewine_prediction.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("icewine_prediction.cli.initialize_database", lambda engine: None)
+    monkeypatch.setattr("icewine_prediction.cli.create_session_factory", lambda engine: FakeSessionFactory())
+    monkeypatch.setattr("icewine_prediction.cli.build_baseline_paper_discovery_alignment_report", fake_build)
+    monkeypatch.setattr("icewine_prediction.cli.write_baseline_paper_discovery_alignment_report", fake_write)
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-paper-discovery-alignment",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/model-tests/paper-discovery-alignment.md",
+            "--source-name",
+            "oddspapi",
+            "--bookmaker",
+            "pinnacle",
+            "--targets",
+            "25,20,15,10,5",
+            "--primary-target",
+            "15",
+            "--tolerance-minutes",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["session"] is fake_session
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\model-tests\\paper-discovery-alignment.md")
+    assert captured["source_name"] == "oddspapi"
+    assert captured["bookmaker"] == "pinnacle"
+    assert captured["execution_targets"] == (25, 20, 15, 10, 5)
+    assert captured["primary_target"] == 15
+    assert captured["tolerance_minutes"] == 5
+    assert "baseline paper discovery alignment written" in result.stdout
+    assert "validation 20 latest_available 20 t15_available 18" in result.stdout
+    assert "asian_away_cover_hgb_edge_v1 latest 10 roi 0.1500 t15 8 roi 0.1000 robust_not_latest 2 roi 0.2500" in result.stdout
+
+
 def test_format_training_sample_line_uses_match_result_and_weight():
     display_service = DisplayNameService(
         DisplayNames(
@@ -3008,6 +3102,88 @@ def _baseline_execution_robustness_filter_report() -> BaselineExecutionRobustnes
                 filtered_hit_rate=Decimal("0.5000"),
             )
         ],
+    )
+
+
+def _baseline_paper_discovery_alignment_report() -> BaselinePaperDiscoveryAlignmentReport:
+    return BaselinePaperDiscoveryAlignmentReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=100,
+        train_rows=80,
+        validation_rows=20,
+        latest_available_rows=20,
+        t15_available_rows=18,
+        missing_latest_rows=0,
+        missing_t15_rows=2,
+        source_name="oddspapi",
+        bookmaker="pinnacle",
+        execution_targets=(25, 20, 15, 10, 5),
+        primary_target=15,
+        tolerance_minutes=5,
+        strategy_summaries=[
+            PaperDiscoveryAlignmentStrategySummary(
+                strategy_key="asian_away_cover_hgb_edge_v1",
+                display_name="Away cover",
+                latest=PaperDiscoveryGroupMetrics(
+                    count=10,
+                    wins=6,
+                    profit=Decimal("1.5000"),
+                    roi=Decimal("0.1500"),
+                    hit_rate=Decimal("0.6000"),
+                ),
+                t15_primary=PaperDiscoveryGroupMetrics(
+                    count=8,
+                    wins=5,
+                    profit=Decimal("0.8000"),
+                    roi=Decimal("0.1000"),
+                    hit_rate=Decimal("0.6250"),
+                ),
+                overlap_latest=PaperDiscoveryGroupMetrics(
+                    count=6,
+                    wins=4,
+                    profit=Decimal("1.0000"),
+                    roi=Decimal("0.1667"),
+                    hit_rate=Decimal("0.6667"),
+                ),
+                overlap_t15=PaperDiscoveryGroupMetrics(
+                    count=6,
+                    wins=4,
+                    profit=Decimal("0.6000"),
+                    roi=Decimal("0.1000"),
+                    hit_rate=Decimal("0.6667"),
+                ),
+                latest_only=PaperDiscoveryGroupMetrics(
+                    count=4,
+                    wins=2,
+                    profit=Decimal("0.5000"),
+                    roi=Decimal("0.1250"),
+                    hit_rate=Decimal("0.5000"),
+                ),
+                t15_only=PaperDiscoveryGroupMetrics(
+                    count=2,
+                    wins=1,
+                    profit=Decimal("0.2000"),
+                    roi=Decimal("0.1000"),
+                    hit_rate=Decimal("0.5000"),
+                ),
+                robust_kept=PaperDiscoveryGroupMetrics(
+                    count=6,
+                    wins=4,
+                    profit=Decimal("1.5000"),
+                    roi=Decimal("0.2500"),
+                    hit_rate=Decimal("0.6667"),
+                ),
+                robust_kept_not_latest=PaperDiscoveryGroupMetrics(
+                    count=2,
+                    wins=1,
+                    profit=Decimal("0.5000"),
+                    roi=Decimal("0.2500"),
+                    hit_rate=Decimal("0.5000"),
+                ),
+                latest_t15_overlap_share=Decimal("0.6000"),
+            )
+        ],
+        candidate_sets=[],
     )
 
 

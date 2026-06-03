@@ -21,12 +21,14 @@
 2. `src/icewine_prediction/baseline_execution_robustness_filter_service.py`
 3. `src/icewine_prediction/baseline_execution_robustness_service.py`
 4. `src/icewine_prediction/baseline_execution_robustness_grid_service.py`
-5. `src/icewine_prediction/paper_recommendation_queue_service.py`
-6. `src/icewine_prediction/web_api.py`
-7. `web/src/types.ts`
-8. `tests/test_baseline_execution_robustness_filter_service.py`
-9. `tests/test_paper_recommendation_queue_service.py`
-10. `tests/test_web_console_api.py`
+5. `src/icewine_prediction/baseline_paper_discovery_alignment_service.py`
+6. `src/icewine_prediction/paper_recommendation_queue_service.py`
+7. `src/icewine_prediction/web_api.py`
+8. `web/src/types.ts`
+9. `tests/test_baseline_execution_robustness_filter_service.py`
+10. `tests/test_baseline_paper_discovery_alignment_service.py`
+11. `tests/test_paper_recommendation_queue_service.py`
+12. `tests/test_web_console_api.py`
 
 ## Selected Robust 规则
 
@@ -99,6 +101,69 @@
 - 不硬过滤。
 - 返回 robustness 字段。
 - 作为后续样本积累和规则再验证的观察项。
+
+## Latest / T-15 / Robust Discovery 对齐报告
+
+本轮额外增加了一个独立研究命令，用来对比三种发现口径：
+
+1. `latest`：每个盘口使用开赛前最新的 oddspapi historical 快照。
+2. `T-15 primary`：每个盘口使用 T-15、容忍 `+/-5` 分钟的快照。
+3. `robust kept`：基于 T-15 primary 候选，再套用当前 selected robustness rules 后保留下来的候选。
+
+命令：
+
+```powershell
+python -m icewine_prediction.cli samples baseline-paper-discovery-alignment `
+  --csv-path local_data/training/baseline_dynamic_features_main_leagues_20260601-1451.csv `
+  --report-path docs/模型实验/20260603-baseline-paper-discovery-alignment.md `
+  --targets 25,20,15,10,5 `
+  --primary-target 15 `
+  --tolerance-minutes 5 `
+  --source-name oddspapi `
+  --bookmaker pinnacle
+```
+
+本地实际结果摘要：
+
+| Strategy | Latest ROI | T-15 ROI | Latest-only ROI | T15-only ROI | Robust kept ROI | Robust kept not latest |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `asian_away_cover_hgb_edge_v1` | 0.0174 | 0.0558 | -0.0519 | 0.0216 | 0.2929 | 5 / 0.4394 |
+| `asian_away_cover_hgb_bucket_v2` | 0.0364 | 0.0086 | -0.0297 | -0.1001 | 0.2170 | 11 / -0.1205 |
+| `asian_home_cover_hgb_favorite_bucket_v1` | 0.0223 | 0.0911 | -0.0951 | -0.0773 | 0.2402 | 2 / -1.0000 |
+| `total_goals_hgb_bucket_v2` | 0.0508 | 0.0263 | 0.0953 | 0.0932 | 0.2231 | 9 / 0.5402 |
+| `total_goals_hgb_low_line_bucket_v3` | -0.0630 | -0.1160 | -0.0136 | -0.1288 | 0.1209 | 6 / 0.1607 |
+| `total_goals_hgb_confirmed_under_mid_275_v1` | -0.0265 | 0.0119 | 0.0736 | 0.2104 | 0.0119 | 5 / 0.2104 |
+
+解读注意：
+
+- `latest 已经消失但 T-15 还存在` 不应被命名为 stale / 过时信号。这几分钟内的 odds 更新可能是真变化，也可能是假信号或噪声，当前数据不能预设哪一边天然更好。
+- 这份报告的目的不是证明 latest 或 T-15 谁更优，而是暴露不同 discovery 口径会切出不同候选池。
+- 当前最需要统一的是：未开赛候选生成、训练 / 回测发现候选、finished 历史回填发现候选，三者应尽量走同一个 discovery engine。
+
+## 建议由下一位开发者实现：多时点联合 Discovery Engine
+
+这一步尚未实现，建议由下一位开发者继续完成。推荐设计如下：
+
+1. 不再把 `latest historical` 当作唯一发现入口。
+2. 对同一场比赛构造标准快照组：`T-25 / T-20 / T-15 / T-10 / T-5 / latest`。
+3. 每个时点都跑同一套 scorer 和 `paper_strategy_registry.py` 中的 strategy rules。
+4. 按 `match_id + strategy_key + market_type + side` 聚合成一个候选观察组。
+5. 候选发现采用 multi-timepoint union：任一标准时点命中即可进入观察候选池。
+6. 候选状态不要只做二元 kept / filtered，建议分层：
+   - `robust`：多时点同方向命中，min edge 达标，bucket 没明显漂移。
+   - `timing_divergent`：只在 T-15 或 latest 等部分时点命中，方向未冲突，但时点敏感。
+   - `weak`：命中时点少或 min edge 不稳定。
+   - `rejected`：方向变化、bucket 变化过大，或 selected robustness rule 明确不通过。
+7. 正式推荐链路可以先只允许 `robust`，并把 `timing_divergent` 放进候选但降级展示 / 禁止叠加加码；是否允许出手需要单独回测。
+8. finished 历史回填不要丢弃非 robust 候选，仍应保留并标记状态，方便验证过滤器效能。
+9. 多信号复合评分应消费统一 discovery engine 的输出，而不是各入口各自生成候选后再合并。
+
+验收重点：
+
+- scheduled 未开赛页面、finished 历史回填、研究报告对同一场比赛使用同一套 discovery 结果。
+- `latest-only`、`T15-only`、`robust kept not latest` 这几类候选在页面或报告里可追踪。
+- 不能把 `T-15 命中但 latest 不命中` 自动命名为过时或低质量；只能标记为 `timing_divergent`，再由回测决定是否降权。
+- 当前 `baseline_paper_discovery_alignment_service.py` 可以作为验收基线：新 discovery engine 落地后，应能复现或解释该报告里的集合拆分差异。
 
 ## API 字段
 

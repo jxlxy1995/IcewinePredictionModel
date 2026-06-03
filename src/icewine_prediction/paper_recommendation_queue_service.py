@@ -562,15 +562,19 @@ def _apply_execution_robustness_to_rows(
 ) -> list[PaperQueueRow]:
     if not rows:
         return rows
+    observations_by_strategy = _execution_robustness_observations_by_strategy(
+        match=match,
+        scorer=scorer,
+        edge_threshold=edge_threshold,
+        display_name_service=display_name_service,
+        historical_snapshots=historical_snapshots,
+        team_prior_states=team_prior_states,
+    )
     return [
         _apply_execution_robustness_to_row(
             row,
             match=match,
-            scorer=scorer,
-            edge_threshold=edge_threshold,
-            display_name_service=display_name_service,
-            historical_snapshots=historical_snapshots,
-            team_prior_states=team_prior_states,
+            observations=observations_by_strategy.get(row.strategy_key, []),
         )
         for row in rows
     ]
@@ -580,25 +584,15 @@ def _apply_execution_robustness_to_row(
     row: PaperQueueRow,
     *,
     match: Match,
-    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
-    edge_threshold: Decimal,
-    display_name_service: DisplayNameService | None,
-    historical_snapshots: list[HistoricalOddsSnapshot],
-    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None,
+    observations: list[_ExecutionRobustnessObservation],
 ) -> PaperQueueRow:
     if row.status != "candidate":
         return row
     rule = DEFAULT_SELECTED_ROBUSTNESS_RULES.get(row.strategy_key)
-    if rule is None or row.odds_source != "oddspapi_historical" or not historical_snapshots:
+    if rule is None or row.odds_source != "oddspapi_historical":
         return row
     evaluation = _evaluate_execution_robustness(
-        row,
-        match=match,
-        scorer=scorer,
-        edge_threshold=edge_threshold,
-        display_name_service=display_name_service,
-        historical_snapshots=historical_snapshots,
-        team_prior_states=team_prior_states,
+        observations,
         rule=rule,
     )
     if evaluation.status == "filtered" and match.status == "scheduled":
@@ -635,25 +629,10 @@ def _apply_execution_robustness_to_row(
 
 
 def _evaluate_execution_robustness(
-    row: PaperQueueRow,
+    observations: list[_ExecutionRobustnessObservation],
     *,
-    match: Match,
-    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
-    edge_threshold: Decimal,
-    display_name_service: DisplayNameService | None,
-    historical_snapshots: list[HistoricalOddsSnapshot],
-    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None,
     rule: SelectedExecutionRobustnessRule,
 ) -> _ExecutionRobustnessEvaluation:
-    observations = _execution_robustness_observations(
-        row,
-        match=match,
-        scorer=scorer,
-        edge_threshold=edge_threshold,
-        display_name_service=display_name_service,
-        historical_snapshots=historical_snapshots,
-        team_prior_states=team_prior_states,
-    )
     primary = next(
         (observation for observation in observations if observation.target == rule.primary_target),
         None,
@@ -692,8 +671,7 @@ def _evaluate_execution_robustness(
     )
 
 
-def _execution_robustness_observations(
-    row: PaperQueueRow,
+def _execution_robustness_observations_by_strategy(
     *,
     match: Match,
     scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
@@ -701,8 +679,10 @@ def _execution_robustness_observations(
     display_name_service: DisplayNameService | None,
     historical_snapshots: list[HistoricalOddsSnapshot],
     team_prior_states: dict[tuple[int, str], _TeamPriorState] | None,
-) -> list[_ExecutionRobustnessObservation]:
-    observations = []
+) -> dict[str, list[_ExecutionRobustnessObservation]]:
+    observations_by_strategy: dict[str, list[_ExecutionRobustnessObservation]] = {}
+    if not historical_snapshots:
+        return observations_by_strategy
     for target in DEFAULT_EXECUTION_ROBUSTNESS_TARGETS:
         target_snapshots = _historical_snapshots_for_execution_target(
             match,
@@ -728,28 +708,19 @@ def _execution_robustness_observations(
             execution_target=f"T-{target}",
             historical_snapshot_count=len(historical_snapshots),
         )
-        target_row = next(
-            (
-                candidate
-                for candidate in target_rows
-                if candidate.status == "candidate"
-                and candidate.strategy_key == row.strategy_key
-                and candidate.edge is not None
-            ),
-            None,
-        )
-        if target_row is None or target_row.edge is None:
-            continue
-        observations.append(
-            _ExecutionRobustnessObservation(
-                target=target,
-                side=target_row.side,
-                line=target_row.line,
-                line_bucket=target_row.line_bucket,
-                edge=target_row.edge,
+        for target_row in target_rows:
+            if target_row.status != "candidate" or target_row.edge is None:
+                continue
+            observations_by_strategy.setdefault(target_row.strategy_key, []).append(
+                _ExecutionRobustnessObservation(
+                    target=target,
+                    side=target_row.side,
+                    line=target_row.line,
+                    line_bucket=target_row.line_bucket,
+                    edge=target_row.edge,
+                )
             )
-        )
-    return observations
+    return observations_by_strategy
 
 
 def _strategy_rows_for_feature_row(

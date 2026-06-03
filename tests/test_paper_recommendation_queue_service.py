@@ -905,6 +905,77 @@ def test_build_paper_recommendation_queue_marks_finished_candidate_robustness_wi
     assert row.robustness_observed_targets == (5, 10, 15, 20)
 
 
+def test_build_paper_recommendation_queue_reuses_robustness_target_scores_across_strategy_rows(session):
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="scheduled-multi-signal",
+    )
+    session.add(match)
+    session.flush()
+    for target_minutes in (15, 5):
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="asian_handicap",
+            line=Decimal("-0.50"),
+            outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="total_goals",
+            line=Decimal("2.50"),
+            outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="match_winner",
+            line=Decimal("0.00"),
+            outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
+        )
+    session.commit()
+    scorer_calls = []
+
+    def fake_scorer(row):
+        scorer_calls.append(row["asian_handicap_close_line"])
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.7300"),
+            market_probability=Decimal("0.5181"),
+            edge=Decimal("0.2119"),
+            model_name="fake_hgb",
+        )
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 30, 2, 50, tzinfo=ZoneInfo("Asia/Shanghai")),
+        hours=2,
+        scorer=fake_scorer,
+    )
+
+    assert {row.strategy_key for row in report.rows} == {
+        "asian_away_cover_hgb_edge_v1",
+        "asian_away_cover_hgb_bucket_v2",
+    }
+    assert report.candidate_count == 1
+    assert len(scorer_calls) == 5
+
+
 def test_build_paper_recommendation_queue_adds_v2_bucket_strategy_candidate(session):
     league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
     home = Team(canonical_name="Rosenborg")

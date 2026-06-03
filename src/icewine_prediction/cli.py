@@ -115,6 +115,11 @@ from icewine_prediction.baseline_execution_robustness_filter_service import (
     build_baseline_execution_robustness_filter_report,
     write_baseline_execution_robustness_filter_report,
 )
+from icewine_prediction.baseline_paper_discovery_alignment_service import (
+    BaselinePaperDiscoveryAlignmentReport,
+    build_baseline_paper_discovery_alignment_report,
+    write_baseline_paper_discovery_alignment_report,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     BaselineAsianHandicapModelReport,
     build_baseline_asian_handicap_model_report,
@@ -1213,6 +1218,33 @@ def format_baseline_execution_robustness_filter_command_result(
             f"kept {summary.kept_count} roi {summary.kept_roi if summary.kept_roi is not None else '-'} "
             f"filtered {summary.filtered_count} roi "
             f"{summary.filtered_roi if summary.filtered_roi is not None else '-'}"
+        )
+    return "\n".join(lines)
+
+
+def format_baseline_paper_discovery_alignment_command_result(
+    *,
+    report_path: str,
+    report: BaselinePaperDiscoveryAlignmentReport,
+) -> str:
+    lines = [
+        "baseline paper discovery alignment written",
+        f"report: {report_path}",
+        (
+            f"validation {report.validation_rows} "
+            f"latest_available {report.latest_available_rows} "
+            f"t15_available {report.t15_available_rows}"
+        ),
+    ]
+    for summary in report.strategy_summaries:
+        lines.append(
+            f"{summary.strategy_key} "
+            f"latest {summary.latest.count} roi "
+            f"{summary.latest.roi if summary.latest.roi is not None else '-'} "
+            f"t15 {summary.t15_primary.count} roi "
+            f"{summary.t15_primary.roi if summary.t15_primary.roi is not None else '-'} "
+            f"robust_not_latest {summary.robust_kept_not_latest.count} roi "
+            f"{summary.robust_kept_not_latest.roi if summary.robust_kept_not_latest.roi is not None else '-'}"
         )
     return "\n".join(lines)
 
@@ -2953,6 +2985,45 @@ def samples_baseline_execution_robustness_filter(
     write_baseline_execution_robustness_filter_report(report, Path(report_path))
     typer.echo(
         format_baseline_execution_robustness_filter_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-paper-discovery-alignment")
+def samples_baseline_paper_discovery_alignment(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260602-2036.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/模型实验/20260603-baseline-paper-discovery-alignment.md",
+        "--report-path",
+    ),
+    targets: str = typer.Option("25,20,15,10,5", "--targets"),
+    primary_target: int = typer.Option(15, "--primary-target"),
+    tolerance_minutes: int = typer.Option(5, "--tolerance-minutes"),
+    source_name: str = typer.Option("oddspapi", "--source-name"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+):
+    execution_targets = tuple(int(value.strip()) for value in targets.split(",") if value.strip())
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_baseline_paper_discovery_alignment_report(
+            session,
+            Path(csv_path),
+            execution_targets=execution_targets,
+            primary_target=primary_target,
+            tolerance_minutes=tolerance_minutes,
+            source_name=source_name,
+            bookmaker=bookmaker,
+        )
+    write_baseline_paper_discovery_alignment_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_paper_discovery_alignment_command_result(
             report_path=report_path,
             report=report,
         )

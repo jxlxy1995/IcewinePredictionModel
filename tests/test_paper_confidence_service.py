@@ -14,6 +14,7 @@ from icewine_prediction.paper_recommendation_tracking_service import (
     ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
     create_paper_record_from_queue_row,
     settle_paper_records,
+    void_paper_record,
 )
 
 
@@ -79,6 +80,21 @@ def test_build_paper_confidence_workspace_exposes_match_display_fields(session):
     assert group.away_team_logo_url == "https://img.example/away.png"
     assert group.home_score == 2
     assert group.away_score == 1
+
+
+def test_build_paper_confidence_workspace_excludes_void_only_records(session):
+    match = _seed_match(session)
+    record = create_paper_record_from_queue_row(
+        session,
+        _queue_row(match, status="candidate", line=Decimal("-0.50")),
+        recorded_at=_now(),
+    )
+    void_paper_record(session, record.id)
+
+    workspace = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all())
+
+    assert workspace.summary.group_count == 0
+    assert workspace.groups == []
 
 
 def test_build_paper_confidence_workspace_keeps_different_markets_separate(session):

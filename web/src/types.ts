@@ -273,7 +273,7 @@ export type PaperStrategy = {
   strategy_key: string;
   display_name: string;
   market_type: string;
-  side: string;
+  side: string | null;
   edge_threshold: string;
   model_name: string;
   signal_version: string | null;

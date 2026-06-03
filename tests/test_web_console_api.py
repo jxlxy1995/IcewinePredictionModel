@@ -2511,6 +2511,12 @@ def test_web_console_api_returns_latest_training_run(tmp_path):
         payload["artifact_paths"]["total_goals_bucket_sandbox_report_path"]
         == "docs/模型实验/total-goals-bucket.md"
     )
+    assert payload["artifact_paths"]["total_goals_v3_signal_research_report_path"].endswith(
+        "20260530-1300-baseline-total-goals-v3-signal-research.md"
+    )
+    assert payload["artifact_paths"]["model_consensus_signal_research_report_path"].endswith(
+        "20260530-1300-baseline-model-consensus-signal-research.md"
+    )
 
 
 def _seed_console_data(session_factory):

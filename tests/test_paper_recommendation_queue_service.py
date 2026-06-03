@@ -749,6 +749,7 @@ def test_build_paper_recommendation_queue_adds_v2_bucket_strategy_candidate(sess
         for row in report.rows
         if row.status == "candidate"
     }
+    assert report.total_matches == 1
     assert candidate_keys == {
         "asian_away_cover_hgb_edge_v1",
         "asian_away_cover_hgb_bucket_v2",

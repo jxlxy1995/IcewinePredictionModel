@@ -83,6 +83,7 @@ from icewine_prediction.sync_service import league_internal_name, upsert_fixture
 from icewine_prediction.time_utils import now_beijing
 from icewine_prediction.training_orchestration_service import (
     TrainingRunAlreadyRunning,
+    build_training_snapshot_paths,
     create_training_run,
     get_latest_training_run,
     run_training_full_refresh,
@@ -2248,6 +2249,7 @@ def build_training_workspace_payload(
 def build_training_run_payload(run: TrainingRun | None) -> dict[str, Any] | None:
     if run is None:
         return None
+    signal_research_paths = _training_signal_research_report_paths(run)
     artifact_paths = {
         "dataset_path": run.dataset_path,
         "dataset_report_path": run.dataset_report_path,
@@ -2262,6 +2264,7 @@ def build_training_run_payload(run: TrainingRun | None) -> dict[str, Any] | None
         "away_cover_bucket_sandbox_report_path": run.away_cover_bucket_sandbox_report_path,
         "total_goals_edge_stability_report_path": run.total_goals_edge_stability_report_path,
         "total_goals_bucket_sandbox_report_path": run.total_goals_bucket_sandbox_report_path,
+        **signal_research_paths,
     }
     return {
         "id": run.id,
@@ -2286,6 +2289,27 @@ def build_training_run_payload(run: TrainingRun | None) -> dict[str, Any] | None
         "last_trained_kickoff_time": _format_datetime(run.last_trained_kickoff_time),
         "new_complete_matches": run.new_complete_matches,
         "artifact_paths": artifact_paths,
+    }
+
+
+def _training_signal_research_report_paths(run: TrainingRun) -> dict[str, str]:
+    snapshot_paths = build_training_snapshot_paths(Path("."), run.snapshot_tag)
+    base_path = (
+        Path(run.away_cover_stability_report_path)
+        if run.away_cover_stability_report_path
+        else snapshot_paths.away_cover_stability_report_path
+    )
+    return {
+        "total_goals_v3_signal_research_report_path": str(
+            base_path.with_name(
+                snapshot_paths.experiment_report_paths["total_goals_v3_signal_research"].name
+            )
+        ),
+        "model_consensus_signal_research_report_path": str(
+            base_path.with_name(
+                snapshot_paths.experiment_report_paths["model_consensus_signal_research"].name
+            )
+        ),
     }
 
 

@@ -211,7 +211,7 @@ def build_paper_recommendation_queue(
         near_start_hours=near_start_hours,
         edge_threshold=threshold,
         model_name="raw_hgb_team_form_plus_all_markets",
-        total_matches=len(rows),
+        total_matches=len(matches),
         candidate_count=status_counts.get("candidate", 0),
         status_counts=status_counts,
         prefetch_requested=prefetch_odds,

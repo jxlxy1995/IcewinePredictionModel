@@ -166,8 +166,6 @@ def _same_direction_groups(
     records: list[PaperRecommendationRecord],
 ) -> dict[tuple[int, str, str], list[PaperRecommendationRecord]]:
     active_records = [record for record in records if record.status != "void"]
-    if not active_records:
-        active_records = records
     grouped: dict[tuple[int, str, str], list[PaperRecommendationRecord]] = {}
     for record in active_records:
         key = (record.match_id, record.market_type, record.side)

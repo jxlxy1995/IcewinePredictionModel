@@ -20,6 +20,10 @@ DEFAULT_MODEL_NAME = "raw_hgb_team_form_plus_all_markets"
 DEFAULT_SIGNAL_VERSION = "v1"
 
 
+# New paper strategies should not be promoted into live recommendation flow
+# from raw ROI alone. Before adding or enabling a strategy here, run the
+# robustness filter report and review raw, T-15, robust kept, and filtered
+# performance. See docs/交接/20260603-paper-strategy-research-checklist.md.
 @dataclass(frozen=True)
 class PaperStrategy:
     strategy_key: str

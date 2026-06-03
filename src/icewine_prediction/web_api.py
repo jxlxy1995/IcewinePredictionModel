@@ -1458,6 +1458,15 @@ def build_paper_recommendation_queue_payload(
                 "strategy_key": row.strategy_key,
                 "strategy_display_name": row.strategy_display_name,
                 "signal_version": row.signal_version,
+                "odds_source": row.odds_source,
+                "execution_target": row.execution_target,
+                "historical_snapshot_count": row.historical_snapshot_count,
+                "robustness_mode": row.robustness_mode,
+                "robustness_status": row.robustness_status,
+                "robustness_primary_target": row.robustness_primary_target,
+                "robustness_seen_count": row.robustness_seen_count,
+                "robustness_min_edge": _format_optional_decimal(row.robustness_min_edge, "0.0000"),
+                "robustness_observed_targets": list(row.robustness_observed_targets),
             }
             for row in report.rows
         ],
@@ -1976,6 +1985,15 @@ def build_paper_tracking_workspace_payload(workspace) -> dict[str, Any]:
                 "strategy_key": row.strategy_key,
                 "strategy_display_name": row.strategy_display_name,
                 "signal_version": row.signal_version,
+                "odds_source": row.odds_source,
+                "execution_target": row.execution_target,
+                "historical_snapshot_count": row.historical_snapshot_count,
+                "robustness_mode": row.robustness_mode,
+                "robustness_status": row.robustness_status,
+                "robustness_primary_target": row.robustness_primary_target,
+                "robustness_seen_count": row.robustness_seen_count,
+                "robustness_min_edge": _format_optional_decimal(row.robustness_min_edge, "0.0000"),
+                "robustness_observed_targets": list(row.robustness_observed_targets),
                 "is_recordable": row.status == "candidate",
             }
             for row in workspace.candidates

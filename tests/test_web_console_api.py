@@ -610,6 +610,7 @@ def test_web_console_api_paper_workspace_replays_finished_window(tmp_path):
     with session_factory() as session:
         match = session.get(Match, seeded["matched_match_id"])
         match.kickoff_time = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        match.fixture_timestamp = int(match.kickoff_time.timestamp())
         session.add(
             HistoricalOddsSnapshot(
                 match_id=match.id,
@@ -676,6 +677,12 @@ def test_web_console_api_paper_workspace_replays_finished_window(tmp_path):
     payload = response.json()
     assert payload["summary"]["candidate_count"] == 1
     assert payload["candidates"][0]["match_id"] == seeded["matched_match_id"]
+    assert payload["candidates"][0]["odds_source"] == "oddspapi_historical"
+    assert payload["candidates"][0]["execution_target"] == "latest_historical"
+    assert payload["candidates"][0]["historical_snapshot_count"] > 0
+    assert payload["candidates"][0]["robustness_status"] == "unavailable"
+    assert payload["candidates"][0]["robustness_seen_count"] == 2
+    assert payload["candidates"][0]["robustness_observed_targets"] == [5, 10]
 
 def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
     engine = create_memory_database()

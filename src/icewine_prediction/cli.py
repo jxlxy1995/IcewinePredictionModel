@@ -95,6 +95,26 @@ from icewine_prediction.baseline_model_consensus_signal_research_service import 
     build_baseline_model_consensus_signal_research_report,
     write_baseline_model_consensus_signal_research_report,
 )
+from icewine_prediction.baseline_t15_signal_comparison_service import (
+    BaselineT15SignalComparisonReport,
+    build_baseline_t15_signal_comparison_report,
+    write_baseline_t15_signal_comparison_report,
+)
+from icewine_prediction.baseline_execution_robustness_service import (
+    BaselineExecutionRobustnessReport,
+    build_baseline_execution_robustness_report,
+    write_baseline_execution_robustness_report,
+)
+from icewine_prediction.baseline_execution_robustness_grid_service import (
+    BaselineExecutionRobustnessGridReport,
+    build_baseline_execution_robustness_grid_report,
+    write_baseline_execution_robustness_grid_report,
+)
+from icewine_prediction.baseline_execution_robustness_filter_service import (
+    BaselineExecutionRobustnessFilterReport,
+    build_baseline_execution_robustness_filter_report,
+    write_baseline_execution_robustness_filter_report,
+)
 from icewine_prediction.baseline_asian_handicap_model_service import (
     BaselineAsianHandicapModelReport,
     build_baseline_asian_handicap_model_report,
@@ -1097,6 +1117,102 @@ def format_baseline_model_consensus_signal_research_command_result(
         lines.append(
             f"top {top.signal_bucket} threshold {top.threshold} "
             f"roi {top.roi if top.roi is not None else '-'}"
+        )
+    return "\n".join(lines)
+
+
+def format_baseline_t15_signal_comparison_command_result(
+    *,
+    report_path: str,
+    report: BaselineT15SignalComparisonReport,
+) -> str:
+    lines = [
+        "baseline T-15 signal comparison written",
+        f"report: {report_path}",
+        (
+            f"validation {report.validation_rows} "
+            f"t15_available {report.t15_available_rows} missing {report.missing_t15_rows}"
+        ),
+    ]
+    for summary in report.strategy_summaries:
+        lines.append(
+            f"{summary.strategy_key} close {summary.close_count} "
+            f"t15 {summary.t15_count} overlap {summary.overlap_count} "
+            f"close_roi {summary.close_roi if summary.close_roi is not None else '-'} "
+            f"t15_roi {summary.t15_roi if summary.t15_roi is not None else '-'}"
+        )
+    return "\n".join(lines)
+
+
+def format_baseline_execution_robustness_command_result(
+    *,
+    report_path: str,
+    report: BaselineExecutionRobustnessReport,
+) -> str:
+    lines = [
+        "baseline execution robustness written",
+        f"report: {report_path}",
+        (
+            f"validation {report.validation_rows} "
+            f"primary T-{report.primary_target} "
+            f"targets {','.join(str(target) for target in report.execution_targets)}"
+        ),
+    ]
+    for summary in report.strategy_summaries:
+        lines.append(
+            f"{summary.strategy_key} primary {summary.primary_count} "
+            f"strong {summary.level_counts['strong']} "
+            f"candidate {summary.level_counts['candidate']} "
+            f"watch {summary.level_counts['watch']} "
+            f"rejected {summary.level_counts['rejected']}"
+        )
+    return "\n".join(lines)
+
+
+def format_baseline_execution_robustness_grid_command_result(
+    *,
+    report_path: str,
+    report: BaselineExecutionRobustnessGridReport,
+) -> str:
+    lines = [
+        "baseline execution robustness grid written",
+        f"report: {report_path}",
+        (
+            f"validation {report.validation_rows} "
+            f"primary_targets {','.join(str(target) for target in report.primary_targets)} "
+            f"grid_rows {len(report.grid_rows)}"
+        ),
+    ]
+    for row in report.top_rows[:10]:
+        lines.append(
+            f"{row.strategy_key} T-{row.primary_target} "
+            f"seen>={row.min_seen_count} edge>={row.min_edge} "
+            f"bets {row.candidate_count} roi {row.roi if row.roi is not None else '-'}"
+        )
+    return "\n".join(lines)
+
+
+def format_baseline_execution_robustness_filter_command_result(
+    *,
+    report_path: str,
+    report: BaselineExecutionRobustnessFilterReport,
+) -> str:
+    lines = [
+        "baseline execution robustness filter written",
+        f"report: {report_path}",
+        (
+            f"validation {report.validation_rows} "
+            f"primary_targets {','.join(str(target) for target in report.primary_targets)} "
+            f"strategies {len(report.strategy_summaries)}"
+        ),
+    ]
+    for summary in report.strategy_summaries:
+        lines.append(
+            f"{summary.strategy_key} "
+            f"raw {summary.raw_count} roi {summary.raw_roi if summary.raw_roi is not None else '-'} "
+            f"kept {summary.kept_count} roi {summary.kept_roi if summary.kept_roi is not None else '-'} "
+            f"filtered {summary.filtered_count} roi "
+            f"{summary.filtered_roi if summary.filtered_roi is not None else '-'}"
         )
     return "\n".join(lines)
 
@@ -2679,6 +2795,164 @@ def samples_baseline_model_consensus_signal_research(
     write_baseline_model_consensus_signal_research_report(report, Path(report_path))
     typer.echo(
         format_baseline_model_consensus_signal_research_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-t15-signal-comparison")
+def samples_baseline_t15_signal_comparison(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260602-2036.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/模型实验/20260603-baseline-t15-signal-comparison.md",
+        "--report-path",
+    ),
+    source_name: str = typer.Option("oddspapi", "--source-name"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+    target_minutes: int = typer.Option(15, "--target-minutes"),
+    tolerance_minutes: int = typer.Option(5, "--tolerance-minutes"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_baseline_t15_signal_comparison_report(
+            session,
+            Path(csv_path),
+            source_name=source_name,
+            bookmaker=bookmaker,
+            target_minutes_before_kickoff=target_minutes,
+            tolerance_minutes=tolerance_minutes,
+        )
+    write_baseline_t15_signal_comparison_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_t15_signal_comparison_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-execution-robustness")
+def samples_baseline_execution_robustness(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260602-2036.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/模型实验/20260603-baseline-execution-robustness.md",
+        "--report-path",
+    ),
+    targets: str = typer.Option("25,20,15,10,5", "--targets"),
+    primary_target: int = typer.Option(15, "--primary-target"),
+    tolerance_minutes: int = typer.Option(5, "--tolerance-minutes"),
+    source_name: str = typer.Option("oddspapi", "--source-name"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+):
+    execution_targets = tuple(int(value.strip()) for value in targets.split(",") if value.strip())
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_baseline_execution_robustness_report(
+            session,
+            Path(csv_path),
+            execution_targets=execution_targets,
+            primary_target=primary_target,
+            tolerance_minutes=tolerance_minutes,
+            source_name=source_name,
+            bookmaker=bookmaker,
+        )
+    write_baseline_execution_robustness_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_execution_robustness_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-execution-robustness-grid")
+def samples_baseline_execution_robustness_grid(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260602-2036.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/模型实验/20260603-baseline-execution-robustness-grid.md",
+        "--report-path",
+    ),
+    targets: str = typer.Option("25,20,15,10,5", "--targets"),
+    primary_targets: str = typer.Option("15,10", "--primary-targets"),
+    tolerance_minutes: int = typer.Option(5, "--tolerance-minutes"),
+    source_name: str = typer.Option("oddspapi", "--source-name"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+    min_candidate_count: int = typer.Option(10, "--min-candidate-count"),
+    top_n_per_strategy: int = typer.Option(5, "--top-n-per-strategy"),
+):
+    execution_targets = tuple(int(value.strip()) for value in targets.split(",") if value.strip())
+    primary_target_values = tuple(
+        int(value.strip()) for value in primary_targets.split(",") if value.strip()
+    )
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_baseline_execution_robustness_grid_report(
+            session,
+            Path(csv_path),
+            execution_targets=execution_targets,
+            primary_targets=primary_target_values,
+            tolerance_minutes=tolerance_minutes,
+            source_name=source_name,
+            bookmaker=bookmaker,
+            min_candidate_count=min_candidate_count,
+            top_n_per_strategy=top_n_per_strategy,
+        )
+    write_baseline_execution_robustness_grid_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_execution_robustness_grid_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("baseline-execution-robustness-filter")
+def samples_baseline_execution_robustness_filter(
+    csv_path: str = typer.Option(
+        "local_data/training/baseline_dynamic_features_main_leagues_20260602-2036.csv",
+        "--csv-path",
+    ),
+    report_path: str = typer.Option(
+        "docs/妯″瀷瀹為獙/20260603-baseline-execution-robustness-filter.md",
+        "--report-path",
+    ),
+    targets: str = typer.Option("25,20,15,10,5", "--targets"),
+    tolerance_minutes: int = typer.Option(5, "--tolerance-minutes"),
+    source_name: str = typer.Option("oddspapi", "--source-name"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+):
+    execution_targets = tuple(int(value.strip()) for value in targets.split(",") if value.strip())
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_baseline_execution_robustness_filter_report(
+            session,
+            Path(csv_path),
+            execution_targets=execution_targets,
+            tolerance_minutes=tolerance_minutes,
+            source_name=source_name,
+            bookmaker=bookmaker,
+        )
+    write_baseline_execution_robustness_filter_report(report, Path(report_path))
+    typer.echo(
+        format_baseline_execution_robustness_filter_command_result(
             report_path=report_path,
             report=report,
         )

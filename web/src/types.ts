@@ -303,6 +303,15 @@ export type PaperCandidate = {
   strategy_key: string;
   strategy_display_name: string;
   signal_version: string | null;
+  odds_source: string;
+  execution_target: string | null;
+  historical_snapshot_count: number;
+  robustness_mode: string | null;
+  robustness_status: string | null;
+  robustness_primary_target: number | null;
+  robustness_seen_count: number | null;
+  robustness_min_edge: string | null;
+  robustness_observed_targets: number[];
   is_recordable: boolean;
 };
 

@@ -374,6 +374,15 @@ export const mockPaperRecommendationWorkspace: PaperRecommendationWorkspace = {
       strategy_key: "asian_away_cover_hgb_edge_v1",
       strategy_display_name: "亚盘客队方向 · HGB边际 v1",
       signal_version: "v1",
+      odds_source: "oddspapi_historical",
+      execution_target: "latest_historical",
+      historical_snapshot_count: 7,
+      robustness_mode: "filter",
+      robustness_status: "kept",
+      robustness_primary_target: 15,
+      robustness_seen_count: 5,
+      robustness_min_edge: "0.1200",
+      robustness_observed_targets: [5, 10, 15, 20, 25],
       is_recordable: true
     }
   ],

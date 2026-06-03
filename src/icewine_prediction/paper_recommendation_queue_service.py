@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Callable, Any
@@ -35,6 +35,15 @@ from icewine_prediction.feature_service import (
     MatchOddsFeatures,
     OddsMarketAggregate,
     build_match_odds_features,
+)
+from icewine_prediction.historical_training_sample_service import (
+    _PairedMarketSnapshot,
+    _comparable_datetime,
+    _pair_market_snapshots,
+)
+from icewine_prediction.execution_robustness_rules import (
+    DEFAULT_SELECTED_ROBUSTNESS_RULES,
+    SelectedExecutionRobustnessRule,
 )
 from icewine_prediction.models import HistoricalOddsSnapshot, Match, TrainingRun
 from icewine_prediction.oddspapi_sync_runner import (
@@ -73,6 +82,8 @@ TOTAL_GOALS_PROBABILITY_FIELDS = (
 TOTAL_GOALS_ODDS_FIELDS = ("total_goals_over_odds", "total_goals_under_odds")
 MAX_CANDIDATE_ODDS_LEAD_TIME = timedelta(hours=3)
 MIN_CANDIDATE_ODDS_LEAD_TIME = timedelta(0)
+DEFAULT_EXECUTION_ROBUSTNESS_TARGETS = (25, 20, 15, 10, 5)
+DEFAULT_EXECUTION_ROBUSTNESS_TOLERANCE_MINUTES = 5
 _SCORER_CACHE: dict[
     tuple[tuple[Path, int | None, int | None], int],
     Callable[[dict[str, str]], PaperQueueScoreResult],
@@ -119,6 +130,15 @@ class PaperQueueRow:
     strategy_key: str = DEFAULT_STRATEGY.strategy_key
     strategy_display_name: str = DEFAULT_STRATEGY.display_name
     signal_version: str = DEFAULT_STRATEGY.signal_version
+    odds_source: str = "live_snapshot"
+    execution_target: str | None = None
+    historical_snapshot_count: int = 0
+    robustness_mode: str | None = None
+    robustness_status: str | None = None
+    robustness_primary_target: int | None = None
+    robustness_seen_count: int | None = None
+    robustness_min_edge: Decimal | None = None
+    robustness_observed_targets: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -151,6 +171,25 @@ class _TeamPriorState:
     venue_matches: int
     venue_points: int
     last_kickoff: datetime | None
+
+
+@dataclass(frozen=True)
+class _ExecutionRobustnessObservation:
+    target: int
+    side: str | None
+    line: Decimal | None
+    line_bucket: str
+    edge: Decimal
+
+
+@dataclass(frozen=True)
+class _ExecutionRobustnessEvaluation:
+    mode: str
+    status: str
+    primary_target: int
+    seen_count: int
+    min_edge: Decimal | None
+    observed_targets: tuple[int, ...]
 
 
 def build_paper_recommendation_queue(
@@ -352,12 +391,12 @@ def _historical_snapshots_by_match_id(
     session: Session,
     matches: list[Match],
 ) -> dict[int, list[HistoricalOddsSnapshot]]:
-    finished_match_ids = [match.id for match in matches if match.status == "finished"]
-    if not finished_match_ids:
+    match_ids = [match.id for match in matches]
+    if not match_ids:
         return {}
     snapshots = (
         session.query(HistoricalOddsSnapshot)
-        .filter(HistoricalOddsSnapshot.match_id.in_(finished_match_ids))
+        .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
         .all()
     )
     snapshots_by_match_id: dict[int, list[HistoricalOddsSnapshot]] = {}
@@ -388,7 +427,14 @@ def _build_queue_rows(
     historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
     team_prior_states: dict[tuple[int, str], _TeamPriorState] | None = None,
 ) -> list[PaperQueueRow]:
-    historical_snapshots = historical_snapshots or []
+    historical_snapshots = (
+        historical_snapshots
+        if _should_use_historical_snapshots(match, historical_snapshots or [])
+        else []
+    )
+    odds_source = "oddspapi_historical" if historical_snapshots else "live_snapshot"
+    execution_target = "latest_historical" if historical_snapshots else None
+    historical_snapshot_count = len(historical_snapshots)
     feature_row = _live_feature_row(
         match,
         historical_snapshots=historical_snapshots,
@@ -406,6 +452,9 @@ def _build_queue_rows(
                 odds=asian_odds,
                 feature_row=feature_row,
                 display_name_service=display_name_service,
+                odds_source=odds_source,
+                execution_target=execution_target,
+                historical_snapshot_count=historical_snapshot_count,
             )
         )
     elif not _has_allowed_candidate_odds_status(match, historical_snapshots=historical_snapshots):
@@ -417,6 +466,9 @@ def _build_queue_rows(
                 odds=asian_odds,
                 feature_row=feature_row,
                 display_name_service=display_name_service,
+                odds_source=odds_source,
+                execution_target=execution_target,
+                historical_snapshot_count=historical_snapshot_count,
             )
         )
     elif not _has_candidate_fresh_odds(match, historical_snapshots=historical_snapshots):
@@ -428,6 +480,9 @@ def _build_queue_rows(
                 odds=asian_odds,
                 feature_row=feature_row,
                 display_name_service=display_name_service,
+                odds_source=odds_source,
+                execution_target=execution_target,
+                historical_snapshot_count=historical_snapshot_count,
             )
         )
     scores = _normalize_scores(scorer(feature_row))
@@ -442,6 +497,9 @@ def _build_queue_rows(
                 odds=asian_odds,
                 feature_row=feature_row,
                 display_name_service=display_name_service,
+                odds_source=odds_source,
+                execution_target=execution_target,
+                historical_snapshot_count=historical_snapshot_count,
             )
         ]
     rows = list(diagnostic_rows)
@@ -455,6 +513,9 @@ def _build_queue_rows(
             feature_row=feature_row,
             display_name_service=display_name_service,
             historical_snapshots=historical_snapshots,
+            odds_source=odds_source,
+            execution_target=execution_target,
+            historical_snapshot_count=historical_snapshot_count,
         )
         if scored is None:
             continue
@@ -464,7 +525,380 @@ def _build_queue_rows(
         elif scored.status != "candidate":
             rows.append(scored)
         rows.extend(bucket_rows)
-    return rows or diagnostic_rows
+    return _apply_execution_robustness_to_rows(
+        rows or diagnostic_rows,
+        match=match,
+        scorer=scorer,
+        edge_threshold=edge_threshold,
+        display_name_service=display_name_service,
+        historical_snapshots=historical_snapshots,
+        team_prior_states=team_prior_states,
+    )
+
+
+def _should_use_historical_snapshots(
+    match: Match,
+    historical_snapshots: list[HistoricalOddsSnapshot],
+) -> bool:
+    if not historical_snapshots:
+        return False
+    if match.status == "finished":
+        return True
+    return _has_complete_historical_odds_market_pair(
+        historical_snapshots,
+        market_type="asian_handicap",
+    )
+
+
+def _apply_execution_robustness_to_rows(
+    rows: list[PaperQueueRow],
+    *,
+    match: Match,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
+    edge_threshold: Decimal,
+    display_name_service: DisplayNameService | None,
+    historical_snapshots: list[HistoricalOddsSnapshot],
+    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None,
+) -> list[PaperQueueRow]:
+    if not rows:
+        return rows
+    return [
+        _apply_execution_robustness_to_row(
+            row,
+            match=match,
+            scorer=scorer,
+            edge_threshold=edge_threshold,
+            display_name_service=display_name_service,
+            historical_snapshots=historical_snapshots,
+            team_prior_states=team_prior_states,
+        )
+        for row in rows
+    ]
+
+
+def _apply_execution_robustness_to_row(
+    row: PaperQueueRow,
+    *,
+    match: Match,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
+    edge_threshold: Decimal,
+    display_name_service: DisplayNameService | None,
+    historical_snapshots: list[HistoricalOddsSnapshot],
+    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None,
+) -> PaperQueueRow:
+    if row.status != "candidate":
+        return row
+    rule = DEFAULT_SELECTED_ROBUSTNESS_RULES.get(row.strategy_key)
+    if rule is None or row.odds_source != "oddspapi_historical" or not historical_snapshots:
+        return row
+    evaluation = _evaluate_execution_robustness(
+        row,
+        match=match,
+        scorer=scorer,
+        edge_threshold=edge_threshold,
+        display_name_service=display_name_service,
+        historical_snapshots=historical_snapshots,
+        team_prior_states=team_prior_states,
+        rule=rule,
+    )
+    if evaluation.status == "filtered" and match.status == "scheduled":
+        return PaperQueueRow(
+            **{
+                **row.__dict__,
+                "status": "robustness_filtered",
+                "risk_tags": (*row.risk_tags, "robustness:filtered"),
+                "robustness_mode": evaluation.mode,
+                "robustness_status": evaluation.status,
+                "robustness_primary_target": evaluation.primary_target,
+                "robustness_seen_count": evaluation.seen_count,
+                "robustness_min_edge": evaluation.min_edge,
+                "robustness_observed_targets": evaluation.observed_targets,
+            }
+        )
+    risk_tags = row.risk_tags
+    if evaluation.status == "filtered":
+        risk_tags = (*risk_tags, "robustness:filtered")
+    elif evaluation.status == "unavailable":
+        risk_tags = (*risk_tags, "robustness:unavailable")
+    return PaperQueueRow(
+        **{
+            **row.__dict__,
+            "risk_tags": risk_tags,
+            "robustness_mode": evaluation.mode,
+            "robustness_status": evaluation.status,
+            "robustness_primary_target": evaluation.primary_target,
+            "robustness_seen_count": evaluation.seen_count,
+            "robustness_min_edge": evaluation.min_edge,
+            "robustness_observed_targets": evaluation.observed_targets,
+        }
+    )
+
+
+def _evaluate_execution_robustness(
+    row: PaperQueueRow,
+    *,
+    match: Match,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
+    edge_threshold: Decimal,
+    display_name_service: DisplayNameService | None,
+    historical_snapshots: list[HistoricalOddsSnapshot],
+    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None,
+    rule: SelectedExecutionRobustnessRule,
+) -> _ExecutionRobustnessEvaluation:
+    observations = _execution_robustness_observations(
+        row,
+        match=match,
+        scorer=scorer,
+        edge_threshold=edge_threshold,
+        display_name_service=display_name_service,
+        historical_snapshots=historical_snapshots,
+        team_prior_states=team_prior_states,
+    )
+    primary = next(
+        (observation for observation in observations if observation.target == rule.primary_target),
+        None,
+    )
+    if primary is None:
+        return _ExecutionRobustnessEvaluation(
+            mode=rule.mode,
+            status="unavailable",
+            primary_target=rule.primary_target,
+            seen_count=len(observations),
+            min_edge=_min_observed_edge(observations),
+            observed_targets=tuple(sorted(observation.target for observation in observations)),
+        )
+    min_edge = _min_observed_edge(observations)
+    if rule.mode == "observe":
+        return _ExecutionRobustnessEvaluation(
+            mode=rule.mode,
+            status="observed",
+            primary_target=rule.primary_target,
+            seen_count=len(observations),
+            min_edge=min_edge,
+            observed_targets=tuple(sorted(observation.target for observation in observations)),
+        )
+    status = (
+        "kept"
+        if _observations_match_rule(primary, observations, rule)
+        else "filtered"
+    )
+    return _ExecutionRobustnessEvaluation(
+        mode=rule.mode,
+        status=status,
+        primary_target=rule.primary_target,
+        seen_count=len(observations),
+        min_edge=min_edge,
+        observed_targets=tuple(sorted(observation.target for observation in observations)),
+    )
+
+
+def _execution_robustness_observations(
+    row: PaperQueueRow,
+    *,
+    match: Match,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
+    edge_threshold: Decimal,
+    display_name_service: DisplayNameService | None,
+    historical_snapshots: list[HistoricalOddsSnapshot],
+    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None,
+) -> list[_ExecutionRobustnessObservation]:
+    observations = []
+    for target in DEFAULT_EXECUTION_ROBUSTNESS_TARGETS:
+        target_snapshots = _historical_snapshots_for_execution_target(
+            match,
+            historical_snapshots=historical_snapshots,
+            target_minutes_before_kickoff=target,
+            tolerance_minutes=DEFAULT_EXECUTION_ROBUSTNESS_TOLERANCE_MINUTES,
+        )
+        if not target_snapshots:
+            continue
+        feature_row = _live_feature_row(
+            match,
+            historical_snapshots=target_snapshots,
+            team_prior_states=team_prior_states,
+        )
+        target_rows = _strategy_rows_for_feature_row(
+            match,
+            scorer=scorer,
+            edge_threshold=edge_threshold,
+            feature_row=feature_row,
+            display_name_service=display_name_service,
+            historical_snapshots=target_snapshots,
+            odds_source="oddspapi_historical",
+            execution_target=f"T-{target}",
+            historical_snapshot_count=len(historical_snapshots),
+        )
+        target_row = next(
+            (
+                candidate
+                for candidate in target_rows
+                if candidate.status == "candidate"
+                and candidate.strategy_key == row.strategy_key
+                and candidate.edge is not None
+            ),
+            None,
+        )
+        if target_row is None or target_row.edge is None:
+            continue
+        observations.append(
+            _ExecutionRobustnessObservation(
+                target=target,
+                side=target_row.side,
+                line=target_row.line,
+                line_bucket=target_row.line_bucket,
+                edge=target_row.edge,
+            )
+        )
+    return observations
+
+
+def _strategy_rows_for_feature_row(
+    match: Match,
+    *,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
+    edge_threshold: Decimal,
+    feature_row: dict[str, str],
+    display_name_service: DisplayNameService | None,
+    historical_snapshots: list[HistoricalOddsSnapshot],
+    odds_source: str,
+    execution_target: str | None,
+    historical_snapshot_count: int,
+) -> list[PaperQueueRow]:
+    rows = []
+    for score in _normalize_scores(scorer(feature_row)):
+        scored = _scored_row(
+            match,
+            score=score,
+            edge_threshold=edge_threshold,
+            feature_row=feature_row,
+            display_name_service=display_name_service,
+            historical_snapshots=historical_snapshots,
+            odds_source=odds_source,
+            execution_target=execution_target,
+            historical_snapshot_count=historical_snapshot_count,
+        )
+        if scored is None:
+            continue
+        bucket_rows = _bucket_strategy_rows(scored)
+        if scored.market_type == DEFAULT_STRATEGY.market_type:
+            rows.append(scored)
+        elif scored.status != "candidate":
+            rows.append(scored)
+        rows.extend(bucket_rows)
+    return rows
+
+
+def _observations_match_rule(
+    primary: _ExecutionRobustnessObservation,
+    observations: list[_ExecutionRobustnessObservation],
+    rule: SelectedExecutionRobustnessRule,
+) -> bool:
+    min_edge = _min_observed_edge(observations)
+    if len(observations) < rule.min_seen_count:
+        return False
+    if min_edge is None or min_edge < rule.min_edge:
+        return False
+    if rule.require_side_unchanged and any(observation.side != primary.side for observation in observations):
+        return False
+    if not rule.allow_line_changed and any(observation.line != primary.line for observation in observations):
+        return False
+    if not rule.allow_bucket_changed and any(
+        observation.line_bucket != primary.line_bucket for observation in observations
+    ):
+        return False
+    return True
+
+
+def _min_observed_edge(
+    observations: list[_ExecutionRobustnessObservation],
+) -> Decimal | None:
+    if not observations:
+        return None
+    return _quantize(min(observation.edge for observation in observations))
+
+
+def _historical_snapshots_for_execution_target(
+    match: Match,
+    *,
+    historical_snapshots: list[HistoricalOddsSnapshot],
+    target_minutes_before_kickoff: int,
+    tolerance_minutes: int,
+) -> list[HistoricalOddsSnapshot]:
+    selected = []
+    for market_type in ("asian_handicap", "total_goals", "match_winner"):
+        pairs = _pair_market_snapshots(
+            [snapshot for snapshot in historical_snapshots if snapshot.market_type == market_type],
+            market_type=market_type,
+        )
+        pair = _select_execution_pair(
+            pairs,
+            kickoff_time=_match_snapshot_timeline_kickoff_time(match),
+            target_minutes_before_kickoff=target_minutes_before_kickoff,
+            tolerance_minutes=tolerance_minutes,
+        )
+        if pair is not None:
+            selected.extend(_snapshots_from_pair(match, pair))
+    return selected
+
+
+def _select_execution_pair(
+    pairs: list[_PairedMarketSnapshot],
+    *,
+    kickoff_time: datetime,
+    target_minutes_before_kickoff: int,
+    tolerance_minutes: int,
+) -> _PairedMarketSnapshot | None:
+    kickoff = _comparable_datetime(kickoff_time)
+    target_time = kickoff - timedelta(minutes=target_minutes_before_kickoff)
+    window_start = kickoff - timedelta(minutes=target_minutes_before_kickoff + tolerance_minutes)
+    window_end = kickoff - timedelta(minutes=target_minutes_before_kickoff - tolerance_minutes)
+    candidates = [
+        pair
+        for pair in pairs
+        if window_start <= _comparable_datetime(pair.snapshot_time) <= window_end
+    ]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda pair: (
+            abs((_comparable_datetime(pair.snapshot_time) - target_time).total_seconds()),
+            0 if _comparable_datetime(pair.snapshot_time) <= target_time else 1,
+            pair.balance_gap,
+        ),
+    )
+
+
+def _snapshots_from_pair(
+    match: Match,
+    pair: _PairedMarketSnapshot,
+) -> list[HistoricalOddsSnapshot]:
+    sides = [(pair.side_a, pair.side_a_odds), (pair.side_b, pair.side_b_odds)]
+    if pair.side_c is not None and pair.side_c_odds is not None:
+        sides.append((pair.side_c, pair.side_c_odds))
+    return [
+        HistoricalOddsSnapshot(
+            match_id=match.id,
+            source_name=ODDSPAPI_SOURCE_NAME,
+            source_fixture_id=match.source_match_id or str(match.id),
+            bookmaker=pair.bookmaker,
+            market_type=pair.market_type,
+            market_id=f"execution-{pair.market_type}-{side}",
+            market_name=pair.market_type,
+            market_line=pair.market_line,
+            outcome_side=side,
+            odds=odds,
+            snapshot_time=pair.snapshot_time,
+            period="fulltime",
+        )
+        for side, odds in sides
+    ]
+
+
+def _match_snapshot_timeline_kickoff_time(match: Match) -> datetime:
+    if match.fixture_timestamp is not None:
+        return datetime.fromtimestamp(match.fixture_timestamp, timezone.utc).replace(tzinfo=None)
+    return _comparable_datetime(match.kickoff_time)
 
 
 def _scored_row(
@@ -475,6 +909,9 @@ def _scored_row(
     feature_row: dict[str, str],
     display_name_service: DisplayNameService | None,
     historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
+    odds_source: str = "live_snapshot",
+    execution_target: str | None = None,
+    historical_snapshot_count: int = 0,
 ) -> PaperQueueRow | None:
     if score.market_type == "total_goals":
         line = _decimal_from_row(feature_row, "total_goals_close_line")
@@ -516,6 +953,9 @@ def _scored_row(
         risk_tags=risk_tags,
         feature_row=feature_row,
         display_name_service=display_name_service,
+        odds_source=odds_source,
+        execution_target=execution_target,
+        historical_snapshot_count=historical_snapshot_count,
     )
 
 
@@ -707,6 +1147,15 @@ def _row(
     risk_tags: tuple[str, ...] | None = None,
     feature_row: dict[str, str] | None = None,
     display_name_service: DisplayNameService | None = None,
+    odds_source: str = "live_snapshot",
+    execution_target: str | None = None,
+    historical_snapshot_count: int = 0,
+    robustness_mode: str | None = None,
+    robustness_status: str | None = None,
+    robustness_primary_target: int | None = None,
+    robustness_seen_count: int | None = None,
+    robustness_min_edge: Decimal | None = None,
+    robustness_observed_targets: tuple[int, ...] = (),
 ) -> PaperQueueRow:
     display_name_service = display_name_service or DisplayNameService()
     line_bucket = line_bucket or (_total_line_bucket(line) if market_type == "total_goals" else _line_bucket(line))
@@ -735,6 +1184,15 @@ def _row(
         edge=edge,
         line_bucket=line_bucket,
         risk_tags=risk_tags,
+        odds_source=odds_source,
+        execution_target=execution_target,
+        historical_snapshot_count=historical_snapshot_count,
+        robustness_mode=robustness_mode,
+        robustness_status=robustness_status,
+        robustness_primary_target=robustness_primary_target,
+        robustness_seen_count=robustness_seen_count,
+        robustness_min_edge=robustness_min_edge,
+        robustness_observed_targets=robustness_observed_targets,
     )
 
 
@@ -1239,6 +1697,11 @@ def _has_allowed_candidate_odds_status(
     historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
 ) -> bool:
     if historical_snapshots:
+        if match.status == "scheduled":
+            return _has_complete_historical_odds_market_pair(
+                historical_snapshots,
+                market_type="asian_handicap",
+            )
         return _has_complete_historical_odds(match, historical_snapshots)
     latest_captured_at = max(
         (
@@ -1252,6 +1715,19 @@ def _has_allowed_candidate_odds_status(
         return False
     lead_time = _naive_datetime(match.kickoff_time) - _naive_datetime(latest_captured_at)
     return MIN_CANDIDATE_ODDS_LEAD_TIME <= lead_time <= MAX_CANDIDATE_ODDS_LEAD_TIME
+
+
+def _has_complete_historical_odds_market_pair(
+    snapshots: list[HistoricalOddsSnapshot],
+    *,
+    market_type: str,
+) -> bool:
+    pair = _historical_market_pair(snapshots, market_type=market_type)
+    if pair is None:
+        return False
+    sides = set(pair[1])
+    required_sides = COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS.get(market_type, set())
+    return required_sides.issubset(sides)
 
 
 def _has_complete_historical_odds(

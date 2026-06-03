@@ -6,6 +6,9 @@ from typer.testing import CliRunner
 
 from icewine_prediction.cli import (
     app,
+    format_baseline_execution_robustness_command_result,
+    format_baseline_execution_robustness_grid_command_result,
+    format_baseline_t15_signal_comparison_command_result,
     format_baseline_training_dataset_command_result,
     format_historical_odds_market_feature_line,
     format_historical_market_training_sample_line,
@@ -84,6 +87,22 @@ from icewine_prediction.baseline_model_consensus_signal_research_service import 
     BaselineModelConsensusSignalResearchReport,
     ModelConsensusBucketSummary,
     ModelConsensusSignalCandidateSummary,
+)
+from icewine_prediction.baseline_t15_signal_comparison_service import (
+    BaselineT15SignalComparisonReport,
+    T15SignalComparisonStrategySummary,
+)
+from icewine_prediction.baseline_execution_robustness_service import (
+    BaselineExecutionRobustnessReport,
+    ExecutionRobustnessStrategySummary,
+)
+from icewine_prediction.baseline_execution_robustness_grid_service import (
+    BaselineExecutionRobustnessGridReport,
+    ExecutionRobustnessGridRow,
+)
+from icewine_prediction.baseline_execution_robustness_filter_service import (
+    BaselineExecutionRobustnessFilterReport,
+    ExecutionRobustnessFilterStrategySummary,
 )
 from icewine_prediction.baseline_asian_handicap_model_service import (
     AsianHandicapModelEvaluation,
@@ -260,6 +279,42 @@ def test_samples_group_exposes_baseline_market_diagnostics_help():
 
     assert result.exit_code == 0
     assert "baseline-market-diagnostics" in result.stdout
+
+
+def test_samples_group_exposes_baseline_t15_signal_comparison_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-t15-signal-comparison" in result.stdout
+
+
+def test_samples_group_exposes_baseline_execution_robustness_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-execution-robustness" in result.stdout
+
+
+def test_samples_group_exposes_baseline_execution_robustness_grid_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-execution-robustness-grid" in result.stdout
+
+
+def test_samples_group_exposes_baseline_execution_robustness_filter_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "baseline-execution-robustness-filter" in result.stdout
 
 
 def test_samples_group_exposes_baseline_edge_backtest_help():
@@ -1381,6 +1436,322 @@ def test_samples_baseline_model_consensus_signal_research_command_writes_report(
     assert "top asian_handicap:confirmed:home_cover@home_favorite threshold 0.1000 roi 0.1200" in result.stdout
 
 
+def test_samples_baseline_t15_signal_comparison_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+    fake_session = object()
+
+    class FakeSessionFactory:
+        def __call__(self):
+            return self
+
+        def __enter__(self):
+            return fake_session
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    def fake_build(
+        session,
+        csv_path,
+        *,
+        source_name,
+        bookmaker,
+        target_minutes_before_kickoff,
+        tolerance_minutes,
+    ):
+        captured["session"] = session
+        captured["csv_path"] = str(csv_path)
+        captured["source_name"] = source_name
+        captured["bookmaker"] = bookmaker
+        captured["target_minutes"] = target_minutes_before_kickoff
+        captured["tolerance_minutes"] = tolerance_minutes
+        return _baseline_t15_signal_comparison_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr("icewine_prediction.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("icewine_prediction.cli.initialize_database", lambda engine: None)
+    monkeypatch.setattr("icewine_prediction.cli.create_session_factory", lambda engine: FakeSessionFactory())
+    monkeypatch.setattr("icewine_prediction.cli.build_baseline_t15_signal_comparison_report", fake_build)
+    monkeypatch.setattr("icewine_prediction.cli.write_baseline_t15_signal_comparison_report", fake_write)
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-t15-signal-comparison",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/model-tests/t15.md",
+            "--source-name",
+            "oddspapi",
+            "--bookmaker",
+            "pinnacle",
+            "--target-minutes",
+            "15",
+            "--tolerance-minutes",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["session"] is fake_session
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\model-tests\\t15.md")
+    assert captured["source_name"] == "oddspapi"
+    assert captured["bookmaker"] == "pinnacle"
+    assert captured["target_minutes"] == 15
+    assert captured["tolerance_minutes"] == 5
+    assert "baseline T-15 signal comparison written" in result.stdout
+    assert "validation 20 t15_available 18 missing 2" in result.stdout
+    assert "asian_away_cover_hgb_edge_v1 close 10 t15 8 overlap 6" in result.stdout
+
+
+def test_samples_baseline_execution_robustness_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+    fake_session = object()
+
+    class FakeSessionFactory:
+        def __call__(self):
+            return self
+
+        def __enter__(self):
+            return fake_session
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    def fake_build(
+        session,
+        csv_path,
+        *,
+        execution_targets,
+        primary_target,
+        tolerance_minutes,
+        source_name,
+        bookmaker,
+    ):
+        captured["session"] = session
+        captured["csv_path"] = str(csv_path)
+        captured["execution_targets"] = execution_targets
+        captured["primary_target"] = primary_target
+        captured["tolerance_minutes"] = tolerance_minutes
+        captured["source_name"] = source_name
+        captured["bookmaker"] = bookmaker
+        return _baseline_execution_robustness_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr("icewine_prediction.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("icewine_prediction.cli.initialize_database", lambda engine: None)
+    monkeypatch.setattr("icewine_prediction.cli.create_session_factory", lambda engine: FakeSessionFactory())
+    monkeypatch.setattr("icewine_prediction.cli.build_baseline_execution_robustness_report", fake_build)
+    monkeypatch.setattr("icewine_prediction.cli.write_baseline_execution_robustness_report", fake_write)
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-execution-robustness",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/model-tests/execution-robustness.md",
+            "--targets",
+            "25,20,15,10,5",
+            "--primary-target",
+            "15",
+            "--tolerance-minutes",
+            "5",
+            "--source-name",
+            "oddspapi",
+            "--bookmaker",
+            "pinnacle",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["session"] is fake_session
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\model-tests\\execution-robustness.md")
+    assert captured["execution_targets"] == (25, 20, 15, 10, 5)
+    assert captured["primary_target"] == 15
+    assert captured["tolerance_minutes"] == 5
+    assert captured["source_name"] == "oddspapi"
+    assert captured["bookmaker"] == "pinnacle"
+    assert "baseline execution robustness written" in result.stdout
+    assert "validation 20 primary T-15 targets 25,20,15,10,5" in result.stdout
+    assert "asian_away_cover_hgb_edge_v1 primary 10 strong 4 candidate 3 watch 2 rejected 1" in result.stdout
+
+
+def test_samples_baseline_execution_robustness_grid_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+    fake_session = object()
+
+    class FakeSessionFactory:
+        def __call__(self):
+            return self
+
+        def __enter__(self):
+            return fake_session
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    def fake_build(
+        session,
+        csv_path,
+        *,
+        execution_targets,
+        primary_targets,
+        tolerance_minutes,
+        source_name,
+        bookmaker,
+        min_candidate_count,
+        top_n_per_strategy,
+    ):
+        captured["session"] = session
+        captured["csv_path"] = str(csv_path)
+        captured["execution_targets"] = execution_targets
+        captured["primary_targets"] = primary_targets
+        captured["tolerance_minutes"] = tolerance_minutes
+        captured["source_name"] = source_name
+        captured["bookmaker"] = bookmaker
+        captured["min_candidate_count"] = min_candidate_count
+        captured["top_n_per_strategy"] = top_n_per_strategy
+        return _baseline_execution_robustness_grid_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr("icewine_prediction.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("icewine_prediction.cli.initialize_database", lambda engine: None)
+    monkeypatch.setattr("icewine_prediction.cli.create_session_factory", lambda engine: FakeSessionFactory())
+    monkeypatch.setattr("icewine_prediction.cli.build_baseline_execution_robustness_grid_report", fake_build)
+    monkeypatch.setattr("icewine_prediction.cli.write_baseline_execution_robustness_grid_report", fake_write)
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-execution-robustness-grid",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/model-tests/execution-robustness-grid.md",
+            "--targets",
+            "25,20,15,10,5",
+            "--primary-targets",
+            "15,10",
+            "--tolerance-minutes",
+            "5",
+            "--source-name",
+            "oddspapi",
+            "--bookmaker",
+            "pinnacle",
+            "--min-candidate-count",
+            "12",
+            "--top-n-per-strategy",
+            "3",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["session"] is fake_session
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\model-tests\\execution-robustness-grid.md")
+    assert captured["execution_targets"] == (25, 20, 15, 10, 5)
+    assert captured["primary_targets"] == (15, 10)
+    assert captured["tolerance_minutes"] == 5
+    assert captured["source_name"] == "oddspapi"
+    assert captured["bookmaker"] == "pinnacle"
+    assert captured["min_candidate_count"] == 12
+    assert captured["top_n_per_strategy"] == 3
+    assert "baseline execution robustness grid written" in result.stdout
+    assert "validation 20 primary_targets 15,10 grid_rows 1" in result.stdout
+    assert "asian_away_cover_hgb_edge_v1 T-15 seen>=4 edge>=0.0800 bets 12 roi 0.2500" in result.stdout
+
+
+def test_samples_baseline_execution_robustness_filter_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+    fake_session = object()
+
+    class FakeSessionFactory:
+        def __call__(self):
+            return self
+
+        def __enter__(self):
+            return fake_session
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    def fake_build(
+        session,
+        csv_path,
+        *,
+        execution_targets,
+        tolerance_minutes,
+        source_name,
+        bookmaker,
+    ):
+        captured["session"] = session
+        captured["csv_path"] = str(csv_path)
+        captured["execution_targets"] = execution_targets
+        captured["tolerance_minutes"] = tolerance_minutes
+        captured["source_name"] = source_name
+        captured["bookmaker"] = bookmaker
+        return _baseline_execution_robustness_filter_report()
+
+    def fake_write(report, report_path):
+        captured["report_path"] = str(report_path)
+
+    monkeypatch.setattr("icewine_prediction.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("icewine_prediction.cli.initialize_database", lambda engine: None)
+    monkeypatch.setattr("icewine_prediction.cli.create_session_factory", lambda engine: FakeSessionFactory())
+    monkeypatch.setattr("icewine_prediction.cli.build_baseline_execution_robustness_filter_report", fake_build)
+    monkeypatch.setattr("icewine_prediction.cli.write_baseline_execution_robustness_filter_report", fake_write)
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "baseline-execution-robustness-filter",
+            "--csv-path",
+            "local_data/training/dynamic.csv",
+            "--report-path",
+            "docs/model-tests/execution-robustness-filter.md",
+            "--targets",
+            "25,20,15,10,5",
+            "--tolerance-minutes",
+            "5",
+            "--source-name",
+            "oddspapi",
+            "--bookmaker",
+            "pinnacle",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["session"] is fake_session
+    assert captured["csv_path"].endswith("local_data\\training\\dynamic.csv")
+    assert captured["report_path"].endswith("docs\\model-tests\\execution-robustness-filter.md")
+    assert captured["execution_targets"] == (25, 20, 15, 10, 5)
+    assert captured["tolerance_minutes"] == 5
+    assert captured["source_name"] == "oddspapi"
+    assert captured["bookmaker"] == "pinnacle"
+    assert "baseline execution robustness filter written" in result.stdout
+    assert "validation 20 primary_targets 15 strategies 1" in result.stdout
+    assert "asian_away_cover_hgb_edge_v1 raw 10 roi 0.1000 kept 6 roi 0.2500 filtered 4 roi -0.1250" in result.stdout
+
+
 def test_format_training_sample_line_uses_match_result_and_weight():
     display_service = DisplayNameService(
         DisplayNames(
@@ -2490,6 +2861,151 @@ def _baseline_model_consensus_signal_research_report() -> BaselineModelConsensus
                 best_threshold=Decimal("0.1000"),
                 best_roi=Decimal("0.1200"),
                 best_positive_roi_folds=4,
+            )
+        ],
+    )
+
+
+def _baseline_t15_signal_comparison_report() -> BaselineT15SignalComparisonReport:
+    return BaselineT15SignalComparisonReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=100,
+        train_rows=80,
+        validation_rows=20,
+        t15_available_rows=18,
+        missing_t15_rows=2,
+        source_name="oddspapi",
+        bookmaker="pinnacle",
+        target_minutes_before_kickoff=15,
+        tolerance_minutes=5,
+        strategy_summaries=[
+            T15SignalComparisonStrategySummary(
+                strategy_key="asian_away_cover_hgb_edge_v1",
+                display_name="Away cover",
+                close_count=10,
+                t15_count=8,
+                overlap_count=6,
+                close_only_count=4,
+                t15_only_count=2,
+                close_profit=Decimal("1.5000"),
+                t15_profit=Decimal("0.8000"),
+                close_roi=Decimal("0.1500"),
+                t15_roi=Decimal("0.1000"),
+                overlap_share=Decimal("0.6000"),
+            )
+        ],
+        candidate_sets=[],
+    )
+
+
+def _baseline_execution_robustness_report() -> BaselineExecutionRobustnessReport:
+    return BaselineExecutionRobustnessReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=100,
+        train_rows=80,
+        validation_rows=20,
+        execution_targets=(25, 20, 15, 10, 5),
+        primary_target=15,
+        tolerance_minutes=5,
+        source_name="oddspapi",
+        bookmaker="pinnacle",
+        target_available_rows={25: 18, 20: 18, 15: 18, 10: 17, 5: 16},
+        strategy_summaries=[
+            ExecutionRobustnessStrategySummary(
+                strategy_key="asian_away_cover_hgb_edge_v1",
+                display_name="Away cover",
+                primary_count=10,
+                level_counts={"strong": 4, "candidate": 3, "watch": 2, "rejected": 1},
+                level_profit={
+                    "strong": Decimal("1.2000"),
+                    "candidate": Decimal("0.6000"),
+                    "watch": Decimal("0.1000"),
+                    "rejected": Decimal("-1.0000"),
+                },
+                level_roi={
+                    "strong": Decimal("0.3000"),
+                    "candidate": Decimal("0.2000"),
+                    "watch": Decimal("0.0500"),
+                    "rejected": Decimal("-1.0000"),
+                },
+                average_seen_count=Decimal("4.2000"),
+            )
+        ],
+        profiles_by_strategy={},
+    )
+
+
+def _baseline_execution_robustness_grid_report() -> BaselineExecutionRobustnessGridReport:
+    row = ExecutionRobustnessGridRow(
+        strategy_key="asian_away_cover_hgb_edge_v1",
+        display_name="Away cover",
+        primary_target=15,
+        min_seen_count=4,
+        min_edge=Decimal("0.0800"),
+        allow_bucket_changed=False,
+        allow_line_changed=True,
+        require_side_unchanged=True,
+        candidate_count=12,
+        wins=8,
+        profit=Decimal("3.0000"),
+        roi=Decimal("0.2500"),
+        hit_rate=Decimal("0.6667"),
+        average_seen_count=Decimal("4.5000"),
+        average_min_edge=Decimal("0.1100"),
+    )
+    return BaselineExecutionRobustnessGridReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=100,
+        train_rows=80,
+        validation_rows=20,
+        execution_targets=(25, 20, 15, 10, 5),
+        primary_targets=(15, 10),
+        tolerance_minutes=5,
+        source_name="oddspapi",
+        bookmaker="pinnacle",
+        min_candidate_count=12,
+        grid_rows=[row],
+        top_rows=[row],
+    )
+
+
+def _baseline_execution_robustness_filter_report() -> BaselineExecutionRobustnessFilterReport:
+    return BaselineExecutionRobustnessFilterReport(
+        csv_path="local_data/training/dynamic.csv",
+        row_count=100,
+        train_rows=80,
+        validation_rows=20,
+        execution_targets=(25, 20, 15, 10, 5),
+        primary_targets=(15,),
+        tolerance_minutes=5,
+        source_name="oddspapi",
+        bookmaker="pinnacle",
+        strategy_summaries=[
+            ExecutionRobustnessFilterStrategySummary(
+                strategy_key="asian_away_cover_hgb_edge_v1",
+                display_name="Away cover",
+                mode="filter",
+                primary_target=15,
+                min_seen_count=5,
+                min_edge=Decimal("0.0800"),
+                allow_bucket_changed=False,
+                allow_line_changed=True,
+                require_side_unchanged=True,
+                raw_count=10,
+                raw_wins=6,
+                raw_profit=Decimal("1.0000"),
+                raw_roi=Decimal("0.1000"),
+                raw_hit_rate=Decimal("0.6000"),
+                kept_count=6,
+                kept_wins=4,
+                kept_profit=Decimal("1.5000"),
+                kept_roi=Decimal("0.2500"),
+                kept_hit_rate=Decimal("0.6667"),
+                filtered_count=4,
+                filtered_wins=2,
+                filtered_profit=Decimal("-0.5000"),
+                filtered_roi=Decimal("-0.1250"),
+                filtered_hit_rate=Decimal("0.5000"),
             )
         ],
     )

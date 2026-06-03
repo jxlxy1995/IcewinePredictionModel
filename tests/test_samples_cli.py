@@ -1600,7 +1600,7 @@ def test_samples_baseline_execution_robustness_command_writes_report(monkeypatch
     assert captured["source_name"] == "oddspapi"
     assert captured["bookmaker"] == "pinnacle"
     assert "baseline execution robustness written" in result.stdout
-    assert "validation 20 primary T-15 targets 25,20,15,10,5" in result.stdout
+    assert "validation 20 primary T-15 targets 25,20,15,10,5 latest_available 19" in result.stdout
     assert "asian_away_cover_hgb_edge_v1 primary 10 strong 4 candidate 3 watch 2 rejected 1" in result.stdout
 
 
@@ -3026,6 +3026,7 @@ def _baseline_execution_robustness_report() -> BaselineExecutionRobustnessReport
             )
         ],
         profiles_by_strategy={},
+        latest_available_rows=19,
     )
 
 

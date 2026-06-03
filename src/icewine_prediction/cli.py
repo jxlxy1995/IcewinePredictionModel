@@ -1160,7 +1160,8 @@ def format_baseline_execution_robustness_command_result(
         (
             f"validation {report.validation_rows} "
             f"primary T-{report.primary_target} "
-            f"targets {','.join(str(target) for target in report.execution_targets)}"
+            f"targets {','.join(str(target) for target in report.execution_targets)} "
+            f"latest_available {report.latest_available_rows}"
         ),
     ]
     for summary in report.strategy_summaries:

@@ -722,12 +722,6 @@ def test_build_paper_recommendation_queue_uses_historical_odds_for_scheduled_mat
     assert candidate.historical_snapshot_count == 35
 
 
-def test_confirmed_under_mid_275_uses_filter_mode():
-    rule = DEFAULT_SELECTED_ROBUSTNESS_RULES["total_goals_hgb_confirmed_under_mid_275_v1"]
-
-    assert rule.mode == "filter"
-
-
 def test_build_paper_recommendation_queue_discovers_latest_only_candidate_when_fixed_targets_are_robust(session):
     league = League(name="Latest Union League", country_or_region="Norway", level=1, is_enabled=True)
     home = Team(canonical_name="Latest Home")
@@ -1415,68 +1409,6 @@ def test_build_paper_recommendation_queue_adds_total_goals_low_line_v3_candidate
     assert candidate.risk_tags == (
         "line_bucket:low_<=2.25",
         "strategy:total_goals_low_line_bucket_v3",
-    )
-
-
-def test_build_paper_recommendation_queue_adds_total_goals_confirmed_under_mid_275_candidate(session):
-    match, now = _seed_total_goals_priced_match(session, total_line=Decimal("2.75"))
-
-    report = build_paper_recommendation_queue(
-        session,
-        now=now,
-        hours=6,
-        scorer=lambda row: PaperQueueScore(
-            market_type="total_goals",
-            side="under",
-            model_probability=Decimal("0.6500"),
-            market_probability=Decimal("0.5000"),
-            edge=Decimal("0.1500"),
-            model_name="fake_hgb",
-            calibrated_side="under",
-            calibrated_edge=Decimal("0.0100"),
-        ),
-    )
-
-    candidate = next(
-        row
-        for row in report.rows
-        if row.strategy_key == "total_goals_hgb_confirmed_under_mid_275_v1"
-    )
-    assert candidate.status == "candidate"
-    assert candidate.match_id == match.id
-    assert candidate.market_type == "total_goals"
-    assert candidate.side == "under"
-    assert candidate.line_bucket == "mid_2.75"
-    assert candidate.signal_version == "v1"
-    assert candidate.risk_tags == (
-        "line_bucket:mid_2.75",
-        "model_consensus:confirmed",
-        "strategy:total_goals_confirmed_under_mid_275_v1",
-    )
-
-
-def test_build_paper_recommendation_queue_does_not_add_confirmed_under_mid_275_when_calibrated_diverges(session):
-    _, now = _seed_total_goals_priced_match(session, total_line=Decimal("2.75"))
-
-    report = build_paper_recommendation_queue(
-        session,
-        now=now,
-        hours=6,
-        scorer=lambda row: PaperQueueScore(
-            market_type="total_goals",
-            side="under",
-            model_probability=Decimal("0.6600"),
-            market_probability=Decimal("0.5000"),
-            edge=Decimal("0.1600"),
-            model_name="fake_hgb",
-            calibrated_side="over",
-            calibrated_edge=Decimal("-0.0200"),
-        ),
-    )
-
-    assert not any(
-        row.strategy_key == "total_goals_hgb_confirmed_under_mid_275_v1"
-        for row in report.rows
     )
 
 

@@ -62,6 +62,7 @@ def test_format_report_labels_latest_without_calling_t15_disappearing_stale():
 
     assert "latest-only" in text
     assert "T15-only" in text
+    assert "multi-timepoint union candidate" in text
     assert "stale" not in text.lower()
 
 

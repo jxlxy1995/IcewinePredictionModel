@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from icewine_prediction.baseline_execution_robustness_service import (
     DEFAULT_PRIMARY_TARGET,
     DEFAULT_TARGET_TOLERANCE_MINUTES,
     build_baseline_execution_robustness_report,
+    _patch_row_with_latest_historical_markets,
 )
 from icewine_prediction.baseline_recommendation_sandbox_service import (
     SandboxCandidate,
@@ -25,12 +25,9 @@ from icewine_prediction.baseline_t15_signal_comparison_service import (
     DEFAULT_BOOKMAKER,
     _candidate_key,
     _candidates_by_strategy,
-    _clear_market_fields,
     _load_matches_by_id,
     _load_snapshots_by_match_id,
     _match_id_from_row,
-    _match_snapshot_timeline_kickoff_time,
-    _patch_market_fields,
     _patch_row_with_t15_markets,
     _row_match_ids,
 )
@@ -38,12 +35,7 @@ from icewine_prediction.execution_robustness_rules import (
     DEFAULT_SELECTED_ROBUSTNESS_RULES,
     SelectedExecutionRobustnessRule,
 )
-from icewine_prediction.historical_training_sample_service import (
-    _PairedMarketSnapshot,
-    _comparable_datetime,
-    _pair_market_snapshots,
-)
-from icewine_prediction.models import HistoricalOddsSnapshot, Match
+from icewine_prediction.models import Match
 from icewine_prediction.oddspapi_sync_runner import ODDSPAPI_SOURCE_NAME
 from icewine_prediction.paper_recommendation_queue_service import (
     DEFAULT_FEATURE_CSV_PATH,
@@ -278,7 +270,7 @@ def format_baseline_paper_discovery_alignment_report(
             "",
             "- `latest-only` means the candidate appears when using the latest pre-kickoff snapshot, but not under the T-15 primary snapshot.",
             "- `T15-only` means the candidate appears under the T-15 primary snapshot, but not when using the latest pre-kickoff snapshot.",
-            "- `Robust kept not latest` means the T-15 primary candidate passes the selected robustness rule but does not appear in latest discovery.",
+            "- `Robust kept not latest` means the multi-timepoint union candidate passes the selected robustness rule but does not appear in latest discovery.",
             "- ROI and hit rate are evaluated with the odds/line from the group being measured.",
         ]
     )
@@ -315,52 +307,6 @@ def _candidate_set_alignment_summary(
             _ratio(Decimal(len(overlap_keys)), len(latest_keys))
             if latest_keys
             else None
-        ),
-    )
-
-
-def _patch_row_with_latest_historical_markets(
-    row: dict[str, str],
-    *,
-    match: Match,
-    snapshots: list[HistoricalOddsSnapshot],
-) -> dict[str, str] | None:
-    patched = dict(row)
-    had_strategy_market = False
-    kickoff_time = _match_snapshot_timeline_kickoff_time(match)
-    for market_type in ("asian_handicap", "total_goals", "match_winner"):
-        pairs = _pair_market_snapshots(
-            [snapshot for snapshot in snapshots if snapshot.market_type == market_type],
-            market_type=market_type,
-        )
-        pair = _select_latest_pre_kickoff_pair(pairs, kickoff_time=kickoff_time)
-        if pair is None:
-            _clear_market_fields(patched, market_type)
-            continue
-        _patch_market_fields(patched, match=match, pair=pair)
-        if market_type in {"asian_handicap", "total_goals"}:
-            had_strategy_market = True
-    return patched if had_strategy_market else None
-
-
-def _select_latest_pre_kickoff_pair(
-    pairs: list[_PairedMarketSnapshot],
-    *,
-    kickoff_time: datetime,
-) -> _PairedMarketSnapshot | None:
-    kickoff = _comparable_datetime(kickoff_time)
-    candidates = [
-        pair
-        for pair in pairs
-        if _comparable_datetime(pair.snapshot_time) <= kickoff
-    ]
-    if not candidates:
-        return None
-    return max(
-        candidates,
-        key=lambda pair: (
-            _comparable_datetime(pair.snapshot_time),
-            -pair.balance_gap,
         ),
     )
 

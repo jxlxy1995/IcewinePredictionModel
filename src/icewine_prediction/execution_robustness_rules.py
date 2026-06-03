@@ -8,7 +8,6 @@ from icewine_prediction.paper_strategy_registry import (
     ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
     ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_KEY,
     TOTAL_GOALS_HGB_BUCKET_V2_KEY,
-    TOTAL_GOALS_HGB_CONFIRMED_UNDER_MID_275_V1_KEY,
     TOTAL_GOALS_HGB_LOW_LINE_BUCKET_V3_KEY,
 )
 
@@ -77,15 +76,6 @@ DEFAULT_SELECTED_ROBUSTNESS_RULES: dict[str, SelectedExecutionRobustnessRule] = 
     ),
     TOTAL_GOALS_HGB_LOW_LINE_BUCKET_V3_KEY: SelectedExecutionRobustnessRule(
         strategy_key=TOTAL_GOALS_HGB_LOW_LINE_BUCKET_V3_KEY,
-        primary_target=15,
-        min_seen_count=3,
-        min_edge=Decimal("0.1200"),
-        allow_bucket_changed=True,
-        allow_line_changed=True,
-        require_side_unchanged=True,
-    ),
-    TOTAL_GOALS_HGB_CONFIRMED_UNDER_MID_275_V1_KEY: SelectedExecutionRobustnessRule(
-        strategy_key=TOTAL_GOALS_HGB_CONFIRMED_UNDER_MID_275_V1_KEY,
         primary_target=15,
         min_seen_count=3,
         min_edge=Decimal("0.1200"),

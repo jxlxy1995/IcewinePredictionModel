@@ -246,5 +246,5 @@ npm run build
 
 1. 在纸面推荐页面展示 robustness 状态、seen count、min edge、observed targets，以及简单舍弃比赛数。
 2. 用 5.30 全天 finished 历史窗口验收：返回候选是否等同真实未开赛操作，舍弃比赛数是否合理。
-3. 单独重跑 `total_goals_hgb_confirmed_under_mid_275_v1` 在新生成候选口径下的表现，如表现不佳考虑移除。
+3. 2026-06-04 已按新生成候选口径单独重跑 `total_goals_hgb_confirmed_under_mid_275_v1`；保留样本收益弱于过滤样本，且正收益网格样本过薄，已从策略注册、默认鲁棒规则和候选生成链路移除。
 4. 再决定是否将 robustness 结果纳入 `paper_confidence_service.py` 的 confidence score 或 stake cap。

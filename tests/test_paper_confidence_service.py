@@ -253,6 +253,83 @@ def test_confidence_score_boosts_model_consensus_confirmed_support(session):
     assert group_by_match_id[confirmed_match.id].suggested_stake_units >= Decimal("1.00")
 
 
+def test_low_line_v3_limits_own_score_contribution(session):
+    match = _seed_match(session, home_score=1, away_score=0, status="finished")
+    create_paper_record_from_queue_row(
+        session,
+        _queue_row(
+            match,
+            status="candidate",
+            market_type="total_goals",
+            side="over",
+            recommended_handicap="大 2.25",
+            line=Decimal("2.25"),
+            odds=Decimal("1.900"),
+            edge=Decimal("0.2600"),
+            line_bucket="low_<=2.25",
+            risk_tags=("line_bucket:low_<=2.25", "strategy:total_goals_low_line_bucket_v3"),
+            strategy_key="total_goals_hgb_low_line_bucket_v3",
+            strategy_display_name="大小球低盘口方向 · HGB分盘口桶 v3",
+            signal_version="v3",
+        ),
+        recorded_at=_now(),
+    )
+
+    group = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all()).groups[0]
+
+    assert group.confidence_score == 59
+    assert group.suggested_stake_units == Decimal("0.50")
+    assert group.stake_cap_reason == "none"
+
+
+def test_low_line_v3_does_not_cap_same_direction_group_when_stronger_signal_supports(session):
+    match = _seed_match(session, home_score=1, away_score=0, status="finished")
+    create_paper_record_from_queue_row(
+        session,
+        _queue_row(
+            match,
+            status="candidate",
+            market_type="total_goals",
+            side="over",
+            recommended_handicap="澶?2.25",
+            line=Decimal("2.25"),
+            odds=Decimal("1.900"),
+            edge=Decimal("0.2600"),
+            line_bucket="low_<=2.25",
+            risk_tags=("line_bucket:low_<=2.25", "strategy:total_goals_low_line_bucket_v3"),
+            strategy_key="total_goals_hgb_low_line_bucket_v3",
+            strategy_display_name="澶у皬鐞冧綆鐩樺彛鏂瑰悜 路 HGB鍒嗙洏鍙ｆ《 v3",
+            signal_version="v3",
+        ),
+        recorded_at=_now(),
+    )
+    create_paper_record_from_queue_row(
+        session,
+        _queue_row(
+            match,
+            status="candidate",
+            market_type="total_goals",
+            side="over",
+            recommended_handicap="澶?2.75",
+            line=Decimal("2.75"),
+            odds=Decimal("1.920"),
+            edge=Decimal("0.2600"),
+            line_bucket="mid_2.75",
+            risk_tags=("line_bucket:mid_2.75", "strategy:total_goals_bucket_v2"),
+            strategy_key="total_goals_hgb_bucket_v2",
+            strategy_display_name="澶у皬鐞冩柟鍚?路 HGB鍒嗙洏鍙ｆ《 v2",
+            signal_version="v2",
+        ),
+        recorded_at=_now(),
+    )
+
+    group = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all()).groups[0]
+
+    assert group.confidence_score >= 75
+    assert group.suggested_stake_units == Decimal("1.25")
+    assert group.stake_cap_reason == "same_family_cap"
+
+
 def test_stake_for_score_uses_quarter_unit_steps():
     assert stake_for_score(54) == Decimal("0.00")
     assert stake_for_score(55) == Decimal("0.50")
@@ -272,7 +349,6 @@ def test_strategy_family_maps_known_signals():
     assert strategy_family("asian_home_cover_hgb_favorite_bucket_v1") == "asian_home_hgb"
     assert strategy_family("total_goals_hgb_bucket_v2") == "total_goals_hgb"
     assert strategy_family("total_goals_hgb_low_line_bucket_v3") == "total_goals_hgb"
-    assert strategy_family("total_goals_hgb_confirmed_under_mid_275_v1") == "total_goals_hgb"
     assert strategy_family("new_signal") == "unknown"
 
 

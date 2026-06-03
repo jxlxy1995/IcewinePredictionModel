@@ -106,7 +106,6 @@ def strategy_family(strategy_key: str) -> str:
         "asian_home_cover_hgb_favorite_bucket_v1": "asian_home_hgb",
         "total_goals_hgb_bucket_v2": "total_goals_hgb",
         "total_goals_hgb_low_line_bucket_v3": "total_goals_hgb",
-        "total_goals_hgb_confirmed_under_mid_275_v1": "total_goals_hgb",
     }
     return mapping.get(strategy_key, "unknown")
 
@@ -138,7 +137,7 @@ def confidence_score_for_group(
     representative: PaperRecommendationRecord,
 ) -> tuple[int, Decimal, str]:
     families = {strategy_family(record.strategy_key) for record in records}
-    edge = representative.edge or Decimal("0")
+    edge = _score_edge_for_group(records, representative)
     score = Decimal("50") + min(edge * Decimal("100"), Decimal("30"))
     if len(families) > 1:
         score += Decimal("8")
@@ -248,6 +247,21 @@ def _strategy_priority(strategy_key: str) -> int:
 
 def _is_bucket_strategy(strategy_key: str) -> bool:
     return "bucket" in strategy_key
+
+
+def _score_edge_for_group(
+    records: list[PaperRecommendationRecord],
+    representative: PaperRecommendationRecord,
+) -> Decimal:
+    edges = [_score_edge_contribution(record) for record in records]
+    return max(edges) if edges else (representative.edge or Decimal("0"))
+
+
+def _score_edge_contribution(record: PaperRecommendationRecord) -> Decimal:
+    edge = record.edge or Decimal("0")
+    if record.strategy_key == "total_goals_hgb_low_line_bucket_v3":
+        return min(edge, Decimal("0.0100"))
+    return edge
 
 
 def _has_risk_tag(record: PaperRecommendationRecord, tag: str) -> bool:

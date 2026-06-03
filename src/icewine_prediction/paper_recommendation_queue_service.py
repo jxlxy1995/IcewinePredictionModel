@@ -59,7 +59,6 @@ from icewine_prediction.paper_strategy_registry import (
     DEFAULT_STRATEGY,
     HOME_FAVORITE_BUCKET_V1_STRATEGY,
     TOTAL_GOALS_BUCKET_V2_STRATEGY,
-    TOTAL_GOALS_CONFIRMED_UNDER_MID_275_V1_STRATEGY,
     TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
 )
 
@@ -896,23 +895,16 @@ def _total_goals_observation_rows(row: PaperQueueRow) -> list[PaperQueueRow]:
     for strategy in (
         TOTAL_GOALS_BUCKET_V2_STRATEGY,
         TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
-        TOTAL_GOALS_CONFIRMED_UNDER_MID_275_V1_STRATEGY,
     ):
         bucket_thresholds = strategy.line_bucket_thresholds or {}
         if f"{row.side}@{row.line_bucket}" not in bucket_thresholds:
             continue
-        if strategy.strategy_key == TOTAL_GOALS_CONFIRMED_UNDER_MID_275_V1_STRATEGY.strategy_key:
-            if "model_consensus:confirmed" not in row.risk_tags:
-                continue
-            risk_tags = tuple(tag for tag in row.risk_tags if not tag.startswith("strategy:"))
-        else:
-            risk_tags = row.risk_tags
         rows.append(
             PaperQueueRow(
                 **{
                     **row.__dict__,
                     "risk_tags": (
-                        *risk_tags,
+                        *row.risk_tags,
                         *(
                             (strategy.risk_tag,)
                             if strategy.risk_tag is not None
@@ -1452,7 +1444,6 @@ def _total_goals_bucket_rows(row: PaperQueueRow) -> list[PaperQueueRow]:
     for strategy in (
         TOTAL_GOALS_BUCKET_V2_STRATEGY,
         TOTAL_GOALS_LOW_LINE_BUCKET_V3_STRATEGY,
-        TOTAL_GOALS_CONFIRMED_UNDER_MID_275_V1_STRATEGY,
     ):
         strategy_row = _total_goals_strategy_row(row, strategy)
         if strategy_row is not None:
@@ -1467,17 +1458,12 @@ def _total_goals_strategy_row(row: PaperQueueRow, strategy) -> PaperQueueRow | N
     threshold = bucket_thresholds.get(f"{row.side}@{row.line_bucket}")
     if threshold is None or row.edge < threshold:
         return None
-    risk_tags = row.risk_tags
-    if strategy.strategy_key == TOTAL_GOALS_CONFIRMED_UNDER_MID_275_V1_STRATEGY.strategy_key:
-        if "model_consensus:confirmed" not in row.risk_tags:
-            return None
-        risk_tags = tuple(tag for tag in row.risk_tags if not tag.startswith("strategy:"))
     return PaperQueueRow(
         **{
             **row.__dict__,
             "status": "candidate",
             "risk_tags": (
-                *risk_tags,
+                *row.risk_tags,
                 *(
                     (strategy.risk_tag,)
                     if strategy.risk_tag is not None

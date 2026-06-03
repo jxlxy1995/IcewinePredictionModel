@@ -143,38 +143,6 @@ def test_create_paper_record_from_total_goals_low_line_v3_candidate_preserves_st
     assert record.signal_version == "v3"
 
 
-def test_create_paper_record_from_total_goals_confirmed_candidate_preserves_strategy(session):
-    match = _seed_match(session)
-    row = _queue_row(
-        match,
-        status="candidate",
-        line=Decimal("2.75"),
-        market_type="total_goals",
-        side="under",
-        recommended_handicap="小 2.75",
-        odds=Decimal("2.000"),
-        edge=Decimal("0.1500"),
-        line_bucket="mid_2.75",
-        risk_tags=(
-            "line_bucket:mid_2.75",
-            "model_consensus:confirmed",
-            "strategy:total_goals_confirmed_under_mid_275_v1",
-        ),
-        strategy_key="total_goals_hgb_confirmed_under_mid_275_v1",
-        strategy_display_name="大小球小球方向 · HGB模型共识 v1",
-        signal_version="v1",
-    )
-
-    record = create_paper_record_from_queue_row(session, row, recorded_at=_now())
-
-    assert record.strategy_key == "total_goals_hgb_confirmed_under_mid_275_v1"
-    assert record.market_type == "total_goals"
-    assert record.side == "under"
-    assert record.line_bucket == "mid_2.75"
-    assert record.signal_version == "v1"
-    assert "model_consensus:confirmed" in record.risk_tags
-
-
 def test_create_paper_record_allows_parallel_strategy_records_for_same_match(session):
     match = _seed_match(session)
     v1_row = _queue_row(match, status="candidate", line=Decimal("-0.50"))

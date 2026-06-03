@@ -88,13 +88,13 @@ python -m icewine_prediction.cli samples baseline-execution-robustness-filter `
 - [ ] 样本数足够支撑 filter；样本太少时先设为 observe。
 - [ ] `src/icewine_prediction/execution_robustness_rules.py` 中新增或调整 selected rule。
 - [ ] scheduled 推荐链路验证：不通过 filter 的候选不会进入可记录候选。
-- [ ] finished 历史窗口验证：不通过 filter 的候选仍保留，但带 `robustness_status` 和 `robustness:filtered`。
+- [ ] finished 历史窗口验证：不通过 filter 的候选不会进入可记录候选，只计入舍弃比赛数诊断。
 - [ ] 多信号复合评分仍在 `paper_confidence_service.py` 中基于 paper records 计算；如需把 robustness 纳入评分，另行回测。
 
 ## 当前约定
 
 - `scheduled` 未开赛推荐：filter 模式会硬过滤不鲁棒候选。
-- `finished` 历史回放：只标记不硬过滤，方便验收效果。
+- `finished` 历史回放：和 scheduled 使用同一套硬过滤保留策略，用来模拟真实未开赛操作。
 - `observe` 模式：只标记不硬过滤，适合样本不足的新信号。
 - live snapshot 缺少多时点上下文时，不应因为 robustness 不可用而直接误杀候选。
 

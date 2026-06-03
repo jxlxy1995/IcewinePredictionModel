@@ -31,7 +31,6 @@ from icewine_prediction.paper_recommendation_queue_service import (
 )
 from icewine_prediction.paper_strategy_registry import (
     STRATEGIES,
-    TOTAL_GOALS_HGB_CONFIRMED_UNDER_MID_275_V1_KEY,
     PaperStrategy,
 )
 from icewine_prediction.settlement_service import settle_asian_handicap, settle_total_goals
@@ -300,10 +299,6 @@ def _strategy_accepts_score(
         threshold = strategy.line_bucket_thresholds[bucket_key]
     if score.edge < threshold:
         return False
-    if strategy.strategy_key == TOTAL_GOALS_HGB_CONFIRMED_UNDER_MID_275_V1_KEY:
-        return score.calibrated_side == "under" and (
-            score.calibrated_edge is not None and score.calibrated_edge >= Decimal("0.0000")
-        )
     return True
 
 

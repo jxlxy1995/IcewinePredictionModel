@@ -331,6 +331,7 @@ def format_paper_recommendation_queue_report(report: PaperRecommendationQueueRep
         "| --- | ---: |",
         f"| Total matches | {report.total_matches} |",
         f"| Candidates | {report.candidate_count} |",
+        f"| Robustness discarded matches | {report.discarded_by_robustness_match_count} |",
         f"| Edge threshold | {report.edge_threshold} |",
         f"| Near-start hours | {report.near_start_hours} |",
         f"| Prefetch requested | {report.prefetch_requested} |",

@@ -464,6 +464,7 @@ export type PaperRecommendationDiagnostics = {
   candidate_match_count: number;
   status_counts: Record<string, number>;
   edge_threshold: string;
+  discarded_by_robustness_match_count: number;
 };
 
 export type PaperRecommendationWorkspace = {

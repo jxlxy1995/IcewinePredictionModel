@@ -1430,6 +1430,7 @@ def build_paper_recommendation_queue_payload(
         "total_matches": report.total_matches,
         "candidate_count": report.candidate_count,
         "status_counts": report.status_counts,
+        "discarded_by_robustness_match_count": report.discarded_by_robustness_match_count,
         "prefetch_requested": report.prefetch_requested,
         "near_start_fixture_ids": report.near_start_fixture_ids,
         "prefetch_result": report.prefetch_result,
@@ -2105,6 +2106,7 @@ def build_paper_recommendation_diagnostics_payload(report) -> dict[str, Any]:
         ),
         "status_counts": report.status_counts,
         "edge_threshold": _format_decimal(report.edge_threshold, "0.0000"),
+        "discarded_by_robustness_match_count": report.discarded_by_robustness_match_count,
     }
 
 

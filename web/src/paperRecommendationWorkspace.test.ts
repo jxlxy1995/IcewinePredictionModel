@@ -193,6 +193,7 @@ const workspace: PaperRecommendationWorkspace = {
     candidate_count: 1,
     candidate_match_count: 1,
     edge_threshold: "0.1000",
+    discarded_by_robustness_match_count: 0,
     status_counts: {
       below_threshold: 1,
       candidate: 1,

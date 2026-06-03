@@ -874,6 +874,9 @@ def test_build_paper_recommendation_queue_filters_candidate_without_robust_targe
     assert report.candidate_count == 0
     assert report.rows == []
     assert report.discarded_by_robustness_match_count == 1
+    text = format_paper_recommendation_queue_report(report)
+    assert "Robustness discarded matches" in text
+    assert "| Robustness discarded matches | 1 |" in text
 
 
 def test_build_paper_recommendation_queue_filters_finished_candidate_like_scheduled(session):

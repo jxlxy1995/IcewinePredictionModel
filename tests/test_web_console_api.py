@@ -611,38 +611,7 @@ def test_web_console_api_paper_workspace_replays_finished_window(tmp_path):
         match = session.get(Match, seeded["matched_match_id"])
         match.kickoff_time = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
         match.fixture_timestamp = int(match.kickoff_time.timestamp())
-        session.add(
-            HistoricalOddsSnapshot(
-                match_id=match.id,
-                source_name="oddspapi",
-                source_fixture_id="p1",
-                bookmaker="pinnacle",
-                market_type="asian_handicap",
-                market_id="ah-away",
-                market_name="Asian Handicap",
-                market_line=Decimal("-0.50"),
-                outcome_side="away",
-                odds=Decimal("1.930"),
-                snapshot_time=datetime(2026, 5, 29, 18, 30, tzinfo=ZoneInfo("UTC")),
-                period="prematch",
-            )
-        )
-        session.add(
-            HistoricalOddsSnapshot(
-                match_id=match.id,
-                source_name="oddspapi",
-                source_fixture_id="p1",
-                bookmaker="pinnacle",
-                market_type="total_goals",
-                market_id="ou-under",
-                market_name="Total Goals",
-                market_line=Decimal("2.50"),
-                outcome_side="under",
-                odds=Decimal("2.000"),
-                snapshot_time=datetime(2026, 5, 29, 18, 30, tzinfo=ZoneInfo("UTC")),
-                period="prematch",
-            )
-        )
+        _add_complete_historical_markets_at_targets(session, match)
         _add_complete_historical_odds(session, match)
         session.commit()
 
@@ -676,13 +645,14 @@ def test_web_console_api_paper_workspace_replays_finished_window(tmp_path):
     assert response.status_code == 200
     payload = response.json()
     assert payload["summary"]["candidate_count"] == 1
+    assert payload["diagnostics"]["discarded_by_robustness_match_count"] == 0
     assert payload["candidates"][0]["match_id"] == seeded["matched_match_id"]
     assert payload["candidates"][0]["odds_source"] == "oddspapi_historical"
-    assert payload["candidates"][0]["execution_target"] == "latest_historical"
+    assert payload["candidates"][0]["execution_target"] == "T-15"
     assert payload["candidates"][0]["historical_snapshot_count"] > 0
-    assert payload["candidates"][0]["robustness_status"] == "unavailable"
-    assert payload["candidates"][0]["robustness_seen_count"] == 2
-    assert payload["candidates"][0]["robustness_observed_targets"] == [5, 10]
+    assert payload["candidates"][0]["robustness_status"] == "kept"
+    assert payload["candidates"][0]["robustness_seen_count"] == 5
+    assert payload["candidates"][0]["robustness_observed_targets"] == [5, 10, 15, 20, 25]
 
 def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
     engine = create_memory_database()
@@ -758,6 +728,7 @@ def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
         "candidate_match_count": 1,
         "status_counts": {"candidate": 1},
         "edge_threshold": "0.1000",
+        "discarded_by_robustness_match_count": 0,
     }
     assert workspace["candidates"][0]["recommended_handicap"] == "客队 +0.50"
     assert workspace["strategies"][0]["display_name"] == "亚盘客队方向 · HGB边际 v1"
@@ -2715,3 +2686,42 @@ def _add_complete_historical_odds(session, match: Match) -> None:
                 period="prematch",
             )
         )
+
+
+def _add_complete_historical_markets_at_targets(session, match: Match) -> None:
+    for target_minutes in (25, 20, 15, 10, 5):
+        snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=target_minutes)
+        for market_type, line, outcomes in (
+            (
+                "asian_handicap",
+                Decimal("-0.50"),
+                {"home": Decimal("1.990"), "away": Decimal("1.930")},
+            ),
+            (
+                "total_goals",
+                Decimal("2.50"),
+                {"over": Decimal("1.900"), "under": Decimal("2.000")},
+            ),
+            (
+                "match_winner",
+                Decimal("0.00"),
+                {"home": Decimal("2.100"), "draw": Decimal("3.250"), "away": Decimal("3.400")},
+            ),
+        ):
+            for side, odds in outcomes.items():
+                session.add(
+                    HistoricalOddsSnapshot(
+                        match_id=match.id,
+                        source_name="oddspapi",
+                        source_fixture_id=match.source_match_id or str(match.id),
+                        bookmaker="pinnacle",
+                        market_type=market_type,
+                        market_id=f"{market_type}-{target_minutes}-{side}",
+                        market_name=market_type,
+                        market_line=line,
+                        outcome_side=side,
+                        odds=odds,
+                        snapshot_time=snapshot_time,
+                        period="prematch",
+                    )
+                )

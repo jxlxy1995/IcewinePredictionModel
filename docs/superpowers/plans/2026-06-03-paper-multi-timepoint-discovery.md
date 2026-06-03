@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3, SQLAlchemy ORM, pytest, existing `paper_recommendation_queue_service.py` scorer/row helpers, existing `execution_robustness_rules.py`.
 
+**Performance Rule:** Score each available `match + timepoint` feature row once, then evaluate every strategy against that scorer output. Do not skip strategy evaluation to save time, and do not call the scorer once per strategy.
+
 ---
 
 ## File Structure

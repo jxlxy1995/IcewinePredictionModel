@@ -104,6 +104,8 @@ Required implementation constraints:
 
 The expected cost profile should be close to `number_of_matches * available_timepoints`, not `number_of_matches * timepoints * strategies * repeated_snapshot_scans`.
 
+This is a scoring-cache constraint, not a strategy shortcut. Each available `match + timepoint` feature row should be scored once, and every strategy should then evaluate the scorer output for that same row. The implementation must not skip strategy evaluation to save time.
+
 Focused tests should include a small guard that the scorer is called no more than once per available timepoint for a match.
 
 ## Acceptance Criteria

@@ -228,7 +228,7 @@ def format_baseline_paper_discovery_alignment_report(
         f"- Feature CSV: `{report.csv_path}`",
         f"- Historical odds: `{report.source_name}` / `{report.bookmaker}`",
         f"- Latest: latest pre-kickoff historical snapshot per market",
-        f"- T-15 primary: target `{report.primary_target}` minutes, tolerance `+/-{report.tolerance_minutes}` minutes",
+        f"- Primary snapshot: target `{report.primary_target}` minutes, tolerance `+/-{report.tolerance_minutes}` minutes",
         f"- Robust targets: `{', '.join(str(target) for target in report.execution_targets)}` minutes",
         "",
         "## Data Coverage",
@@ -240,14 +240,14 @@ def format_baseline_paper_discovery_alignment_report(
         f"| Validation rows | {report.validation_rows} |",
         f"| Latest available rows | {report.latest_available_rows} |",
         f"| Missing latest rows | {report.missing_latest_rows} |",
-        f"| T-15 available rows | {report.t15_available_rows} |",
-        f"| Missing T-15 rows | {report.missing_t15_rows} |",
+        f"| Primary available rows | {report.t15_available_rows} |",
+        f"| Missing primary rows | {report.missing_t15_rows} |",
         "",
         "## Strategy Alignment",
         "",
         (
-            "| Strategy | Latest bets | Latest ROI | T15 bets | T15 ROI | Overlap | "
-            "latest-only | latest-only ROI | T15-only | T15-only ROI | "
+            "| Strategy | Latest bets | Latest ROI | Primary bets | Primary ROI | Overlap | "
+            "latest-only | latest-only ROI | primary-only | primary-only ROI | "
             "Robust kept | Robust kept ROI | Robust kept not latest | Robust not latest ROI |"
         ),
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -268,8 +268,8 @@ def format_baseline_paper_discovery_alignment_report(
             "",
             "## Metric Notes",
             "",
-            "- `latest-only` means the candidate appears when using the latest pre-kickoff snapshot, but not under the T-15 primary snapshot.",
-            "- `T15-only` means the candidate appears under the T-15 primary snapshot, but not when using the latest pre-kickoff snapshot.",
+            "- `latest-only` means the candidate appears when using the latest pre-kickoff snapshot, but not under the primary snapshot.",
+            "- `primary-only` means the candidate appears under the primary snapshot, but not when using the latest pre-kickoff snapshot.",
             "- `Robust kept not latest` means the multi-timepoint union candidate passes the selected robustness rule but does not appear in latest discovery.",
             "- ROI and hit rate are evaluated with the odds/line from the group being measured.",
         ]

@@ -81,7 +81,8 @@ TOTAL_GOALS_PROBABILITY_FIELDS = (
 TOTAL_GOALS_ODDS_FIELDS = ("total_goals_over_odds", "total_goals_under_odds")
 MAX_CANDIDATE_ODDS_LEAD_TIME = timedelta(hours=3)
 MIN_CANDIDATE_ODDS_LEAD_TIME = timedelta(0)
-DEFAULT_EXECUTION_ROBUSTNESS_TARGETS = (25, 20, 15, 10, 5)
+DEFAULT_EXECUTION_ROBUSTNESS_TARGETS = (60, 30, 25, 20, 15, 10)
+DEFAULT_EXECUTION_DECISION_TARGETS = (10, 15, 20, 25, 30)
 DEFAULT_EXECUTION_ROBUSTNESS_TOLERANCE_MINUTES = 5
 _SCORER_CACHE: dict[
     tuple[tuple[Path, int | None, int | None], int],
@@ -690,23 +691,6 @@ def _timepoint_features_for_match(
                 ),
             )
         )
-    latest_snapshots = _latest_historical_snapshots_for_match(
-        match,
-        historical_snapshots=historical_snapshots,
-    )
-    if latest_snapshots:
-        features.append(
-            _TimepointFeature(
-                label="latest_historical",
-                target=None,
-                snapshots=latest_snapshots,
-                feature_row=_live_feature_row(
-                    match,
-                    historical_snapshots=latest_snapshots,
-                    team_prior_states=team_prior_states,
-                ),
-            )
-        )
     return features
 
 
@@ -786,9 +770,10 @@ def _scored_rows_by_timepoint(
 def _representative_discovered_row(
     items: list[_DiscoveredStrategyRow],
 ) -> _DiscoveredStrategyRow:
-    primary = next((item for item in items if item.target == 15), None)
-    if primary is not None:
-        return primary
+    for target in DEFAULT_EXECUTION_DECISION_TARGETS:
+        item = next((item for item in items if item.target == target), None)
+        if item is not None:
+            return item
     fixed = [item for item in items if item.target is not None]
     if fixed:
         return max(fixed, key=lambda item: item.row.edge or Decimal("0"))
@@ -1071,10 +1056,7 @@ def _evaluate_execution_robustness(
     *,
     rule: SelectedExecutionRobustnessRule,
 ) -> _ExecutionRobustnessEvaluation:
-    primary = next(
-        (observation for observation in observations if observation.target == rule.primary_target),
-        None,
-    )
+    primary = _primary_observation_for_rule(observations, rule)
     if primary is None:
         return _ExecutionRobustnessEvaluation(
             mode=rule.mode,
@@ -1106,6 +1088,25 @@ def _evaluate_execution_robustness(
         seen_count=len(observations),
         min_edge=min_edge,
         observed_targets=tuple(sorted(observation.target for observation in observations)),
+    )
+
+
+def _primary_observation_for_rule(
+    observations: list[_ExecutionRobustnessObservation],
+    rule: SelectedExecutionRobustnessRule,
+) -> _ExecutionRobustnessObservation | None:
+    if rule.primary_target == 10:
+        for target in DEFAULT_EXECUTION_DECISION_TARGETS:
+            observation = next(
+                (candidate for candidate in observations if candidate.target == target),
+                None,
+            )
+            if observation is not None:
+                return observation
+        return None
+    return next(
+        (observation for observation in observations if observation.target == rule.primary_target),
+        None,
     )
 
 
@@ -1260,11 +1261,10 @@ def _select_execution_pair(
     kickoff = _comparable_datetime(kickoff_time)
     target_time = kickoff - timedelta(minutes=target_minutes_before_kickoff)
     window_start = kickoff - timedelta(minutes=target_minutes_before_kickoff + tolerance_minutes)
-    window_end = kickoff - timedelta(minutes=target_minutes_before_kickoff - tolerance_minutes)
     candidates = [
         pair
         for pair in pairs
-        if window_start <= _comparable_datetime(pair.snapshot_time) <= window_end
+        if window_start < _comparable_datetime(pair.snapshot_time) <= target_time
     ]
     if not candidates:
         return None
@@ -1272,7 +1272,6 @@ def _select_execution_pair(
         candidates,
         key=lambda pair: (
             abs((_comparable_datetime(pair.snapshot_time) - target_time).total_seconds()),
-            0 if _comparable_datetime(pair.snapshot_time) <= target_time else 1,
             pair.balance_gap,
         ),
     )

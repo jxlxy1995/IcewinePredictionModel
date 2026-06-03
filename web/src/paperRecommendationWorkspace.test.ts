@@ -53,14 +53,14 @@ const workspace: PaperRecommendationWorkspace = {
       strategy_display_name: "亚盘客队方向 · HGB边际 v1",
       signal_version: "v1",
       odds_source: "oddspapi_historical",
-      execution_target: "latest_historical",
-      historical_snapshot_count: 7,
+      execution_target: "T-10",
+      historical_snapshot_count: 42,
       robustness_mode: "filter",
       robustness_status: "kept",
-      robustness_primary_target: 15,
-      robustness_seen_count: 5,
+      robustness_primary_target: 10,
+      robustness_seen_count: 6,
       robustness_min_edge: "0.1200",
-      robustness_observed_targets: [5, 10, 15, 20, 25],
+      robustness_observed_targets: [10, 15, 20, 25, 30, 60],
       is_recordable: true
     }
   ],
@@ -205,11 +205,11 @@ const workspace: PaperRecommendationWorkspace = {
 describe("paperRecommendationWorkspace", () => {
   it("builds summary cards with percentage formatting", () => {
     expect(buildPaperSummaryCards(workspace)).toEqual([
-      { label: "候选", value: "1" },
-      { label: "已记录", value: "1" },
-      { label: "待结算", value: "0" },
-      { label: "命中率", value: "100.00%" },
-      { label: "ROI", value: "44.00%" }
+      { label: "候选信号", value: "1" },
+      { label: "已记录信号", value: "1" },
+      { label: "待结算信号", value: "0" },
+      { label: "信号命中率", value: "100.00%" },
+      { label: "信号ROI", value: "44.00%" }
     ]);
   });
 

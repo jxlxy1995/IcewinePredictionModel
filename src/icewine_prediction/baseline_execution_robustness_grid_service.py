@@ -22,7 +22,7 @@ from icewine_prediction.paper_strategy_registry import STRATEGIES, PaperStrategy
 
 
 METRIC_QUANT = Decimal("0.0001")
-DEFAULT_PRIMARY_TARGETS = (15, 10)
+DEFAULT_PRIMARY_TARGETS = (10,)
 DEFAULT_MIN_SEEN_COUNTS = (2, 3, 4, 5)
 DEFAULT_MIN_EDGES = (
     Decimal("0.0400"),

@@ -648,11 +648,12 @@ def test_web_console_api_paper_workspace_replays_finished_window(tmp_path):
     assert payload["diagnostics"]["discarded_by_robustness_match_count"] == 0
     assert payload["candidates"][0]["match_id"] == seeded["matched_match_id"]
     assert payload["candidates"][0]["odds_source"] == "oddspapi_historical"
-    assert payload["candidates"][0]["execution_target"] == "T-15"
+    assert payload["candidates"][0]["execution_target"] == "T-10"
     assert payload["candidates"][0]["historical_snapshot_count"] > 0
     assert payload["candidates"][0]["robustness_status"] == "kept"
-    assert payload["candidates"][0]["robustness_seen_count"] == 5
-    assert payload["candidates"][0]["robustness_observed_targets"] == [5, 10, 15, 20, 25]
+    assert payload["candidates"][0]["robustness_primary_target"] == 10
+    assert payload["candidates"][0]["robustness_seen_count"] == 6
+    assert payload["candidates"][0]["robustness_observed_targets"] == [10, 15, 20, 25, 30, 60]
 
 def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
     engine = create_memory_database()
@@ -2688,7 +2689,7 @@ def _add_complete_historical_odds(session, match: Match) -> None:
 
 
 def _add_complete_historical_markets_at_targets(session, match: Match) -> None:
-    for target_minutes in (25, 20, 15, 10, 5):
+    for target_minutes in (60, 30, 25, 20, 15, 10):
         snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=target_minutes)
         for market_type, line, outcomes in (
             (

@@ -718,14 +718,14 @@ def test_build_paper_recommendation_queue_uses_historical_odds_for_scheduled_mat
     assert candidate.status == "candidate"
     assert candidate.source_match_id == "scheduled-priced"
     assert candidate.odds_source == "oddspapi_historical"
-    assert candidate.execution_target == "T-15"
-    assert candidate.historical_snapshot_count == 35
+    assert candidate.execution_target == "T-10"
+    assert candidate.historical_snapshot_count == 42
 
 
-def test_build_paper_recommendation_queue_discovers_latest_only_candidate_when_fixed_targets_are_robust(session):
-    league = League(name="Latest Union League", country_or_region="Norway", level=1, is_enabled=True)
-    home = Team(canonical_name="Latest Home")
-    away = Team(canonical_name="Latest Away")
+def test_build_paper_recommendation_queue_ignores_latest_when_t10_targets_are_robust(session):
+    league = League(name="T10 Union League", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="T10 Home")
+    away = Team(canonical_name="T10 Away")
     session.add_all([league, home, away])
     session.flush()
     kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
@@ -736,11 +736,11 @@ def test_build_paper_recommendation_queue_discovers_latest_only_candidate_when_f
         kickoff_time=kickoff,
         status="scheduled",
         source_name="api_football",
-        source_match_id="scheduled-latest-union",
+        source_match_id="scheduled-t10-union",
     )
     session.add(match)
     session.flush()
-    for target_minutes in (25, 20, 15, 10, 5):
+    for target_minutes in (60, 30, 25, 20, 15, 10):
         _add_historical_market_pair_at_target(
             session,
             match,
@@ -778,7 +778,7 @@ def test_build_paper_recommendation_queue_discovers_latest_only_candidate_when_f
 
     def fake_scorer(row):
         scorer_calls.append(row["asian_handicap_away_odds"])
-        edge = Decimal("0.1300") if row["asian_handicap_away_odds"] == "1.800" else Decimal("0.0900")
+        edge = Decimal("0.0100") if row["asian_handicap_away_odds"] == "1.800" else Decimal("0.1300")
         return PaperQueueScore(
             side="away_cover",
             model_probability=(
@@ -799,12 +799,150 @@ def test_build_paper_recommendation_queue_discovers_latest_only_candidate_when_f
     assert report.candidate_count == 1
     candidate = report.rows[0]
     assert candidate.status == "candidate"
-    assert candidate.execution_target == "T-15"
+    assert candidate.execution_target == "T-10"
+    assert candidate.odds == Decimal("1.930")
     assert candidate.robustness_status == "kept"
-    assert candidate.robustness_seen_count == 5
-    assert candidate.robustness_observed_targets == (5, 10, 15, 20, 25)
+    assert candidate.robustness_primary_target == 10
+    assert candidate.robustness_seen_count == 6
+    assert candidate.robustness_observed_targets == (10, 15, 20, 25, 30, 60)
     assert report.discarded_by_robustness_match_count == 0
+    assert Decimal("1.800") not in [Decimal(value) for value in scorer_calls]
     assert len(scorer_calls) <= 6
+
+
+def test_build_paper_recommendation_queue_falls_back_to_t30_for_t10_decision_price(session):
+    league = League(name="T10 Decision League", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Decision Home")
+    away = Team(canonical_name="Decision Away")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="scheduled-t10-fallback",
+    )
+    session.add(match)
+    session.flush()
+    for target_minutes, away_odds in (
+        (60, Decimal("1.86")),
+        (30, Decimal("1.88")),
+        (25, Decimal("1.89")),
+        (20, Decimal("1.90")),
+        (15, Decimal("1.91")),
+    ):
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="asian_handicap",
+            line=Decimal("-0.50"),
+            outcomes={"home": Decimal("1.99"), "away": away_odds},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="total_goals",
+            line=Decimal("2.50"),
+            outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="match_winner",
+            line=Decimal("0.00"),
+            outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
+        )
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 30, 2, 50, tzinfo=ZoneInfo("Asia/Shanghai")),
+        hours=2,
+        scorer=lambda row: PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal(row["asian_handicap_away_implied_probability"]),
+            edge=Decimal("0.1300"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    assert report.candidate_count == 1
+    candidate = report.rows[0]
+    assert candidate.execution_target == "T-15"
+    assert candidate.odds == Decimal("1.910")
+    assert candidate.robustness_primary_target == 10
+    assert candidate.robustness_seen_count == 5
+    assert candidate.robustness_observed_targets == (15, 20, 25, 30, 60)
+
+
+def test_build_paper_recommendation_queue_does_not_use_t5_or_latest_for_t10_robustness(session):
+    league = League(name="No Future Odds League", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="No Future Home")
+    away = Team(canonical_name="No Future Away")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="scheduled-no-future",
+    )
+    session.add(match)
+    session.flush()
+    for target_minutes in (25, 20, 15, 10, 5, 1):
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="asian_handicap",
+            line=Decimal("-0.50"),
+            outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="total_goals",
+            line=Decimal("2.50"),
+            outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="match_winner",
+            line=Decimal("0.00"),
+            outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
+        )
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 30, 2, 50, tzinfo=ZoneInfo("Asia/Shanghai")),
+        hours=2,
+        scorer=lambda row: PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal(row["asian_handicap_away_implied_probability"]),
+            edge=Decimal("0.1300"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    assert report.candidate_count == 0
+    assert report.discarded_by_robustness_match_count == 1
 
 
 def test_build_paper_recommendation_queue_filters_candidate_without_robust_target_support(session):
@@ -958,7 +1096,7 @@ def test_build_paper_recommendation_queue_reuses_robustness_target_scores_across
     )
     session.add(match)
     session.flush()
-    for target_minutes in (15, 5):
+    for target_minutes in (60, 30, 25, 20, 15, 10):
         _add_historical_market_pair_at_target(
             session,
             match,
@@ -1005,9 +1143,10 @@ def test_build_paper_recommendation_queue_reuses_robustness_target_scores_across
 
     assert {row.strategy_key for row in report.rows} == {
         "asian_away_cover_hgb_bucket_v2",
+        "asian_away_cover_hgb_edge_v1",
     }
-    assert report.candidate_count == 1
-    assert len(scorer_calls) == 5
+    assert report.candidate_count == 2
+    assert len(scorer_calls) == 6
 
 
 def test_build_paper_recommendation_queue_adds_v2_bucket_strategy_candidate(session):
@@ -1740,7 +1879,7 @@ def _add_historical_market_pair_at_target(
 
 
 def _add_complete_historical_markets_at_targets(session, match: Match) -> None:
-    for target_minutes in (25, 20, 15, 10, 5):
+    for target_minutes in (60, 30, 25, 20, 15, 10):
         _add_historical_market_pair_at_target(
             session,
             match,

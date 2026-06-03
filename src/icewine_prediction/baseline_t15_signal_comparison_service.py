@@ -245,11 +245,10 @@ def _select_t15_pair(
     kickoff = _comparable_datetime(kickoff_time)
     target_time = kickoff - timedelta(minutes=target_minutes_before_kickoff)
     window_start = kickoff - timedelta(minutes=target_minutes_before_kickoff + tolerance_minutes)
-    window_end = kickoff - timedelta(minutes=target_minutes_before_kickoff - tolerance_minutes)
     candidates = [
         pair
         for pair in pairs
-        if window_start <= _comparable_datetime(pair.snapshot_time) <= window_end
+        if window_start < _comparable_datetime(pair.snapshot_time) <= target_time
     ]
     if not candidates:
         return None
@@ -257,7 +256,6 @@ def _select_t15_pair(
         candidates,
         key=lambda pair: (
             abs((_comparable_datetime(pair.snapshot_time) - target_time).total_seconds()),
-            0 if _comparable_datetime(pair.snapshot_time) <= target_time else 1,
             pair.balance_gap,
         ),
     )

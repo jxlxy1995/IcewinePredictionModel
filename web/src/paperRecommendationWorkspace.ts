@@ -181,11 +181,11 @@ export function buildPaperSummaryCards(
   workspace: PaperRecommendationWorkspace
 ): PaperSummaryCard[] {
   return [
-    { label: "候选", value: workspace.summary.candidate_count.toLocaleString() },
-    { label: "已记录", value: workspace.summary.total_records.toLocaleString() },
-    { label: "待结算", value: workspace.summary.pending_records.toLocaleString() },
-    { label: "命中率", value: formatRatioAsPercent(workspace.summary.hit_rate) },
-    { label: "ROI", value: formatRatioAsPercent(workspace.summary.roi) }
+    { label: "候选信号", value: workspace.summary.candidate_count.toLocaleString() },
+    { label: "已记录信号", value: workspace.summary.total_records.toLocaleString() },
+    { label: "待结算信号", value: workspace.summary.pending_records.toLocaleString() },
+    { label: "信号命中率", value: formatRatioAsPercent(workspace.summary.hit_rate) },
+    { label: "信号ROI", value: formatRatioAsPercent(workspace.summary.roi) }
   ];
 }
 

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
+from icewine_prediction.execution_robustness_rules import DEFAULT_SELECTED_ROBUSTNESS_RULES
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, OddsSnapshot, Team, TrainingRun
 from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScore,
@@ -761,6 +762,97 @@ def test_build_paper_recommendation_queue_uses_historical_odds_for_scheduled_mat
     assert candidate.historical_snapshot_count == 7
 
 
+def test_confirmed_under_mid_275_uses_filter_mode():
+    rule = DEFAULT_SELECTED_ROBUSTNESS_RULES["total_goals_hgb_confirmed_under_mid_275_v1"]
+
+    assert rule.mode == "filter"
+
+
+def test_build_paper_recommendation_queue_discovers_latest_only_candidate_when_fixed_targets_are_robust(session):
+    league = League(name="Latest Union League", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Latest Home")
+    away = Team(canonical_name="Latest Away")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="scheduled-latest-union",
+    )
+    session.add(match)
+    session.flush()
+    for target_minutes in (25, 20, 15, 10, 5):
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="asian_handicap",
+            line=Decimal("-0.50"),
+            outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="total_goals",
+            line=Decimal("2.50"),
+            outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="match_winner",
+            line=Decimal("0.00"),
+            outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
+        )
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        target_minutes=1,
+        market_type="asian_handicap",
+        line=Decimal("-0.50"),
+        outcomes={"home": Decimal("2.05"), "away": Decimal("1.80")},
+    )
+    session.commit()
+    scorer_calls = []
+
+    def fake_scorer(row):
+        scorer_calls.append(row["asian_handicap_away_odds"])
+        edge = Decimal("0.1300") if row["asian_handicap_away_odds"] == "1.800" else Decimal("0.0900")
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=(
+                Decimal(row["asian_handicap_away_implied_probability"]) + edge
+            ).quantize(Decimal("0.0001")),
+            market_probability=Decimal(row["asian_handicap_away_implied_probability"]),
+            edge=edge,
+            model_name="fake_hgb",
+        )
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 30, 2, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+        hours=2,
+        scorer=fake_scorer,
+    )
+
+    assert report.candidate_count == 1
+    candidate = report.rows[0]
+    assert candidate.status == "candidate"
+    assert candidate.execution_target == "T-15"
+    assert candidate.robustness_status == "kept"
+    assert candidate.robustness_seen_count == 5
+    assert candidate.robustness_observed_targets == (5, 10, 15, 20, 25)
+    assert report.discarded_by_robustness_match_count == 0
+    assert len(scorer_calls) <= 6
+
+
 def test_build_paper_recommendation_queue_filters_candidate_without_robust_target_support(session):
     league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
     home = Team(canonical_name="Rosenborg")
@@ -831,10 +923,10 @@ def test_build_paper_recommendation_queue_filters_candidate_without_robust_targe
     assert row.robustness_observed_targets == (5, 10, 15, 20)
 
 
-def test_build_paper_recommendation_queue_marks_finished_candidate_robustness_without_filtering(session):
-    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
-    home = Team(canonical_name="Rosenborg")
-    away = Team(canonical_name="Bodo/Glimt")
+def test_build_paper_recommendation_queue_filters_finished_candidate_like_scheduled(session):
+    league = League(name="Finished Fragile League", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Finished Fragile Home")
+    away = Team(canonical_name="Finished Fragile Away")
     session.add_all([league, home, away])
     session.flush()
     kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
@@ -893,16 +985,9 @@ def test_build_paper_recommendation_queue_marks_finished_candidate_robustness_wi
         ),
     )
 
-    assert report.candidate_count == 1
-    row = report.rows[0]
-    assert row.status == "candidate"
-    assert "robustness:filtered" in row.risk_tags
-    assert row.robustness_mode == "filter"
-    assert row.robustness_status == "filtered"
-    assert row.robustness_primary_target == 15
-    assert row.robustness_seen_count == 4
-    assert row.robustness_min_edge == Decimal("0.1319")
-    assert row.robustness_observed_targets == (5, 10, 15, 20)
+    assert report.candidate_count == 0
+    assert report.rows == []
+    assert report.discarded_by_robustness_match_count == 1
 
 
 def test_build_paper_recommendation_queue_reuses_robustness_target_scores_across_strategy_rows(session):

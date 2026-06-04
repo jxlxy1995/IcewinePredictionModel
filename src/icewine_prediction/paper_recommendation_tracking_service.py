@@ -111,6 +111,7 @@ def create_paper_record_from_queue_row(
         model_probability=row.model_probability,
         market_probability=row.market_probability,
         edge=_required_decimal(row.edge, "edge"),
+        scoring_edge=row.scoring_edge,
         stake_units=Decimal("1.00"),
         status="pending",
         is_manually_adjusted=False,

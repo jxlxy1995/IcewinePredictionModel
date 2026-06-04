@@ -132,6 +132,7 @@ class PaperQueueRow:
     edge: Decimal | None
     line_bucket: str
     risk_tags: tuple[str, ...]
+    scoring_edge: Decimal | None = None
     strategy_key: str = DEFAULT_STRATEGY.strategy_key
     strategy_display_name: str = DEFAULT_STRATEGY.display_name
     signal_version: str = DEFAULT_STRATEGY.signal_version
@@ -195,6 +196,7 @@ class _ExecutionRobustnessEvaluation:
     primary_target: int
     seen_count: int
     min_edge: Decimal | None
+    scoring_edge: Decimal | None
     observed_targets: tuple[int, ...]
 
 
@@ -946,6 +948,7 @@ def _row_with_robustness(
             "robustness_primary_target": evaluation.primary_target,
             "robustness_seen_count": evaluation.seen_count,
             "robustness_min_edge": evaluation.min_edge,
+            "scoring_edge": evaluation.scoring_edge,
             "robustness_observed_targets": evaluation.observed_targets,
         }
     )
@@ -1047,6 +1050,7 @@ def _apply_execution_robustness_to_row(
                 "robustness_primary_target": evaluation.primary_target,
                 "robustness_seen_count": evaluation.seen_count,
                 "robustness_min_edge": evaluation.min_edge,
+                "scoring_edge": evaluation.scoring_edge,
                 "robustness_observed_targets": evaluation.observed_targets,
             }
         )
@@ -1064,6 +1068,7 @@ def _apply_execution_robustness_to_row(
             "robustness_primary_target": evaluation.primary_target,
             "robustness_seen_count": evaluation.seen_count,
             "robustness_min_edge": evaluation.min_edge,
+            "scoring_edge": evaluation.scoring_edge,
             "robustness_observed_targets": evaluation.observed_targets,
         }
     )
@@ -1082,9 +1087,11 @@ def _evaluate_execution_robustness(
             primary_target=rule.primary_target,
             seen_count=len(observations),
             min_edge=_min_observed_edge(observations),
+            scoring_edge=None,
             observed_targets=tuple(sorted(observation.target for observation in observations)),
         )
     min_edge = _min_observed_edge(observations)
+    scoring_edge = _scoring_edge_for_rule(primary, observations, rule)
     if rule.mode == "observe":
         return _ExecutionRobustnessEvaluation(
             mode=rule.mode,
@@ -1092,6 +1099,7 @@ def _evaluate_execution_robustness(
             primary_target=rule.primary_target,
             seen_count=len(observations),
             min_edge=min_edge,
+            scoring_edge=scoring_edge,
             observed_targets=tuple(sorted(observation.target for observation in observations)),
         )
     status = (
@@ -1105,6 +1113,7 @@ def _evaluate_execution_robustness(
         primary_target=rule.primary_target,
         seen_count=len(observations),
         min_edge=min_edge,
+        scoring_edge=scoring_edge if status == "kept" else None,
         observed_targets=tuple(sorted(observation.target for observation in observations)),
     )
 
@@ -1126,6 +1135,37 @@ def _primary_observation_for_rule(
         (observation for observation in observations if observation.target == rule.primary_target),
         None,
     )
+
+
+def _scoring_edge_for_rule(
+    primary: _ExecutionRobustnessObservation,
+    observations: list[_ExecutionRobustnessObservation],
+    rule: SelectedExecutionRobustnessRule,
+) -> Decimal | None:
+    eligible = _eligible_observations_for_rule(primary, observations, rule)
+    if not eligible:
+        return None
+    edges = sorted(observation.edge for observation in eligible)
+    if len(edges) >= 4:
+        edges = edges[1:-1]
+    return _quantize(sum(edges, Decimal("0")) / Decimal(len(edges)))
+
+
+def _eligible_observations_for_rule(
+    primary: _ExecutionRobustnessObservation,
+    observations: list[_ExecutionRobustnessObservation],
+    rule: SelectedExecutionRobustnessRule,
+) -> list[_ExecutionRobustnessObservation]:
+    eligible = []
+    for observation in observations:
+        if rule.require_side_unchanged and observation.side != primary.side:
+            continue
+        if not rule.allow_line_changed and observation.line != primary.line:
+            continue
+        if not rule.allow_bucket_changed and observation.line_bucket != primary.line_bucket:
+            continue
+        eligible.append(observation)
+    return eligible
 
 
 def _execution_robustness_observations_by_strategy(

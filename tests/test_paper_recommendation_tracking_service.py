@@ -46,6 +46,22 @@ def test_create_paper_record_from_valid_candidate_locks_original_market(session)
     assert record.is_manually_adjusted is False
 
 
+def test_create_paper_record_from_candidate_preserves_scoring_edge(session):
+    match = _seed_match(session)
+    row = _queue_row(
+        match,
+        status="candidate",
+        line=Decimal("-0.50"),
+        edge=Decimal("0.1800"),
+        scoring_edge=Decimal("0.1200"),
+    )
+
+    record = create_paper_record_from_queue_row(session, row, recorded_at=_now())
+
+    assert record.edge == Decimal("0.1800")
+    assert record.scoring_edge == Decimal("0.1200")
+
+
 def test_create_paper_record_from_v2_candidate_preserves_strategy(session):
     match = _seed_match(session)
     row = _queue_row(
@@ -434,6 +450,7 @@ def _queue_row(
     strategy_display_name: str = ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
     signal_version: str = "v1",
     edge: Decimal = Decimal("0.1164"),
+    scoring_edge: Decimal | None = None,
 ) -> PaperQueueRow:
     return PaperQueueRow(
         match_id=match.id,
@@ -454,6 +471,7 @@ def _queue_row(
         model_probability=Decimal("0.6044"),
         market_probability=Decimal("0.4880"),
         edge=edge,
+        scoring_edge=scoring_edge,
         line_bucket=line_bucket,
         risk_tags=risk_tags,
         strategy_key=strategy_key,

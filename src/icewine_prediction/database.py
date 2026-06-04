@@ -93,6 +93,9 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
             "total_goals_edge_stability_report_path": "VARCHAR(255)",
             "total_goals_bucket_sandbox_report_path": "VARCHAR(255)",
         },
+        "paper_recommendation_records": {
+            "scoring_edge": "NUMERIC(8, 4)",
+        },
     }
     with engine.begin() as connection:
         for table_name, columns in missing_columns_by_table.items():

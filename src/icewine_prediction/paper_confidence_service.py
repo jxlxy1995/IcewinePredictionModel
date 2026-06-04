@@ -261,7 +261,10 @@ def _score_edge_for_group(
 
 
 def _score_edge_contribution(record: PaperRecommendationRecord) -> Decimal:
-    edge = record.edge or Decimal("0")
+    # scoring_edge is the multi-timepoint signal-strength edge.  The plain
+    # edge remains the representative execution row's edge, so fall back to it
+    # only for legacy records or candidates that have not populated scoring_edge.
+    edge = record.scoring_edge if record.scoring_edge is not None else (record.edge or Decimal("0"))
     if record.strategy_key == "total_goals_hgb_low_line_bucket_v3":
         return min(edge, Decimal("0.0100"))
     return edge

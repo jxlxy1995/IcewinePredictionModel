@@ -62,6 +62,26 @@ def test_build_paper_confidence_workspace_groups_same_direction_strategy_records
     assert workspace.summary.flat_profit_units == Decimal("0.930")
 
 
+def test_confidence_score_uses_scoring_edge_when_available(session):
+    match = _seed_match(session)
+    create_paper_record_from_queue_row(
+        session,
+        _queue_row(
+            match,
+            status="candidate",
+            line=Decimal("-0.50"),
+            edge=Decimal("0.3000"),
+            scoring_edge=Decimal("0.0500"),
+        ),
+        recorded_at=_now(),
+    )
+
+    group = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all()).groups[0]
+
+    assert group.confidence_score == 55
+    assert group.suggested_stake_units == Decimal("0.50")
+
+
 def test_build_paper_confidence_workspace_exposes_match_display_fields(session):
     match = _seed_match(session, home_score=2, away_score=1, status="finished")
     match.home_team.logo_url = "https://img.example/home.png"
@@ -428,6 +448,7 @@ def _queue_row(
     strategy_key: str = ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
     strategy_display_name: str = ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
     signal_version: str = "v1",
+    scoring_edge: Decimal | None = None,
 ) -> PaperQueueRow:
     market_probability = Decimal("0.5000")
     return PaperQueueRow(
@@ -449,6 +470,7 @@ def _queue_row(
         model_probability=market_probability + edge,
         market_probability=market_probability,
         edge=edge,
+        scoring_edge=scoring_edge,
         line_bucket=line_bucket,
         risk_tags=risk_tags,
         strategy_key=strategy_key,

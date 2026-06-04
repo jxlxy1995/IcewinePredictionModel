@@ -298,6 +298,7 @@ export type PaperCandidate = {
   model_probability: string | null;
   market_probability: string | null;
   edge: string | null;
+  scoring_edge: string | null;
   line_bucket: string;
   risk_tags: string[];
   strategy_key: string;
@@ -349,6 +350,7 @@ export type PaperRecord = {
   model_probability: string | null;
   market_probability: string | null;
   edge: string;
+  scoring_edge: string | null;
   stake_units: string;
   status: string;
   is_manually_adjusted: boolean;

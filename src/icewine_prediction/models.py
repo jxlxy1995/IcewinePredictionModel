@@ -272,6 +272,7 @@ class PaperRecommendationRecord(Base):
     model_probability: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     market_probability: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     edge: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    scoring_edge: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     stake_units: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     is_manually_adjusted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

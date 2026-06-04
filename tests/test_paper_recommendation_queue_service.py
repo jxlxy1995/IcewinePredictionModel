@@ -823,6 +823,95 @@ def test_build_paper_recommendation_queue_ignores_latest_when_t10_targets_are_ro
     assert len(scorer_calls) <= 6
 
 
+def test_build_paper_recommendation_queue_sets_scoring_edge_from_trimmed_robust_edges(session):
+    league = League(name="Scoring Edge League", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Scoring Edge Home")
+    away = Team(canonical_name="Scoring Edge Away")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="scheduled-scoring-edge",
+    )
+    session.add(match)
+    session.flush()
+    away_odds_by_target = {
+        60: Decimal("1.810"),
+        30: Decimal("1.820"),
+        25: Decimal("1.830"),
+        20: Decimal("1.840"),
+        15: Decimal("1.850"),
+        10: Decimal("1.860"),
+    }
+    edge_by_away_odds = {
+        Decimal("1.810"): Decimal("0.0800"),
+        Decimal("1.820"): Decimal("0.1100"),
+        Decimal("1.830"): Decimal("0.1200"),
+        Decimal("1.840"): Decimal("0.1300"),
+        Decimal("1.850"): Decimal("0.1400"),
+        Decimal("1.860"): Decimal("0.2200"),
+    }
+    for target_minutes, away_odds in away_odds_by_target.items():
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="asian_handicap",
+            line=Decimal("-0.50"),
+            outcomes={"home": Decimal("2.05"), "away": away_odds},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="total_goals",
+            line=Decimal("2.50"),
+            outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="match_winner",
+            line=Decimal("0.00"),
+            outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
+        )
+    session.commit()
+
+    def fake_scorer(row):
+        away_odds = Decimal(row["asian_handicap_away_odds"])
+        edge = edge_by_away_odds[away_odds]
+        market_probability = Decimal(row["asian_handicap_away_implied_probability"])
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=(market_probability + edge).quantize(Decimal("0.0001")),
+            market_probability=market_probability,
+            edge=edge,
+            model_name="fake_hgb",
+        )
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 30, 2, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+        hours=2,
+        scorer=fake_scorer,
+    )
+
+    assert report.candidate_count == 1
+    candidate = report.rows[0]
+    assert candidate.execution_target == "T-10"
+    assert candidate.edge == Decimal("0.2200")
+    assert candidate.robustness_status == "kept"
+    assert candidate.robustness_min_edge == Decimal("0.0800")
+    assert candidate.scoring_edge == Decimal("0.1250")
+
+
 def test_build_paper_recommendation_queue_falls_back_to_t30_for_t10_decision_price(session):
     league = League(name="T10 Decision League", country_or_region="Norway", level=1, is_enabled=True)
     home = Team(canonical_name="Decision Home")

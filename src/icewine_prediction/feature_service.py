@@ -1,5 +1,5 @@
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from statistics import median
@@ -27,6 +27,17 @@ class OddsMarketAggregate:
     disagreement: Decimal | None
 
 
+def _empty_odds_aggregate() -> OddsMarketAggregate:
+    return OddsMarketAggregate(
+        sample_count=0,
+        mean=None,
+        median=None,
+        minimum=None,
+        maximum=None,
+        disagreement=None,
+    )
+
+
 @dataclass(frozen=True)
 class MatchOddsFeatures:
     match_id: int
@@ -37,9 +48,9 @@ class MatchOddsFeatures:
     total_line: OddsMarketAggregate
     over_odds: OddsMarketAggregate
     under_odds: OddsMarketAggregate
-    match_winner_home_odds: OddsMarketAggregate
-    match_winner_draw_odds: OddsMarketAggregate
-    match_winner_away_odds: OddsMarketAggregate
+    match_winner_home_odds: OddsMarketAggregate = field(default_factory=_empty_odds_aggregate)
+    match_winner_draw_odds: OddsMarketAggregate = field(default_factory=_empty_odds_aggregate)
+    match_winner_away_odds: OddsMarketAggregate = field(default_factory=_empty_odds_aggregate)
 
 
 @dataclass(frozen=True)
@@ -67,14 +78,7 @@ def is_standard_market_line(value: Decimal) -> bool:
 
 def _aggregate_decimal_values(values: list[Decimal]) -> OddsMarketAggregate:
     if not values:
-        return OddsMarketAggregate(
-            sample_count=0,
-            mean=None,
-            median=None,
-            minimum=None,
-            maximum=None,
-            disagreement=None,
-        )
+        return _empty_odds_aggregate()
     minimum = min(values)
     maximum = max(values)
     return OddsMarketAggregate(

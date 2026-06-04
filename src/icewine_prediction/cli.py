@@ -176,6 +176,9 @@ from icewine_prediction.historical_odds_feature_service import (
     HistoricalOddsMarketFeature,
     list_historical_odds_market_features,
 )
+from icewine_prediction.historical_odds_service import (
+    supplement_historical_odds_snapshots_from_raw,
+)
 from icewine_prediction.historical_odds_anchor_coverage_service import (
     HistoricalOddsAnchorCoverageReport,
     build_historical_odds_anchor_coverage_report,
@@ -1673,7 +1676,7 @@ def odds_source_oddspapi_fetch(
     max_matches: int = typer.Option(20, "--max-matches"),
     request_budget: int = typer.Option(50, "--request-budget"),
     timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
-    max_snapshots_per_match: int = typer.Option(200, "--max-snapshots-per-match"),
+    max_snapshots_per_match: int = typer.Option(300, "--max-snapshots-per-match"),
     skip_match_ids: str = typer.Option("", "--skip-match-ids"),
     match_ids: str = typer.Option("", "--match-ids"),
     league_ids: str = typer.Option("", "--league-ids"),
@@ -1991,6 +1994,32 @@ def odds_source_oddspapi_clear_league_snapshots(
     typer.echo(f"已删除 OddsPapi 主表历史赔率快照 {report.main_snapshot_count}")
     typer.echo(f"已删除 OddsPapi raw 历史赔率快照 {report.raw_snapshot_count}")
     typer.echo(f"已重置 OddsPapi 比赛历史赔率状态 {report.reset_source_match_count}")
+
+
+@odds_source_app.command("oddspapi-supplement-snapshots-from-raw")
+def odds_source_oddspapi_supplement_snapshots_from_raw(
+    match_ids: str = typer.Option("", "--match-ids"),
+    source_name: str = typer.Option("oddspapi", "--source-name"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = supplement_historical_odds_snapshots_from_raw(
+            session,
+            match_ids=_parse_id_set(match_ids) if match_ids.strip() else None,
+            source_name=source_name,
+            bookmaker=bookmaker,
+        )
+    typer.echo(
+        "raw_supplement "
+        f"scanned={report.scanned_match_count} "
+        f"skipped_no_raw={report.skipped_no_raw_count} "
+        f"supplemented_matches={report.supplemented_match_count} "
+        f"added_groups={report.added_group_count} "
+        f"added_snapshots={report.added_snapshot_count}"
+    )
 
 
 @odds_source_app.command("oddspapi-match-report")

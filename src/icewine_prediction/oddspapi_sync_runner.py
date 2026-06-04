@@ -19,6 +19,7 @@ from icewine_prediction.dynamic_main_market_service import (
     build_dynamic_neighbor_market_snapshots,
 )
 from icewine_prediction.historical_odds_service import (
+    match_snapshot_timeline_kickoff_time,
     store_historical_odds_raw_snapshots,
     store_historical_odds_snapshots,
 )
@@ -51,6 +52,10 @@ COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS = {
     "total_goals": {"over", "under"},
     "match_winner": {"home", "draw", "away"},
 }
+STANDARD_HISTORICAL_ODDS_MAX_SNAPSHOTS_PER_MATCH = 300
+STANDARD_HISTORICAL_ODDS_TARGET_SNAPSHOTS_PER_MARKET_TYPE = 100
+RAW_HISTORICAL_ODDS_MAX_SNAPSHOTS_PER_MATCH = 800
+RAW_HISTORICAL_ODDS_MAX_SNAPSHOTS_PER_MARKET_TYPE = 250
 
 API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "39": 17,
@@ -391,7 +396,7 @@ def run_oddspapi_sync(
     max_matches: int,
     request_budget: int,
     timeout_seconds: int = 20,
-    max_snapshots_per_match: int = 200,
+    max_snapshots_per_match: int = STANDARD_HISTORICAL_ODDS_MAX_SNAPSHOTS_PER_MATCH,
     skip_match_ids: set[int] | None = None,
     match_ids: set[int] | None = None,
     league_ids: set[str] | None = None,
@@ -437,7 +442,7 @@ def run_oddspapi_sync_result(
     max_matches: int,
     request_budget: int,
     timeout_seconds: int = 20,
-    max_snapshots_per_match: int = 200,
+    max_snapshots_per_match: int = STANDARD_HISTORICAL_ODDS_MAX_SNAPSHOTS_PER_MATCH,
     skip_match_ids: set[int] | None = None,
     match_ids: set[int] | None = None,
     league_ids: set[str] | None = None,
@@ -626,7 +631,7 @@ def run_oddspapi_sync_for_session(
     client: OddsPapiSyncClient,
     season: int,
     max_matches: int,
-    max_snapshots_per_match: int = 200,
+    max_snapshots_per_match: int = STANDARD_HISTORICAL_ODDS_MAX_SNAPSHOTS_PER_MATCH,
     skip_match_ids: set[int] | None = None,
     match_ids: set[int] | None = None,
     league_ids: set[str] | None = None,
@@ -1023,39 +1028,32 @@ def _fetch_and_store_historical_odds(
         market_definitions=market_definitions,
     )
     raw_snapshot_count = len(raw_snapshots)
+    snapshot_timeline_kickoff_time = match_snapshot_timeline_kickoff_time(match)
     main_snapshots = build_dynamic_main_market_snapshots(
         raw_snapshots,
-        kickoff_time=match.kickoff_time,
+        kickoff_time=snapshot_timeline_kickoff_time,
     )
     raw_summary_snapshots = build_dynamic_neighbor_market_snapshots(
         raw_snapshots,
-        kickoff_time=match.kickoff_time,
+        kickoff_time=snapshot_timeline_kickoff_time,
     )
     snapshots = main_snapshots
     existing_24h_snapshot_count = _historical_odds_snapshot_count(
         session,
         match.id,
-        kickoff_time=match.kickoff_time,
+        kickoff_time=snapshot_timeline_kickoff_time,
     )
     if len(main_snapshots) < existing_24h_snapshot_count:
         _emit_progress(
             progress_callback,
             (
-                "  skip_store_fewer_main_snapshots "
+                "  warn_fewer_main_snapshots_continue_for_execution_timepoints "
                 f"match_id={match.id} "
                 f"new_main={len(main_snapshots)} "
                 f"existing_24h={existing_24h_snapshot_count} "
                 f"raw={raw_snapshot_count} "
                 f"raw_summary={len(raw_summary_snapshots)}"
             ),
-        )
-        return HistoricalOddsStoreSummary(
-            inserted_count=0,
-            skipped_duplicate_count=existing_24h_snapshot_count,
-            asian_handicap_count=0,
-            total_goals_count=0,
-            match_winner_count=0,
-            skipped_protected_count=existing_24h_snapshot_count,
         )
     _emit_progress(
         progress_callback,
@@ -1066,9 +1064,12 @@ def _fetch_and_store_historical_odds(
         session,
         snapshots,
         max_snapshots_per_match=max_snapshots_per_match,
-        kickoff_time=match.kickoff_time,
-        max_snapshots_per_market_type=50,
+        kickoff_time=snapshot_timeline_kickoff_time,
         use_oddspapi_training_sampler=True,
+        oddspapi_target_snapshots_per_market_type=(
+            STANDARD_HISTORICAL_ODDS_TARGET_SNAPSHOTS_PER_MARKET_TYPE
+        ),
+        execution_timepoint_source_snapshots=main_snapshots,
     )
     _emit_progress(
         progress_callback,
@@ -1083,9 +1084,12 @@ def _fetch_and_store_historical_odds(
     store_historical_odds_raw_snapshots(
         session,
         raw_summary_snapshots,
-        max_snapshots_per_match=max_snapshots_per_match,
-        kickoff_time=match.kickoff_time,
-        max_snapshots_per_market_type=150,
+        max_snapshots_per_match=max(
+            max_snapshots_per_match,
+            RAW_HISTORICAL_ODDS_MAX_SNAPSHOTS_PER_MATCH,
+        ),
+        kickoff_time=snapshot_timeline_kickoff_time,
+        max_snapshots_per_market_type=RAW_HISTORICAL_ODDS_MAX_SNAPSHOTS_PER_MARKET_TYPE,
     )
     _emit_progress(
         progress_callback,
@@ -1150,7 +1154,7 @@ def _fetch_and_store_historical_odds(
     )
     snapshots = build_dynamic_main_market_snapshots(
         snapshots,
-        kickoff_time=match.kickoff_time,
+        kickoff_time=match_snapshot_timeline_kickoff_time(match),
     )
     if not snapshots and outcome_errors:
         raise outcome_errors[-1]
@@ -1159,9 +1163,12 @@ def _fetch_and_store_historical_odds(
         session,
         snapshots,
         max_snapshots_per_match=max_snapshots_per_match,
-        kickoff_time=match.kickoff_time,
-        max_snapshots_per_market_type=50,
+        kickoff_time=match_snapshot_timeline_kickoff_time(match),
         use_oddspapi_training_sampler=True,
+        oddspapi_target_snapshots_per_market_type=(
+            STANDARD_HISTORICAL_ODDS_TARGET_SNAPSHOTS_PER_MARKET_TYPE
+        ),
+        execution_timepoint_source_snapshots=snapshots,
     )
     return HistoricalOddsStoreSummary(
         inserted_count=store_result.inserted_count,

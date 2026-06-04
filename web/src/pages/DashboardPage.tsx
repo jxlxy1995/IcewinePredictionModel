@@ -87,6 +87,7 @@ import {
   formatPaperSingleRecordMessage
 } from "../paperBatchRecordMessage";
 import {
+  buildExecutionTimepointCoverageView,
   buildMatchFreshnessCards,
   buildMatchSyncSummary,
   defaultMatchListDateRange,
@@ -1201,6 +1202,7 @@ function MatchDetailView({
             <strong>{detail.odds_summary.match_winner ?? "-"}</strong>
           </div>
         </div>
+        <ExecutionTimepointCoverageMatrix detail={detail} />
       </Panel>
       {detail.has_odds && (
         <Panel title="赔率走势">
@@ -1213,6 +1215,38 @@ function MatchDetailView({
         </Panel>
       )}
     </section>
+  );
+}
+
+function ExecutionTimepointCoverageMatrix({ detail }: { detail: MatchDetail }) {
+  const coverage = buildExecutionTimepointCoverageView(detail.execution_timepoint_coverage);
+  return (
+    <div className="execution-coverage">
+      <div className="execution-coverage-header">
+        <span>标准时点覆盖</span>
+        <strong className={coverage.healthClassName}>
+          {coverage.healthLabel} · {coverage.summary}
+        </strong>
+      </div>
+      <div className="execution-coverage-grid">
+        <div className="coverage-corner" />
+        {coverage.targets.map((target) => (
+          <div className="coverage-target" key={target}>
+            {target}
+          </div>
+        ))}
+        {coverage.rows.map((row) => (
+          <div className="coverage-row" key={row.marketLabel}>
+            <div className="coverage-market">{row.marketLabel}</div>
+            {row.cells.map((cell) => (
+              <span className={cell.className} key={`${row.marketLabel}-${cell.label}`} title={cell.title}>
+                {cell.available ? "✓" : "-"}
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

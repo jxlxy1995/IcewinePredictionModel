@@ -1397,6 +1397,15 @@ def test_web_console_api_returns_match_list_workspace_and_detail(tmp_path):
     assert detail_response.status_code == 200
     detail = detail_response.json()
     assert detail["home_team_logo_url"] == "home.png"
+    assert detail["execution_timepoint_coverage"]["total_count"] == 18
+    assert detail["execution_timepoint_coverage"]["targets"] == [
+        "T-60",
+        "T-30",
+        "T-25",
+        "T-20",
+        "T-15",
+        "T-10",
+    ]
     assert detail["has_odds"] is True
     assert detail["team_data_note"] == "待接入"
     assert detail["paper_recommendation_summary"]["label"] == "暂无纸面推荐记录"

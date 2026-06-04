@@ -9,6 +9,8 @@ from icewine_prediction.historical_odds_service import (
     build_historical_odds_coverage_report,
     sample_oddspapi_training_snapshots,
     sample_historical_odds_snapshots,
+    supplement_execution_timepoint_snapshots,
+    supplement_historical_odds_snapshots_from_raw,
     store_historical_odds_raw_snapshots,
     store_historical_odds_snapshots,
 )
@@ -65,6 +67,37 @@ def _snapshot(match_id: int, odds: Decimal = Decimal("1.91")):
         period="fulltime",
         raw_payload='{"sample": true}',
     )
+
+
+def _market_pair(
+    match_id: int,
+    *,
+    market_type: str,
+    market_line: Decimal,
+    snapshot_time: datetime,
+    home_odds: Decimal = Decimal("1.91"),
+    away_odds: Decimal = Decimal("1.91"),
+):
+    market_id = f"{market_type}-{market_line}"
+    market_name = {
+        "asian_handicap": "Asian Handicap",
+        "total_goals": "Over Under Full Time",
+    }[market_type]
+    sides = ("over", "under") if market_type == "total_goals" else ("home", "away")
+    odds_by_side = {sides[0]: home_odds, sides[1]: away_odds}
+    return [
+        replace(
+            _snapshot(match_id),
+            market_id=market_id,
+            market_type=market_type,
+            market_name=market_name,
+            market_line=market_line,
+            outcome_side=side,
+            odds=odds_by_side[side],
+            snapshot_time=snapshot_time,
+        )
+        for side in sides
+    ]
 
 
 def test_store_historical_odds_snapshots_inserts_once_for_same_unique_key(session):
@@ -152,6 +185,206 @@ def test_store_historical_odds_snapshots_treats_market_line_as_unique_key(sessio
     assert result.inserted_count == 4
     assert result.skipped_duplicate_count == 0
     assert saved_lines == {Decimal("2.500"), Decimal("2.750")}
+
+
+def test_supplement_execution_timepoint_snapshots_adds_missing_standard_pair():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    existing = _market_pair(
+        match_id,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.25"),
+        snapshot_time=datetime(2026, 5, 23, 18, 30, tzinfo=ZoneInfo("UTC")),
+    )
+    source = existing + _market_pair(
+        match_id,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.25"),
+        snapshot_time=datetime(2026, 5, 23, 18, 40, tzinfo=ZoneInfo("UTC")),
+        home_odds=Decimal("1.87"),
+        away_odds=Decimal("1.95"),
+    )
+
+    result = supplement_execution_timepoint_snapshots(
+        existing,
+        source_snapshots=source,
+        kickoff_time=kickoff_time,
+        target_minutes_before_kickoff=(20,),
+    )
+
+    assert result.added_group_count == 1
+    assert result.added_snapshot_count == 2
+    added_odds_by_side = {
+        snapshot.outcome_side: snapshot.odds
+        for snapshot in result.snapshots
+        if snapshot.snapshot_time == datetime(2026, 5, 23, 18, 40)
+    }
+    assert added_odds_by_side == {"home": Decimal("1.87"), "away": Decimal("1.95")}
+
+
+def test_supplement_execution_timepoint_snapshots_does_not_duplicate_existing_pair():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    existing = _market_pair(
+        match_id,
+        market_type="total_goals",
+        market_line=Decimal("2.75"),
+        snapshot_time=datetime(2026, 5, 23, 18, 40, tzinfo=ZoneInfo("UTC")),
+    )
+
+    result = supplement_execution_timepoint_snapshots(
+        existing,
+        source_snapshots=existing,
+        kickoff_time=kickoff_time,
+        target_minutes_before_kickoff=(20,),
+    )
+
+    assert result.added_group_count == 0
+    assert result.added_snapshot_count == 0
+    assert len(result.snapshots) == 2
+
+
+def test_supplement_execution_timepoint_snapshots_uses_strict_five_minute_tolerance():
+    match_id = 1
+    kickoff_time = datetime(2026, 5, 24, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    source = _market_pair(
+        match_id,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.25"),
+        snapshot_time=datetime(2026, 5, 23, 18, 35, tzinfo=ZoneInfo("UTC")),
+    )
+
+    result = supplement_execution_timepoint_snapshots(
+        [],
+        source_snapshots=source,
+        kickoff_time=kickoff_time,
+        target_minutes_before_kickoff=(20,),
+    )
+
+    assert result.added_group_count == 0
+    assert result.added_snapshot_count == 0
+    assert result.snapshots == []
+
+
+def test_supplement_historical_odds_snapshots_from_raw_rebuilds_main_market_timepoints(session):
+    match = _match(session)
+    target_time = datetime(2026, 5, 23, 18, 40, tzinfo=ZoneInfo("UTC"))
+    raw_snapshots = (
+        _market_pair(
+            match.id,
+            market_type="asian_handicap",
+            market_line=Decimal("-0.25"),
+            snapshot_time=target_time,
+            home_odds=Decimal("1.90"),
+            away_odds=Decimal("1.91"),
+        )
+        + _market_pair(
+            match.id,
+            market_type="asian_handicap",
+            market_line=Decimal("-1.50"),
+            snapshot_time=target_time,
+            home_odds=Decimal("1.30"),
+            away_odds=Decimal("3.30"),
+        )
+    )
+    store_historical_odds_raw_snapshots(
+        session,
+        raw_snapshots,
+        max_snapshots_per_match=20,
+        kickoff_time=match.kickoff_time,
+        max_snapshots_per_market_type=20,
+    )
+
+    report = supplement_historical_odds_snapshots_from_raw(
+        session,
+        match_ids={match.id},
+        target_minutes_before_kickoff=(20,),
+    )
+
+    saved = session.query(HistoricalOddsSnapshot).order_by(HistoricalOddsSnapshot.outcome_side).all()
+    assert report.scanned_match_count == 1
+    assert report.supplemented_match_count == 1
+    assert report.added_snapshot_count == 2
+    assert {row.market_line for row in saved} == {Decimal("-0.250")}
+    assert {row.outcome_side for row in saved} == {"home", "away"}
+
+
+def test_supplement_historical_odds_snapshots_from_raw_treats_naive_kickoff_as_beijing(session):
+    match = _match(session)
+    match.kickoff_time = datetime(2026, 5, 24, 3, 0)
+    session.commit()
+    target_time = datetime(2026, 5, 23, 18, 40, tzinfo=ZoneInfo("UTC"))
+    store_historical_odds_raw_snapshots(
+        session,
+        _market_pair(
+            match.id,
+            market_type="asian_handicap",
+            market_line=Decimal("-0.25"),
+            snapshot_time=target_time,
+            home_odds=Decimal("1.90"),
+            away_odds=Decimal("1.91"),
+        ),
+        max_snapshots_per_match=20,
+        kickoff_time=match.kickoff_time,
+        max_snapshots_per_market_type=20,
+    )
+
+    report = supplement_historical_odds_snapshots_from_raw(
+        session,
+        match_ids={match.id},
+        target_minutes_before_kickoff=(20,),
+    )
+
+    assert report.supplemented_match_count == 1
+    assert report.added_snapshot_count == 2
+
+
+def test_supplement_historical_odds_snapshots_from_raw_counts_requested_match_without_raw(session):
+    match = _match(session)
+
+    report = supplement_historical_odds_snapshots_from_raw(
+        session,
+        match_ids={match.id},
+        target_minutes_before_kickoff=(20,),
+    )
+
+    assert report.scanned_match_count == 1
+    assert report.skipped_no_raw_count == 1
+    assert report.supplemented_match_count == 0
+    assert report.added_snapshot_count == 0
+
+
+def test_store_historical_odds_snapshots_preserves_execution_timepoint_from_source(session):
+    match = _match(session)
+    existing = _market_pair(
+        match.id,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.25"),
+        snapshot_time=datetime(2026, 5, 23, 18, 30, tzinfo=ZoneInfo("UTC")),
+    )
+    source = existing + _market_pair(
+        match.id,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.25"),
+        snapshot_time=datetime(2026, 5, 23, 18, 40, tzinfo=ZoneInfo("UTC")),
+        home_odds=Decimal("1.87"),
+        away_odds=Decimal("1.95"),
+    )
+
+    result = store_historical_odds_snapshots(
+        session,
+        existing,
+        max_snapshots_per_match=2,
+        kickoff_time=match.kickoff_time,
+        execution_timepoint_source_snapshots=source,
+    )
+
+    saved_times = {
+        row.snapshot_time.replace(tzinfo=ZoneInfo("UTC"))
+        for row in session.query(HistoricalOddsSnapshot).all()
+    }
+    assert result.inserted_count == 4
+    assert datetime(2026, 5, 23, 18, 40, tzinfo=ZoneInfo("UTC")) in saved_times
 
 
 def test_build_historical_odds_coverage_report_counts_matches_and_market_rows(session):

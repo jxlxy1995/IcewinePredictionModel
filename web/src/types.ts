@@ -546,8 +546,32 @@ export type RecommendationSummaryPlaceholder = {
   label: string;
 };
 
+export type ExecutionTimepointCoverageCell = {
+  target_minutes: number;
+  label: string;
+  available: boolean;
+  snapshot_time: string | null;
+  market_line: string | null;
+};
+
+export type ExecutionTimepointCoverageRow = {
+  market_type: string;
+  market_label: string;
+  cells: ExecutionTimepointCoverageCell[];
+};
+
+export type ExecutionTimepointCoverage = {
+  targets: string[];
+  rows: ExecutionTimepointCoverageRow[];
+  available_count: number;
+  total_count: number;
+  health_key: "high" | "medium" | "low" | "none" | string;
+  health_label: string;
+};
+
 export type MatchDetail = MatchListMatch & {
   team_data_note: string;
+  execution_timepoint_coverage: ExecutionTimepointCoverage;
   paper_recommendation_summary: RecommendationSummaryPlaceholder;
   formal_recommendation_summary: RecommendationSummaryPlaceholder;
 };

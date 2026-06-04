@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from icewine_prediction.config import BEIJING_TIMEZONE
 from icewine_prediction.display_service import DisplayNameService
+from icewine_prediction.execution_timepoint_service import select_execution_timepoint_pair
+from icewine_prediction.historical_training_sample_service import _pair_market_snapshots
 from icewine_prediction.models import (
     DataSyncRun,
     HistoricalOddsSnapshot,
@@ -25,6 +27,13 @@ from icewine_prediction.oddspapi_sync_runner import (
     ODDSPAPI_SOURCE_NAME,
     _as_utc,
     _historical_snapshot_as_utc,
+)
+
+EXECUTION_TIMEPOINT_TARGETS = (60, 30, 25, 20, 15, 10)
+EXECUTION_TIMEPOINT_MARKETS = (
+    ("asian_handicap", "亚盘"),
+    ("total_goals", "大小球"),
+    ("match_winner", "胜平负"),
 )
 
 
@@ -110,6 +119,32 @@ class RecommendationSummary:
 
 
 @dataclass(frozen=True)
+class ExecutionTimepointCoverageCell:
+    target_minutes: int
+    label: str
+    available: bool
+    snapshot_time: str | None
+    market_line: str | None
+
+
+@dataclass(frozen=True)
+class ExecutionTimepointCoverageRow:
+    market_type: str
+    market_label: str
+    cells: list[ExecutionTimepointCoverageCell]
+
+
+@dataclass(frozen=True)
+class ExecutionTimepointCoverage:
+    targets: list[str]
+    rows: list[ExecutionTimepointCoverageRow]
+    available_count: int
+    total_count: int
+    health_key: str
+    health_label: str
+
+
+@dataclass(frozen=True)
 class MatchDetail:
     match_id: int
     kickoff_time: str
@@ -130,6 +165,7 @@ class MatchDetail:
     odds_status_label: str
     team_data_note: str
     odds_summary: MatchOddsSummary
+    execution_timepoint_coverage: ExecutionTimepointCoverage
     paper_recommendation_summary: RecommendationSummary
     formal_recommendation_summary: RecommendationSummary
 
@@ -348,6 +384,7 @@ def build_match_detail(
         odds_status_label=row.odds_status_label,
         team_data_note="待接入",
         odds_summary=row.odds_summary,
+        execution_timepoint_coverage=_execution_timepoint_coverage(session, match),
         paper_recommendation_summary=RecommendationSummary(
             count=paper_count,
             label=f"纸面推荐 {paper_count} 条" if paper_count else "暂无纸面推荐记录",
@@ -357,6 +394,88 @@ def build_match_detail(
             label=f"正式推荐 {formal_count} 条" if formal_count else "暂无正式推荐记录",
         ),
     )
+
+
+def _execution_timepoint_coverage(
+    session: Session,
+    match: Match,
+) -> ExecutionTimepointCoverage:
+    snapshots = (
+        session.query(HistoricalOddsSnapshot)
+        .filter(HistoricalOddsSnapshot.match_id == match.id)
+        .filter(HistoricalOddsSnapshot.source_name == ODDSPAPI_SOURCE_NAME)
+        .filter(HistoricalOddsSnapshot.bookmaker == "pinnacle")
+        .order_by(HistoricalOddsSnapshot.snapshot_time.asc())
+        .all()
+    )
+    kickoff_time = _snapshot_timeline_kickoff_time(match)
+    rows: list[ExecutionTimepointCoverageRow] = []
+    available_count = 0
+    for market_type, market_label in EXECUTION_TIMEPOINT_MARKETS:
+        pairs = _pair_market_snapshots(
+            [snapshot for snapshot in snapshots if snapshot.market_type == market_type],
+            market_type=market_type,
+        )
+        cells = []
+        for target in EXECUTION_TIMEPOINT_TARGETS:
+            selected = select_execution_timepoint_pair(
+                pairs,
+                kickoff_time=kickoff_time,
+                target_minutes_before_kickoff=target,
+            )
+            if selected is not None:
+                available_count += 1
+            cells.append(
+                ExecutionTimepointCoverageCell(
+                    target_minutes=target,
+                    label=f"T-{target}",
+                    available=selected is not None,
+                    snapshot_time=(
+                        _format_local_beijing_datetime(selected.snapshot_time)
+                        if selected is not None
+                        else None
+                    ),
+                    market_line=(
+                        f"{selected.market_line:.2f}" if selected is not None else None
+                    ),
+                )
+            )
+        rows.append(
+            ExecutionTimepointCoverageRow(
+                market_type=market_type,
+                market_label=market_label,
+                cells=cells,
+            )
+        )
+    total_count = len(EXECUTION_TIMEPOINT_TARGETS) * len(EXECUTION_TIMEPOINT_MARKETS)
+    health_key, health_label = _execution_timepoint_health(available_count, total_count)
+    return ExecutionTimepointCoverage(
+        targets=[f"T-{target}" for target in EXECUTION_TIMEPOINT_TARGETS],
+        rows=rows,
+        available_count=available_count,
+        total_count=total_count,
+        health_key=health_key,
+        health_label=health_label,
+    )
+
+
+def _execution_timepoint_health(available_count: int, total_count: int) -> tuple[str, str]:
+    if available_count <= 0:
+        return "none", "无覆盖"
+    ratio = Decimal(available_count) / Decimal(total_count)
+    if ratio >= Decimal("0.90"):
+        return "high", "健康"
+    if ratio >= Decimal("0.60"):
+        return "medium", "可用"
+    return "low", "偏低"
+
+
+def _snapshot_timeline_kickoff_time(match: Match) -> datetime:
+    if match.fixture_timestamp is not None:
+        return datetime.fromtimestamp(match.fixture_timestamp, ZoneInfo("UTC"))
+    if match.kickoff_time.tzinfo is None:
+        return match.kickoff_time.replace(tzinfo=ZoneInfo(BEIJING_TIMEZONE)).astimezone(ZoneInfo("UTC"))
+    return match.kickoff_time.astimezone(ZoneInfo("UTC"))
 
 
 def _match_list_filtered_query(

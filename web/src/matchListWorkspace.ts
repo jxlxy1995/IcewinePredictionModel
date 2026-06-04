@@ -1,4 +1,10 @@
-import type { MatchDetail, MatchListMatch, MatchListWorkspace, MatchSyncReport } from "./types";
+import type {
+  ExecutionTimepointCoverage,
+  MatchDetail,
+  MatchListMatch,
+  MatchListWorkspace,
+  MatchSyncReport
+} from "./types";
 
 export type MatchFreshnessCard = {
   label: string;
@@ -19,6 +25,22 @@ export type MatchListDisplayRow = {
 export type MatchSyncSummary = {
   title: string;
   line: string;
+};
+
+export type ExecutionTimepointCoverageView = {
+  summary: string;
+  healthClassName: string;
+  healthLabel: string;
+  targets: string[];
+  rows: {
+    marketLabel: string;
+    cells: {
+      label: string;
+      available: boolean;
+      className: string;
+      title: string;
+    }[];
+  }[];
 };
 
 export function buildMatchFreshnessCards(workspace: MatchListWorkspace): MatchFreshnessCard[] {
@@ -67,6 +89,28 @@ export function summarizeMatchDetail(detail: MatchDetail) {
     }`,
     recommendations: `${detail.paper_recommendation_summary.label} / ${detail.formal_recommendation_summary.label}`,
     teamData: detail.team_data_note
+  };
+}
+
+export function buildExecutionTimepointCoverageView(
+  coverage: ExecutionTimepointCoverage
+): ExecutionTimepointCoverageView {
+  return {
+    summary: `${coverage.available_count}/${coverage.total_count}`,
+    healthClassName: `coverage-health coverage-health-${coverage.health_key}`,
+    healthLabel: coverage.health_label,
+    targets: coverage.targets,
+    rows: coverage.rows.map((row) => ({
+      marketLabel: row.market_label,
+      cells: row.cells.map((cell) => ({
+        label: cell.label,
+        available: cell.available,
+        className: `coverage-cell ${cell.available ? "available" : "missing"}`,
+        title: cell.available
+          ? `${cell.label} · ${formatDateTime(cell.snapshot_time)} · 盘口 ${cell.market_line ?? "-"}`
+          : `${cell.label} · 缺失`
+      }))
+    }))
   };
 }
 

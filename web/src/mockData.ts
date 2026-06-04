@@ -562,6 +562,48 @@ export const mockMatchListWorkspace: MatchListWorkspace = {
 export const mockMatchDetail: MatchDetail = {
   ...mockMatchListWorkspace.matches[0],
   team_data_note: "待接入",
+  execution_timepoint_coverage: {
+    targets: ["T-60", "T-30", "T-25", "T-20", "T-15", "T-10"],
+    available_count: 0,
+    total_count: 18,
+    health_key: "none",
+    health_label: "无覆盖",
+    rows: [
+      {
+        market_type: "asian_handicap",
+        market_label: "亚盘",
+        cells: ["T-60", "T-30", "T-25", "T-20", "T-15", "T-10"].map((label) => ({
+          target_minutes: Number(label.slice(2)),
+          label,
+          available: false,
+          snapshot_time: null,
+          market_line: null
+        }))
+      },
+      {
+        market_type: "total_goals",
+        market_label: "大小球",
+        cells: ["T-60", "T-30", "T-25", "T-20", "T-15", "T-10"].map((label) => ({
+          target_minutes: Number(label.slice(2)),
+          label,
+          available: false,
+          snapshot_time: null,
+          market_line: null
+        }))
+      },
+      {
+        market_type: "match_winner",
+        market_label: "胜平负",
+        cells: ["T-60", "T-30", "T-25", "T-20", "T-15", "T-10"].map((label) => ({
+          target_minutes: Number(label.slice(2)),
+          label,
+          available: false,
+          snapshot_time: null,
+          market_line: null
+        }))
+      }
+    ]
+  },
   paper_recommendation_summary: { count: 0, label: "暂无纸面推荐记录" },
   formal_recommendation_summary: { count: 0, label: "暂无正式推荐记录" }
 };

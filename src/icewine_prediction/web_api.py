@@ -1529,6 +1529,7 @@ def build_match_detail_payload(detail) -> dict[str, Any]:
         "odds_status_label": detail.odds_status_label,
         "team_data_note": detail.team_data_note,
         "odds_summary": asdict(detail.odds_summary),
+        "execution_timepoint_coverage": asdict(detail.execution_timepoint_coverage),
         "paper_recommendation_summary": asdict(detail.paper_recommendation_summary),
         "formal_recommendation_summary": asdict(detail.formal_recommendation_summary),
     }

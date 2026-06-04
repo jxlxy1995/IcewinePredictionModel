@@ -25,6 +25,7 @@ def test_odds_source_group_exposes_oddspapi_commands():
     assert "oddspapi-audit-backfill" in result.stdout
     assert "oddspapi-suggest-aliases" in result.stdout
     assert "oddspapi-sample-candidates" in result.stdout
+    assert "oddspapi-supplement-snapshots-from-raw" in result.stdout
 
 
 def test_oddspapi_plan_accepts_season_and_match_limit(monkeypatch):
@@ -111,6 +112,43 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
     assert "'135'" in result.stdout
     assert "'140'" in result.stdout
     assert ":2026-01-15:3.0:True" in result.stdout
+
+
+def test_oddspapi_supplement_snapshots_from_raw_accepts_match_ids(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.supplement_historical_odds_snapshots_from_raw",
+        lambda session,
+        match_ids=None,
+        source_name="oddspapi",
+        bookmaker="pinnacle": type(
+            "Report",
+            (),
+            {
+                "scanned_match_count": 2,
+                "skipped_no_raw_count": 0,
+                "supplemented_match_count": 1,
+                "added_group_count": 3,
+                "added_snapshot_count": 6,
+            },
+        )(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "odds-source",
+            "oddspapi-supplement-snapshots-from-raw",
+            "--match-ids",
+            "18410,18411",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "scanned=2" in result.stdout
+    assert "supplemented_matches=1" in result.stdout
+    assert "added_groups=3" in result.stdout
+    assert "added_snapshots=6" in result.stdout
 
 
 def test_oddspapi_probe_accepts_season_match_limit_and_request_budget(monkeypatch):

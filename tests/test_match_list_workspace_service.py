@@ -477,6 +477,50 @@ def test_match_detail_includes_odds_and_recommendation_placeholders(session):
     assert detail.formal_recommendation_summary.label == "\u6682\u65e0\u6b63\u5f0f\u63a8\u8350\u8bb0\u5f55"
 
 
+def test_match_detail_includes_standard_execution_timepoint_coverage(session):
+    league = League(name="J1 League", country_or_region="Japan", level=1)
+    home = Team(canonical_name="Sanfrecce Hiroshima")
+    away = Team(canonical_name="Kawasaki Frontale")
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=BEIJING),
+        status="scheduled",
+    )
+    session.add_all([league, home, away, match])
+    session.flush()
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.50"),
+        target_minutes=60,
+    )
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="total_goals",
+        market_line=Decimal("2.50"),
+        target_minutes=10,
+    )
+    session.commit()
+
+    detail = build_match_detail(session, match_id=match.id)
+
+    assert detail is not None
+    coverage = detail.execution_timepoint_coverage
+    assert coverage.available_count == 2
+    assert coverage.total_count == 18
+    assert coverage.health_key == "low"
+    asian = next(row for row in coverage.rows if row.market_type == "asian_handicap")
+    total = next(row for row in coverage.rows if row.market_type == "total_goals")
+    winner = next(row for row in coverage.rows if row.market_type == "match_winner")
+    assert [cell.available for cell in asian.cells] == [True, False, False, False, False, False]
+    assert [cell.available for cell in total.cells] == [False, False, False, False, False, True]
+    assert [cell.available for cell in winner.cells] == [False, False, False, False, False, False]
+
+
 def _add_asian_handicap_snapshot(session, match: Match, *, line: Decimal):
     session.add_all(
         [
@@ -511,6 +555,39 @@ def _add_asian_handicap_snapshot(session, match: Match, *, line: Decimal):
         ]
     )
     session.commit()
+
+
+def _add_historical_market_pair_at_target(
+    session,
+    match: Match,
+    *,
+    market_type: str,
+    market_line: Decimal,
+    target_minutes: int,
+) -> None:
+    sides = {
+        "asian_handicap": ("home", "away"),
+        "total_goals": ("over", "under"),
+        "match_winner": ("home", "draw", "away"),
+    }[market_type]
+    snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=target_minutes)
+    for side in sides:
+        session.add(
+            HistoricalOddsSnapshot(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id=match.source_match_id or str(match.id),
+                bookmaker="pinnacle",
+                market_type=market_type,
+                market_id=f"{market_type}-{target_minutes}-{side}",
+                market_name=market_type,
+                market_line=market_line,
+                outcome_side=side,
+                odds=Decimal("1.900"),
+                snapshot_time=snapshot_time,
+                period="fulltime",
+            )
+        )
 
 
 def _add_match(

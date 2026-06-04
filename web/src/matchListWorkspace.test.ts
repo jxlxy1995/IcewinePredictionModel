@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildExecutionTimepointCoverageView,
   buildMatchFreshnessCards,
   buildMatchListRows,
   buildMatchSyncSummary,
@@ -59,6 +60,51 @@ const workspace: MatchListWorkspace = {
 const detail: MatchDetail = {
   ...workspace.matches[0],
   team_data_note: "Pending",
+  execution_timepoint_coverage: {
+    targets: ["T-60", "T-30", "T-25", "T-20", "T-15", "T-10"],
+    available_count: 2,
+    total_count: 18,
+    health_key: "low",
+    health_label: "偏低",
+    rows: [
+      {
+        market_type: "asian_handicap",
+        market_label: "亚盘",
+        cells: [
+          { target_minutes: 60, label: "T-60", available: true, snapshot_time: "2026-05-30T12:00:00+08:00", market_line: "-0.50" },
+          { target_minutes: 30, label: "T-30", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 25, label: "T-25", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 20, label: "T-20", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 15, label: "T-15", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 10, label: "T-10", available: false, snapshot_time: null, market_line: null }
+        ]
+      },
+      {
+        market_type: "total_goals",
+        market_label: "大小球",
+        cells: [
+          { target_minutes: 60, label: "T-60", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 30, label: "T-30", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 25, label: "T-25", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 20, label: "T-20", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 15, label: "T-15", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 10, label: "T-10", available: true, snapshot_time: "2026-05-30T12:50:00+08:00", market_line: "2.50" }
+        ]
+      },
+      {
+        market_type: "match_winner",
+        market_label: "胜平负",
+        cells: [
+          { target_minutes: 60, label: "T-60", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 30, label: "T-30", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 25, label: "T-25", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 20, label: "T-20", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 15, label: "T-15", available: false, snapshot_time: null, market_line: null },
+          { target_minutes: 10, label: "T-10", available: false, snapshot_time: null, market_line: null }
+        ]
+      }
+    ]
+  },
   paper_recommendation_summary: { count: 0, label: "No paper records" },
   formal_recommendation_summary: { count: 0, label: "No formal records" }
 };
@@ -105,6 +151,22 @@ describe("matchListWorkspace", () => {
       fixture: "Hiroshima vs Kawasaki",
       recommendations: "No paper records / No formal records",
       teamData: "Pending"
+    });
+  });
+
+  it("builds execution timepoint coverage view model", () => {
+    expect(buildExecutionTimepointCoverageView(detail.execution_timepoint_coverage)).toMatchObject({
+      summary: "2/18",
+      healthClassName: "coverage-health coverage-health-low",
+      healthLabel: "偏低"
+    });
+    expect(buildExecutionTimepointCoverageView(detail.execution_timepoint_coverage).rows[0].cells[0]).toMatchObject({
+      className: "coverage-cell available",
+      title: "T-60 · 2026-05-30 12:00 · 盘口 -0.50"
+    });
+    expect(buildExecutionTimepointCoverageView(detail.execution_timepoint_coverage).rows[0].cells[1]).toMatchObject({
+      className: "coverage-cell missing",
+      title: "T-30 · 缺失"
     });
   });
 

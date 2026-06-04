@@ -988,7 +988,7 @@ def test_api_football_league_mappings_include_new_main_leagues():
     assert mappings["262"] == 27466
 
 
-def test_run_oddspapi_sync_for_session_samples_snapshots_before_storing(session):
+def test_run_oddspapi_sync_for_session_preserves_execution_timepoints_after_sampling(session):
     _match(session)
     raw_client = FakeOddsPapiClient()
     client = OddsPapiSyncClient(raw_client)
@@ -1001,8 +1001,8 @@ def test_run_oddspapi_sync_for_session_samples_snapshots_before_storing(session)
         max_snapshots_per_match=2,
     )
 
-    assert result.inserted_snapshot_count == 2
-    assert session.query(HistoricalOddsSnapshot).count() == 2
+    assert result.inserted_snapshot_count == 3
+    assert session.query(HistoricalOddsSnapshot).count() == 3
 
 
 def test_run_oddspapi_sync_for_session_refetches_existing_count_complete_but_market_incomplete_odds(session):
@@ -1894,7 +1894,7 @@ def test_run_oddspapi_sync_for_session_stores_main_snapshots_and_raw_neighbor_su
     assert raw_lines == {Decimal("3.00"), Decimal("3.25"), Decimal("3.50")}
 
 
-def test_run_oddspapi_sync_for_session_skips_store_when_refetch_has_fewer_main_snapshots(session):
+def test_run_oddspapi_sync_for_session_continues_when_refetch_has_fewer_main_snapshots(session):
     match = _match(session)
     _add_historical_snapshots(session, match, count=50)
     session.add(
@@ -1921,12 +1921,12 @@ def test_run_oddspapi_sync_for_session_skips_store_when_refetch_has_fewer_main_s
     )
 
     assert result.processed_match_count == 1
-    assert result.inserted_snapshot_count == 0
-    assert result.skipped_duplicate_snapshot_count == 50
+    assert result.inserted_snapshot_count == 4
+    assert result.skipped_duplicate_snapshot_count == 0
     assert session.query(OddsSourceMatch).filter_by(match_id=match.id).one().historical_odds_status == "success"
-    assert session.query(HistoricalOddsSnapshot).filter_by(match_id=match.id).count() == 50
+    assert session.query(HistoricalOddsSnapshot).filter_by(match_id=match.id).count() == 54
     assert any(
-        "skip_store_fewer_main_snapshots" in message
+        "warn_fewer_main_snapshots_continue_for_execution_timepoints" in message
         and "new_main=4" in message
         and "existing_24h=50" in message
         for message in messages

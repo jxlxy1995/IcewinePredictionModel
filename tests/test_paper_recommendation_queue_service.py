@@ -1534,6 +1534,36 @@ def test_build_paper_recommendation_queue_adds_total_goals_bucket_strategy_candi
     ] == []
 
 
+def test_build_paper_recommendation_queue_does_not_create_hgb_total_goals_from_distribution_score(session):
+    match, now = _seed_total_goals_priced_match(session, total_line=Decimal("2.75"))
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=6,
+        scorer=lambda row: PaperQueueScore(
+            market_type="total_goals",
+            side="under",
+            model_probability=Decimal("0.6127"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.1127"),
+            model_name="poisson_total_goals_distribution",
+        ),
+    )
+
+    assert not [
+        row
+        for row in report.rows
+        if row.match_id == match.id
+        and row.strategy_key
+        in {
+            "total_goals_hgb_bucket_v2",
+            "total_goals_hgb_low_line_bucket_v3",
+            "total_goals_hgb_confirmed_under_low_225_v1",
+        }
+    ]
+
+
 def test_build_paper_recommendation_queue_adds_total_goals_low_line_v3_candidate(session):
     match, now = _seed_total_goals_priced_match(session, total_line=Decimal("2.25"))
 

@@ -1462,6 +1462,8 @@ def _home_favorite_v1_row(row: PaperQueueRow) -> PaperQueueRow | None:
 
 
 def _total_goals_bucket_rows(row: PaperQueueRow) -> list[PaperQueueRow]:
+    if _is_total_goals_distribution_row(row):
+        return []
     rows = []
     for strategy in (
         TOTAL_GOALS_BUCKET_V2_STRATEGY,

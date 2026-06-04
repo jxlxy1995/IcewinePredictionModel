@@ -13,7 +13,6 @@ from icewine_prediction.paper_strategy_registry import (
     ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
     ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_KEY,
     ASIAN_HOME_COVER_HGB_FAVORITE_BUCKET_V1_NAME,
-    DEFAULT_STRATEGY,
     STRATEGIES,
     PaperStrategy,
     strategy_for_key,
@@ -75,6 +74,9 @@ def create_paper_record_from_queue_row(
     recorded_at: datetime,
 ) -> PaperRecommendationRecord:
     _validate_recordable_candidate(row)
+    strategy = strategy_for_key(row.strategy_key)
+    if strategy is None:
+        raise ValueError("paper record strategy is not open")
     if _has_duplicate_active_record(session, row):
         raise ValueError("duplicate active paper recommendation record")
     match = session.get(Match, row.match_id)
@@ -94,7 +96,7 @@ def create_paper_record_from_queue_row(
         kickoff_time=match.kickoff_time,
         strategy_key=row.strategy_key,
         strategy_display_name=row.strategy_display_name,
-        model_name=DEFAULT_STRATEGY.model_name,
+        model_name=strategy.model_name,
         signal_version=row.signal_version,
         market_type=row.market_type,
         side=row.side or "",

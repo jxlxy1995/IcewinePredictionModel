@@ -6,6 +6,11 @@ import pytest
 
 from icewine_prediction.models import League, Match, Team
 from icewine_prediction.paper_recommendation_queue_service import PaperQueueRow
+from icewine_prediction.paper_strategy_registry import (
+    TOTAL_GOALS_DISTRIBUTION_MODEL_NAME,
+    TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_UNDER_HIGH_300_V1_KEY,
+    TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_UNDER_HIGH_300_V1_NAME,
+)
 from icewine_prediction.paper_recommendation_tracking_service import (
     ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
     ASIAN_AWAY_COVER_HGB_EDGE_V1_NAME,
@@ -141,6 +146,32 @@ def test_create_paper_record_from_total_goals_low_line_v3_candidate_preserves_st
     assert record.side == "over"
     assert record.line_bucket == "low_<=2.25"
     assert record.signal_version == "v3"
+
+
+def test_create_paper_record_from_distribution_candidate_preserves_model_name(session):
+    match = _seed_match(session)
+    row = _queue_row(
+        match,
+        status="candidate",
+        line=Decimal("3.00"),
+        market_type="total_goals",
+        side="under",
+        recommended_handicap="灏?3.00",
+        odds=Decimal("2.000"),
+        line_bucket="high_>=3.00",
+        risk_tags=(
+            "line_bucket:high_>=3.00",
+            "strategy:total_goals_distribution_hgb_confirmed_under_high_300_v1",
+        ),
+        strategy_key=TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_UNDER_HIGH_300_V1_KEY,
+        strategy_display_name=TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_UNDER_HIGH_300_V1_NAME,
+        edge=Decimal("0.1127"),
+    )
+
+    record = create_paper_record_from_queue_row(session, row, recorded_at=_now())
+
+    assert record.strategy_key == TOTAL_GOALS_DISTRIBUTION_HGB_CONFIRMED_UNDER_HIGH_300_V1_KEY
+    assert record.model_name == TOTAL_GOALS_DISTRIBUTION_MODEL_NAME
 
 
 def test_create_paper_record_allows_parallel_strategy_records_for_same_match(session):

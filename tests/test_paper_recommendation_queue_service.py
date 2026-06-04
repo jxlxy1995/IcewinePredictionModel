@@ -823,6 +823,85 @@ def test_build_paper_recommendation_queue_ignores_latest_when_t10_targets_are_ro
     assert len(scorer_calls) <= 6
 
 
+def test_build_paper_recommendation_queue_uses_symmetric_timepoint_tolerance(session):
+    league = League(name="Symmetric Target League", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Symmetric Home")
+    away = Team(canonical_name="Symmetric Away")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="scheduled-symmetric-target",
+    )
+    session.add(match)
+    session.flush()
+    for target_minutes in (60, 25, 20, 15, 10):
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="asian_handicap",
+            line=Decimal("-0.50"),
+            outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="total_goals",
+            line=Decimal("2.50"),
+            outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="match_winner",
+            line=Decimal("0.00"),
+            outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
+        )
+    for market_type, line, outcomes in (
+        ("asian_handicap", Decimal("-0.50"), {"home": Decimal("2.00"), "away": Decimal("1.90")}),
+        ("total_goals", Decimal("2.50"), {"over": Decimal("1.91"), "under": Decimal("1.99")}),
+        ("match_winner", Decimal("0.00"), {"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")}),
+    ):
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=30,
+            market_type=market_type,
+            line=line,
+            outcomes=outcomes,
+            offset=timedelta(seconds=12),
+        )
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 30, 2, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+        hours=2,
+        scorer=lambda row: PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal(row["asian_handicap_away_implied_probability"]),
+            edge=Decimal("0.1300"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    assert report.candidate_count == 1
+    candidate = report.rows[0]
+    assert candidate.robustness_status == "kept"
+    assert candidate.robustness_seen_count == 6
+    assert candidate.robustness_observed_targets == (10, 15, 20, 25, 30, 60)
+
+
 def test_build_paper_recommendation_queue_sets_scoring_edge_from_trimmed_robust_edges(session):
     league = League(name="Scoring Edge League", country_or_region="Norway", level=1, is_enabled=True)
     home = Team(canonical_name="Scoring Edge Home")
@@ -2150,8 +2229,9 @@ def _add_historical_market_pair_at_target(
     market_type: str,
     line: Decimal,
     outcomes: dict[str, Decimal],
+    offset: timedelta = timedelta(0),
 ) -> None:
-    snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=target_minutes)
+    snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=target_minutes) + offset
     for side, odds in outcomes.items():
         session.add(
             HistoricalOddsSnapshot(

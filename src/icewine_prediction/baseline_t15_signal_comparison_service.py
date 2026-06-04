@@ -19,6 +19,10 @@ from icewine_prediction.historical_training_sample_service import (
     _comparable_datetime,
     _pair_market_snapshots,
 )
+from icewine_prediction.execution_timepoint_service import (
+    DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES,
+    select_execution_timepoint_pair,
+)
 from icewine_prediction.models import HistoricalOddsSnapshot, Match
 from icewine_prediction.oddspapi_sync_runner import ODDSPAPI_SOURCE_NAME
 from icewine_prediction.paper_recommendation_queue_service import (
@@ -41,7 +45,7 @@ ODDS_QUANT = Decimal("0.000")
 LINE_QUANT = Decimal("0.00")
 DEFAULT_BOOKMAKER = "pinnacle"
 T15_TARGET_MINUTES = 15
-T15_TOLERANCE_MINUTES = 5
+T15_TOLERANCE_MINUTES = DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES
 
 
 @dataclass(frozen=True)
@@ -242,22 +246,11 @@ def _select_t15_pair(
     target_minutes_before_kickoff: int = T15_TARGET_MINUTES,
     tolerance_minutes: int = T15_TOLERANCE_MINUTES,
 ) -> _PairedMarketSnapshot | None:
-    kickoff = _comparable_datetime(kickoff_time)
-    target_time = kickoff - timedelta(minutes=target_minutes_before_kickoff)
-    window_start = kickoff - timedelta(minutes=target_minutes_before_kickoff + tolerance_minutes)
-    candidates = [
-        pair
-        for pair in pairs
-        if window_start < _comparable_datetime(pair.snapshot_time) <= target_time
-    ]
-    if not candidates:
-        return None
-    return min(
-        candidates,
-        key=lambda pair: (
-            abs((_comparable_datetime(pair.snapshot_time) - target_time).total_seconds()),
-            pair.balance_gap,
-        ),
+    return select_execution_timepoint_pair(
+        pairs,
+        kickoff_time=kickoff_time,
+        target_minutes_before_kickoff=target_minutes_before_kickoff,
+        tolerance_minutes=tolerance_minutes,
     )
 
 

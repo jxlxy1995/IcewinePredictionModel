@@ -43,6 +43,30 @@ def test_select_t15_pair_uses_closest_snapshot_inside_ten_minute_window():
     assert selected.market_line == Decimal("-0.50")
 
 
+def test_select_t15_pair_accepts_snapshot_after_target_inside_tolerance():
+    kickoff_time = datetime(2026, 5, 20, 20, 0, tzinfo=UTC)
+    snapshots = []
+    for minutes, line, home_odds, away_odds in [
+        (16, Decimal("-0.25"), Decimal("1.91"), Decimal("1.93")),
+        (14, Decimal("-0.50"), Decimal("1.92"), Decimal("1.92")),
+    ]:
+        snapshots.extend(
+            [
+                _snapshot(kickoff_time, minutes, line, "home", home_odds),
+                _snapshot(kickoff_time, minutes, line, "away", away_odds),
+            ]
+        )
+
+    selected = _select_t15_pair(
+        _pair_market_snapshots(snapshots, market_type="asian_handicap"),
+        kickoff_time=kickoff_time,
+    )
+
+    assert selected is not None
+    assert selected.snapshot_time == kickoff_time - timedelta(minutes=14)
+    assert selected.market_line == Decimal("-0.50")
+
+
 def test_candidate_set_summary_compares_close_and_t15_candidates():
     close_candidates = [
         _candidate("1", "asian_away_cover_hgb_edge_v1", "asian_handicap", "away_cover", "2.10", True),

@@ -46,6 +46,10 @@ from icewine_prediction.execution_robustness_rules import (
     DEFAULT_SELECTED_ROBUSTNESS_RULES,
     SelectedExecutionRobustnessRule,
 )
+from icewine_prediction.execution_timepoint_service import (
+    DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES,
+    select_execution_timepoint_pair,
+)
 from icewine_prediction.models import HistoricalOddsSnapshot, Match, TrainingRun
 from icewine_prediction.oddspapi_sync_runner import (
     COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT,
@@ -88,7 +92,7 @@ MAX_CANDIDATE_ODDS_LEAD_TIME = timedelta(hours=3)
 MIN_CANDIDATE_ODDS_LEAD_TIME = timedelta(0)
 DEFAULT_EXECUTION_ROBUSTNESS_TARGETS = (60, 30, 25, 20, 15, 10)
 DEFAULT_EXECUTION_DECISION_TARGETS = (10, 15, 20, 25, 30)
-DEFAULT_EXECUTION_ROBUSTNESS_TOLERANCE_MINUTES = 5
+DEFAULT_EXECUTION_ROBUSTNESS_TOLERANCE_MINUTES = DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES
 _SCORER_CACHE: dict[
     tuple[tuple[Path, int | None, int | None], int],
     Callable[[dict[str, str]], PaperQueueScoreResult],
@@ -1319,22 +1323,11 @@ def _select_execution_pair(
     target_minutes_before_kickoff: int,
     tolerance_minutes: int,
 ) -> _PairedMarketSnapshot | None:
-    kickoff = _comparable_datetime(kickoff_time)
-    target_time = kickoff - timedelta(minutes=target_minutes_before_kickoff)
-    window_start = kickoff - timedelta(minutes=target_minutes_before_kickoff + tolerance_minutes)
-    candidates = [
-        pair
-        for pair in pairs
-        if window_start < _comparable_datetime(pair.snapshot_time) <= target_time
-    ]
-    if not candidates:
-        return None
-    return min(
-        candidates,
-        key=lambda pair: (
-            abs((_comparable_datetime(pair.snapshot_time) - target_time).total_seconds()),
-            pair.balance_gap,
-        ),
+    return select_execution_timepoint_pair(
+        pairs,
+        kickoff_time=kickoff_time,
+        target_minutes_before_kickoff=target_minutes_before_kickoff,
+        tolerance_minutes=tolerance_minutes,
     )
 
 

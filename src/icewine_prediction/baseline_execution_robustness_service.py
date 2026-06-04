@@ -37,6 +37,7 @@ from icewine_prediction.historical_training_sample_service import (
     _comparable_datetime,
     _pair_market_snapshots,
 )
+from icewine_prediction.execution_timepoint_service import DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES
 from icewine_prediction.models import HistoricalOddsSnapshot, Match
 from icewine_prediction.oddspapi_sync_runner import ODDSPAPI_SOURCE_NAME
 from icewine_prediction.paper_recommendation_queue_service import (
@@ -55,7 +56,7 @@ from icewine_prediction.paper_strategy_registry import DEFAULT_STRATEGY, STRATEG
 METRIC_QUANT = Decimal("0.0001")
 DEFAULT_EXECUTION_TARGETS = (60, 30, 25, 20, 15, 10)
 DEFAULT_PRIMARY_TARGET = 10
-DEFAULT_TARGET_TOLERANCE_MINUTES = 5
+DEFAULT_TARGET_TOLERANCE_MINUTES = DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES
 ROBUST_STRONG_MIN_EDGE = Decimal("0.0800")
 ROBUST_CANDIDATE_MIN_EDGE = Decimal("0.0500")
 

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createManualExecutionTimepointOdds,
   loadDashboardData,
   loadLatestTrainingRun,
   loadMatchListWorkspace,
@@ -427,6 +428,40 @@ describe("apiClient", () => {
       headers: { "Content-Type": "application/json" },
       method: "POST"
     });
+  });
+
+  it("creates manual execution timepoint odds with match id path", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        inserted_count: 2,
+        message: "manual execution timepoint odds created",
+        snapshot_time: "2026-05-30T12:40:00+08:00",
+        status: "created"
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createManualExecutionTimepointOdds(16356, {
+      market_line: "-0.50",
+      market_type: "asian_handicap",
+      odds_by_side: { away: "1.96", home: "1.90" },
+      target_minutes_before_kickoff: 20
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/matches/16356/execution-timepoint-odds/manual",
+      {
+        body: JSON.stringify({
+          market_line: "-0.50",
+          market_type: "asian_handicap",
+          odds_by_side: { away: "1.96", home: "1.90" },
+          target_minutes_before_kickoff: 20
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      }
+    );
+    expect(result.status).toBe("created");
   });
 
   it("includes API error detail when match odds sync fails", async () => {

@@ -1411,6 +1411,53 @@ def test_web_console_api_returns_match_list_workspace_and_detail(tmp_path):
     assert detail["paper_recommendation_summary"]["label"] == "暂无纸面推荐记录"
 
 
+def test_web_console_api_creates_manual_execution_timepoint_odds(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="J1 League", country_or_region="Japan", level=1)
+        home = Team(canonical_name="Sanfrecce Hiroshima")
+        away = Team(canonical_name="Kawasaki Frontale")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+        )
+        session.add_all([league, home, away, match])
+        session.commit()
+        match_id = match.id
+
+    client = TestClient(create_web_app(session_factory=session_factory, log_dir=tmp_path))
+
+    response = client.post(
+        f"/api/matches/{match_id}/execution-timepoint-odds/manual",
+        json={
+            "target_minutes_before_kickoff": 20,
+            "market_type": "match_winner",
+            "market_line": "0.00",
+            "odds_by_side": {"home": "2.20", "draw": "3.30", "away": "3.10"},
+        },
+    )
+    duplicate_response = client.post(
+        f"/api/matches/{match_id}/execution-timepoint-odds/manual",
+        json={
+            "target_minutes_before_kickoff": 20,
+            "market_type": "match_winner",
+            "market_line": "0.00",
+            "odds_by_side": {"home": "2.40", "draw": "3.10", "away": "2.90"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "created"
+    assert response.json()["inserted_count"] == 3
+    assert duplicate_response.status_code == 200
+    assert duplicate_response.json()["status"] == "already_exists"
+
+
 def test_web_console_api_match_list_sync_buttons_record_runs(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

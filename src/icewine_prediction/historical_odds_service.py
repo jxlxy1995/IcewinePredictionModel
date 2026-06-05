@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import json
 import math
 from zoneinfo import ZoneInfo
 
@@ -72,6 +73,24 @@ class HistoricalOddsRawSupplementReport:
     supplemented_match_count: int
     added_group_count: int
     added_snapshot_count: int
+
+
+@dataclass(frozen=True)
+class ManualExecutionTimepointOddsInput:
+    match_id: int
+    target_minutes_before_kickoff: int
+    market_type: str
+    market_line: Decimal
+    odds_by_side: dict[str, Decimal]
+    note: str | None = None
+
+
+@dataclass(frozen=True)
+class ManualExecutionTimepointOddsResult:
+    status: str
+    inserted_count: int
+    snapshot_time: datetime | None
+    message: str
 
 
 DEFAULT_EXECUTION_SNAPSHOT_TARGETS = (60, 30, 25, 20, 15, 10)
@@ -670,6 +689,85 @@ def supplement_historical_odds_snapshots_from_raw(
     )
 
 
+def create_manual_execution_timepoint_odds(
+    session: Session,
+    input_data: ManualExecutionTimepointOddsInput,
+) -> ManualExecutionTimepointOddsResult:
+    if input_data.target_minutes_before_kickoff not in DEFAULT_EXECUTION_SNAPSHOT_TARGETS:
+        raise ValueError("target minutes must be one of the standard execution targets")
+    if input_data.market_type not in STANDARD_SNAPSHOT_TARGET_MARKET_TYPES:
+        raise ValueError("market type is not supported for manual execution timepoint odds")
+    required_sides = _required_market_sides(input_data.market_type)
+    if set(input_data.odds_by_side) != set(required_sides):
+        raise ValueError("manual odds sides do not match market type")
+
+    match = session.get(Match, input_data.match_id)
+    if match is None:
+        raise ValueError("match not found")
+    kickoff_time = match_snapshot_timeline_kickoff_time(match)
+    existing_snapshots = _load_snapshot_inputs(
+        session,
+        input_data.match_id,
+        source_name="oddspapi",
+        bookmaker="pinnacle",
+    )
+    existing_pair = _select_execution_pair(
+        existing_snapshots,
+        input_data.market_type,
+        kickoff_time,
+        input_data.target_minutes_before_kickoff,
+    )
+    snapshot_time = kickoff_time - timedelta(minutes=input_data.target_minutes_before_kickoff)
+    if existing_pair is not None:
+        return ManualExecutionTimepointOddsResult(
+            status="already_exists",
+            inserted_count=0,
+            snapshot_time=snapshot_time,
+            message="execution timepoint odds already exist",
+        )
+
+    market_line = Decimal(input_data.market_line).quantize(Decimal("0.01"))
+    raw_payload = json.dumps(
+        {
+            "source": "manual",
+            "target_minutes_before_kickoff": input_data.target_minutes_before_kickoff,
+            "market_type": input_data.market_type,
+            "note": input_data.note,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+    )
+    snapshots = [
+        HistoricalOddsSnapshotInput(
+            match_id=input_data.match_id,
+            source_name="oddspapi",
+            source_fixture_id=match.source_match_id or str(match.id),
+            bookmaker="pinnacle",
+            market_type=input_data.market_type,
+            market_id=(
+                f"manual-{input_data.market_type}-T{input_data.target_minutes_before_kickoff}"
+            ),
+            market_name=_manual_market_name(input_data.market_type),
+            market_line=market_line,
+            outcome_side=side,
+            odds=Decimal(input_data.odds_by_side[side]).quantize(Decimal("0.001")),
+            snapshot_time=snapshot_time,
+            period="fulltime",
+            raw_payload=raw_payload,
+        )
+        for side in required_sides
+    ]
+    store_result = _store_sampled_historical_odds_snapshots(session, snapshots)
+    return ManualExecutionTimepointOddsResult(
+        status="created" if store_result.inserted_count else "already_exists",
+        inserted_count=store_result.inserted_count,
+        snapshot_time=snapshot_time,
+        message="manual execution timepoint odds created"
+        if store_result.inserted_count
+        else "execution timepoint odds already exist",
+    )
+
+
 def match_snapshot_timeline_kickoff_time(match: Match) -> datetime:
     if match.fixture_timestamp is not None:
         return datetime.fromtimestamp(match.fixture_timestamp, timezone.utc)
@@ -732,6 +830,26 @@ def _build_dynamic_main_market_snapshots(
     )
 
     return build_dynamic_main_market_snapshots(snapshots, kickoff_time=kickoff_time)
+
+
+def _required_market_sides(market_type: str) -> tuple[str, ...]:
+    if market_type == "asian_handicap":
+        return ("home", "away")
+    if market_type == "total_goals":
+        return ("over", "under")
+    if market_type == "match_winner":
+        return ("home", "draw", "away")
+    raise ValueError("unsupported market type")
+
+
+def _manual_market_name(market_type: str) -> str:
+    if market_type == "asian_handicap":
+        return "Manual Asian Handicap"
+    if market_type == "total_goals":
+        return "Manual Over Under Full Time"
+    if market_type == "match_winner":
+        return "Manual 1X2 Full Time"
+    return "Manual Odds"
 
 
 def _load_snapshot_inputs(

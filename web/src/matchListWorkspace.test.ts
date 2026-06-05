@@ -161,11 +161,17 @@ describe("matchListWorkspace", () => {
       healthLabel: "偏低"
     });
     expect(buildExecutionTimepointCoverageView(detail.execution_timepoint_coverage).rows[0].cells[0]).toMatchObject({
+      canCreateManualOdds: false,
       className: "coverage-cell available",
+      marketType: "asian_handicap",
+      targetMinutes: 60,
       title: "T-60 · 2026-05-30 12:00 · 盘口 -0.50"
     });
     expect(buildExecutionTimepointCoverageView(detail.execution_timepoint_coverage).rows[0].cells[1]).toMatchObject({
+      canCreateManualOdds: true,
       className: "coverage-cell missing",
+      marketType: "asian_handicap",
+      targetMinutes: 30,
       title: "T-30 · 缺失"
     });
   });

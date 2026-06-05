@@ -10,6 +10,7 @@ import {
   FlaskConical,
   Languages,
   ListChecks,
+  Plus,
   Play,
   ScrollText,
   Search,
@@ -18,6 +19,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import {
+  createManualExecutionTimepointOdds,
   loadDashboardData,
   loadMatchDetail,
   loadMatchListWorkspace,
@@ -104,6 +106,7 @@ import type {
   MatchSyncReport,
   MatchSyncRunDetail,
   MatchOddsTrends,
+  ManualExecutionTimepointOddsPayload,
   PaperCandidate,
   PaperRecord,
   TeamDisplayNameWorkspace
@@ -121,6 +124,23 @@ type ViewKey =
   | "paperTracking"
   | "odds"
   | "records";
+
+type ManualOddsSelection = {
+  marketLabel: string;
+  marketType: string;
+  targetLabel: string;
+  targetMinutes: number;
+};
+
+type ManualOddsDraft = {
+  marketLine: string;
+  home: string;
+  away: string;
+  draw: string;
+  over: string;
+  under: string;
+  note: string;
+};
 
 type NavItem = {
   key: ViewKey;
@@ -452,6 +472,9 @@ export function DashboardPage() {
                 .catch((error) => setMatchListError(formatActionError("读取比赛详情失败", error)))
                 .finally(() => setMatchListAction(null));
             }}
+            onDetailUpdated={(detail) => {
+              setSelectedMatchDetail(detail);
+            }}
             onDiscoverFixtures={() => {
               setMatchListAction("discover-fixtures");
               setMatchListError(null);
@@ -777,6 +800,7 @@ function MatchListView({
   filters,
   messageText,
   onBackToList,
+  onDetailUpdated,
   onFiltersChange,
   onOpenMatch,
   onSyncFixturesResults,
@@ -796,6 +820,7 @@ function MatchListView({
   };
   messageText: string | null;
   onBackToList: () => void;
+  onDetailUpdated: (detail: MatchDetail) => void;
   onFiltersChange: (filters: Partial<MatchListFilterState>) => void;
   onOpenMatch: (match: MatchListMatch) => void;
   onSyncFixturesResults: () => void;
@@ -807,6 +832,7 @@ function MatchListView({
         detail={detail}
         oddsError={null}
         oddsTrends={null}
+        onDetailUpdated={onDetailUpdated}
         onBack={onBackToList}
       />
     );
@@ -915,6 +941,7 @@ function FilteredMatchListView({
   syncRunDetail,
   onBackToList,
   onDiscoverFixtures,
+  onDetailUpdated,
   onFiltersChange,
   onLoadSyncRunDetail,
   onOpenMatch,
@@ -935,6 +962,7 @@ function FilteredMatchListView({
   syncRunDetail: MatchSyncRunDetail | null;
   onBackToList: () => void;
   onDiscoverFixtures: () => void;
+  onDetailUpdated: (detail: MatchDetail) => void;
   onFiltersChange: (filters: Partial<MatchListFilterState>) => void;
   onLoadSyncRunDetail: (runId: number) => void;
   onOpenMatch: (match: MatchListMatch) => void;
@@ -949,6 +977,9 @@ function FilteredMatchListView({
         detail={detail}
         oddsError={detailOddsError}
         oddsTrends={detailOddsTrends}
+        onDetailUpdated={(nextDetail) => {
+          onDetailUpdated(nextDetail);
+        }}
         onBack={onBackToList}
       />
     );
@@ -1148,11 +1179,13 @@ function MatchDetailView({
   detail,
   oddsError,
   oddsTrends,
+  onDetailUpdated,
   onBack
 }: {
   detail: MatchDetail;
   oddsError: string | null;
   oddsTrends: MatchOddsTrends | null;
+  onDetailUpdated: (detail: MatchDetail) => void;
   onBack: () => void;
 }) {
   const summary = summarizeMatchDetail(detail);
@@ -1202,7 +1235,7 @@ function MatchDetailView({
             <strong>{detail.odds_summary.match_winner ?? "-"}</strong>
           </div>
         </div>
-        <ExecutionTimepointCoverageMatrix detail={detail} />
+        <ExecutionTimepointCoverageMatrix detail={detail} onDetailUpdated={onDetailUpdated} />
       </Panel>
       {detail.has_odds && (
         <Panel title="赔率走势">
@@ -1218,8 +1251,62 @@ function MatchDetailView({
   );
 }
 
-function ExecutionTimepointCoverageMatrix({ detail }: { detail: MatchDetail }) {
+function ExecutionTimepointCoverageMatrix({
+  detail,
+  onDetailUpdated
+}: {
+  detail: MatchDetail;
+  onDetailUpdated: (detail: MatchDetail) => void;
+}) {
   const coverage = buildExecutionTimepointCoverageView(detail.execution_timepoint_coverage);
+  const [selected, setSelected] = useState<ManualOddsSelection | null>(null);
+  const [draft, setDraft] = useState<ManualOddsDraft>(() => createManualOddsDraft());
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const oddsFields = selected ? manualOddsFields(selected.marketType) : [];
+  const isMatchWinner = selected?.marketType === "match_winner";
+
+  function selectCell(cell: ManualOddsSelection) {
+    setSelected(cell);
+    setDraft(createManualOddsDraft(cell.marketType));
+    setMessage(null);
+    setError(null);
+  }
+
+  function updateDraft(key: keyof ManualOddsDraft, value: string) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  async function submitManualOdds(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) {
+      return;
+    }
+    setIsSubmitting(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const payload = buildManualOddsPayload(selected, draft);
+      const result = await createManualExecutionTimepointOdds(detail.match_id, payload);
+      setMessage(
+        result.status === "already_exists"
+          ? "该标准时点已存在赔率，未覆盖原记录"
+          : `已补录 ${result.inserted_count} 条赔率`
+      );
+      const nextDetail = await loadMatchDetail(detail.match_id);
+      onDetailUpdated(nextDetail);
+      if (result.status === "created") {
+        setSelected(null);
+        setDraft(createManualOddsDraft());
+      }
+    } catch (caught) {
+      setError(formatActionError("补录标准时点赔率失败", caught));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <div className="execution-coverage">
       <div className="execution-coverage-header">
@@ -1240,14 +1327,138 @@ function ExecutionTimepointCoverageMatrix({ detail }: { detail: MatchDetail }) {
             <div className="coverage-market">{row.marketLabel}</div>
             {row.cells.map((cell) => (
               <span className={cell.className} key={`${row.marketLabel}-${cell.label}`} title={cell.title}>
-                {cell.available ? "✓" : "-"}
+                {!cell.canCreateManualOdds ? (
+                  "✓"
+                ) : (
+                  <button
+                    aria-label={`补录${row.marketLabel}${cell.label}赔率`}
+                    className="coverage-add-button"
+                    onClick={() =>
+                      selectCell({
+                        marketLabel: row.marketLabel,
+                        marketType: cell.marketType,
+                        targetLabel: cell.label,
+                        targetMinutes: cell.targetMinutes
+                      })
+                    }
+                    type="button"
+                  >
+                    <Plus size={13} />
+                  </button>
+                )}
               </span>
             ))}
           </div>
         ))}
       </div>
+      {message && <div className="inline-success compact-message">{message}</div>}
+      {error && <div className="inline-warning compact-message">{error}</div>}
+      {selected && (
+        <form className="manual-odds-form" onSubmit={submitManualOdds}>
+          <div className="manual-odds-form-header">
+            <strong>
+              补录 {selected.marketLabel} · {selected.targetLabel}
+            </strong>
+            <button
+              className="inline-action compact-action"
+              disabled={isSubmitting}
+              onClick={() => setSelected(null)}
+              type="button"
+            >
+              取消
+            </button>
+          </div>
+          <div className="manual-odds-fields">
+            <label>
+              <span>盘口线</span>
+              <input
+                disabled={isSubmitting || isMatchWinner}
+                onChange={(event) => updateDraft("marketLine", event.target.value)}
+                placeholder={isMatchWinner ? "0.00" : "-0.50 / 2.50"}
+                required
+                value={isMatchWinner ? "0.00" : draft.marketLine}
+              />
+            </label>
+            {oddsFields.map((field) => (
+              <label key={field.key}>
+                <span>{field.label}</span>
+                <input
+                  disabled={isSubmitting}
+                  inputMode="decimal"
+                  onChange={(event) => updateDraft(field.key, event.target.value)}
+                  placeholder="1.900"
+                  required
+                  value={draft[field.key]}
+                />
+              </label>
+            ))}
+            <label className="manual-odds-note">
+              <span>备注</span>
+              <input
+                disabled={isSubmitting}
+                onChange={(event) => updateDraft("note", event.target.value)}
+                placeholder="可选"
+                value={draft.note}
+              />
+            </label>
+          </div>
+          <div className="manual-odds-actions">
+            <button disabled={isSubmitting} type="submit">
+              {isSubmitting ? "补录中" : "保存补录赔率"}
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
+}
+
+function createManualOddsDraft(marketType = ""): ManualOddsDraft {
+  return {
+    marketLine: marketType === "match_winner" ? "0.00" : "",
+    home: "",
+    away: "",
+    draw: "",
+    over: "",
+    under: "",
+    note: ""
+  };
+}
+
+function manualOddsFields(marketType: string): Array<{ key: keyof ManualOddsDraft; label: string }> {
+  if (marketType === "asian_handicap") {
+    return [
+      { key: "home", label: "主队赔率" },
+      { key: "away", label: "客队赔率" }
+    ];
+  }
+  if (marketType === "total_goals") {
+    return [
+      { key: "over", label: "大球赔率" },
+      { key: "under", label: "小球赔率" }
+    ];
+  }
+  return [
+    { key: "home", label: "主胜赔率" },
+    { key: "draw", label: "平局赔率" },
+    { key: "away", label: "客胜赔率" }
+  ];
+}
+
+function buildManualOddsPayload(
+  selection: ManualOddsSelection,
+  draft: ManualOddsDraft
+): ManualExecutionTimepointOddsPayload {
+  const odds_by_side = Object.fromEntries(
+    manualOddsFields(selection.marketType).map((field) => [field.key, draft[field.key]])
+  );
+  return {
+    target_minutes_before_kickoff: selection.targetMinutes,
+    market_type: selection.marketType,
+    market_line: selection.marketType === "match_winner" ? "0.00" : draft.marketLine,
+    odds_by_side,
+    ...(draft.note.trim() ? { note: draft.note.trim() } : {})
+  };
 }
 
 function TeamBadge({ logoUrl, name }: { logoUrl?: string | null; name: string }) {

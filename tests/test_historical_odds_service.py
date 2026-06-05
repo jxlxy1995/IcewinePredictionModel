@@ -5,8 +5,10 @@ from zoneinfo import ZoneInfo
 
 from icewine_prediction.historical_odds_service import (
     HistoricalOddsSnapshotInput,
+    ManualExecutionTimepointOddsInput,
     build_historical_odds_market_coverage,
     build_historical_odds_coverage_report,
+    create_manual_execution_timepoint_odds,
     sample_oddspapi_training_snapshots,
     sample_historical_odds_snapshots,
     supplement_execution_timepoint_snapshots,
@@ -352,6 +354,69 @@ def test_supplement_historical_odds_snapshots_from_raw_counts_requested_match_wi
     assert report.skipped_no_raw_count == 1
     assert report.supplemented_match_count == 0
     assert report.added_snapshot_count == 0
+
+
+def test_create_manual_execution_timepoint_odds_inserts_as_oddspapi_snapshot(session):
+    match = _match(session)
+
+    result = create_manual_execution_timepoint_odds(
+        session,
+        ManualExecutionTimepointOddsInput(
+            match_id=match.id,
+            target_minutes_before_kickoff=20,
+            market_type="asian_handicap",
+            market_line=Decimal("-0.50"),
+            odds_by_side={"home": Decimal("1.90"), "away": Decimal("1.96")},
+        ),
+    )
+
+    saved = session.query(HistoricalOddsSnapshot).order_by(HistoricalOddsSnapshot.outcome_side).all()
+    assert result.status == "created"
+    assert result.inserted_count == 2
+    assert {row.source_name for row in saved} == {"oddspapi"}
+    assert {row.bookmaker for row in saved} == {"pinnacle"}
+    assert {row.outcome_side: row.odds for row in saved} == {
+        "away": Decimal("1.960"),
+        "home": Decimal("1.900"),
+    }
+    assert {row.snapshot_time for row in saved} == {datetime(2026, 5, 23, 18, 40)}
+    assert all("manual" in (row.raw_payload or "") for row in saved)
+
+
+def test_create_manual_execution_timepoint_odds_returns_existing_without_overwrite(session):
+    match = _match(session)
+    first = create_manual_execution_timepoint_odds(
+        session,
+        ManualExecutionTimepointOddsInput(
+            match_id=match.id,
+            target_minutes_before_kickoff=20,
+            market_type="total_goals",
+            market_line=Decimal("2.50"),
+            odds_by_side={"over": Decimal("1.88"), "under": Decimal("1.98")},
+        ),
+    )
+
+    second = create_manual_execution_timepoint_odds(
+        session,
+        ManualExecutionTimepointOddsInput(
+            match_id=match.id,
+            target_minutes_before_kickoff=20,
+            market_type="total_goals",
+            market_line=Decimal("2.75"),
+            odds_by_side={"over": Decimal("1.70"), "under": Decimal("2.10")},
+        ),
+    )
+
+    saved = session.query(HistoricalOddsSnapshot).order_by(HistoricalOddsSnapshot.outcome_side).all()
+    assert first.status == "created"
+    assert second.status == "already_exists"
+    assert second.inserted_count == 0
+    assert len(saved) == 2
+    assert {row.market_line for row in saved} == {Decimal("2.500")}
+    assert {row.outcome_side: row.odds for row in saved} == {
+        "over": Decimal("1.880"),
+        "under": Decimal("1.980"),
+    }
 
 
 def test_store_historical_odds_snapshots_preserves_execution_timepoint_from_source(session):

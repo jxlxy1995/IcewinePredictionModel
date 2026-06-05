@@ -33,11 +33,15 @@ export type ExecutionTimepointCoverageView = {
   healthLabel: string;
   targets: string[];
   rows: {
+    marketType: string;
     marketLabel: string;
     cells: {
       label: string;
       available: boolean;
+      canCreateManualOdds: boolean;
       className: string;
+      marketType: string;
+      targetMinutes: number;
       title: string;
     }[];
   }[];
@@ -101,11 +105,15 @@ export function buildExecutionTimepointCoverageView(
     healthLabel: coverage.health_label,
     targets: coverage.targets,
     rows: coverage.rows.map((row) => ({
+      marketType: row.market_type,
       marketLabel: row.market_label,
       cells: row.cells.map((cell) => ({
         label: cell.label,
         available: cell.available,
+        canCreateManualOdds: !cell.available,
         className: `coverage-cell ${cell.available ? "available" : "missing"}`,
+        marketType: row.market_type,
+        targetMinutes: cell.target_minutes,
         title: cell.available
           ? `${cell.label} · ${formatDateTime(cell.snapshot_time)} · 盘口 ${cell.market_line ?? "-"}`
           : `${cell.label} · 缺失`

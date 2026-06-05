@@ -18,6 +18,8 @@ import type {
   MatchSyncResponse,
   MatchWithOdds,
   MatchOddsTrends,
+  ManualExecutionTimepointOddsPayload,
+  ManualExecutionTimepointOddsResult,
   OddspapiBackfillAudit,
   PaperRecommendationWorkspace,
   RecommendationRecord,
@@ -281,6 +283,16 @@ export async function syncSingleMatchFixturesResults(matchId: number): Promise<M
 
 export async function syncSingleMatchOdds(matchId: number): Promise<MatchSyncResponse> {
   return await postJson<MatchSyncResponse>(`/api/matches/${matchId}/sync/odds`, {});
+}
+
+export async function createManualExecutionTimepointOdds(
+  matchId: number,
+  payload: ManualExecutionTimepointOddsPayload
+): Promise<ManualExecutionTimepointOddsResult> {
+  return await postJson<ManualExecutionTimepointOddsResult>(
+    `/api/matches/${matchId}/execution-timepoint-odds/manual`,
+    payload
+  );
 }
 
 export async function loadMatchSyncRunDetail(runId: number): Promise<MatchSyncRunDetail> {

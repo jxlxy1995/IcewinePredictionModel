@@ -66,6 +66,10 @@ from icewine_prediction.match_list_workspace_service import (
     record_sync_run,
     select_match_list_sync_targets,
 )
+from icewine_prediction.historical_odds_service import (
+    ManualExecutionTimepointOddsInput,
+    create_manual_execution_timepoint_odds,
+)
 from icewine_prediction.paper_recommendation_tracking_service import (
     backfill_paper_record_from_candidate,
     build_paper_tracking_workspace,
@@ -594,6 +598,33 @@ def create_web_app(
             if payload is None:
                 raise HTTPException(status_code=404, detail="比赛不存在")
             return build_match_detail_payload(payload)
+
+    @app.post("/api/matches/{match_id}/execution-timepoint-odds/manual")
+    def create_manual_match_execution_timepoint_odds(
+        match_id: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            input_data = ManualExecutionTimepointOddsInput(
+                match_id=match_id,
+                target_minutes_before_kickoff=int(payload["target_minutes_before_kickoff"]),
+                market_type=str(payload["market_type"]),
+                market_line=Decimal(str(payload.get("market_line", "0"))),
+                odds_by_side={
+                    str(side): Decimal(str(odds))
+                    for side, odds in dict(payload.get("odds_by_side") or {}).items()
+                },
+                note=payload.get("note"),
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        with session_factory() as session:
+            try:
+                result = create_manual_execution_timepoint_odds(session, input_data)
+            except ValueError as error:
+                status_code = 404 if str(error) == "match not found" else 400
+                raise HTTPException(status_code=status_code, detail=str(error)) from error
+            return asdict(result)
 
     @app.get("/api/recommendation-records")
     def recommendation_records() -> list[dict[str, Any]]:

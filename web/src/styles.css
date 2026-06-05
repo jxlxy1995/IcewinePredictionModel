@@ -1157,6 +1157,105 @@ th {
   color: #94a3b8;
 }
 
+.coverage-add-button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  height: 22px;
+  justify-content: center;
+  padding: 0;
+  width: 22px;
+}
+
+.coverage-add-button:hover {
+  background: #e0f2fe;
+  border-color: #38bdf8;
+  color: #0369a1;
+}
+
+.manual-odds-form {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.manual-odds-form-header,
+.manual-odds-actions {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.manual-odds-form-header strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.manual-odds-fields {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+}
+
+.manual-odds-fields label {
+  display: grid;
+  gap: 5px;
+}
+
+.manual-odds-fields span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.manual-odds-fields input {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #0f172a;
+  font-size: 13px;
+  min-height: 34px;
+  padding: 7px 9px;
+}
+
+.manual-odds-fields input:disabled {
+  background: #e2e8f0;
+  color: #64748b;
+}
+
+.manual-odds-note {
+  grid-column: span 2;
+}
+
+.manual-odds-actions {
+  justify-content: flex-end;
+}
+
+.manual-odds-actions button {
+  background: #0f172a;
+  border: 0;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 12px;
+}
+
+.manual-odds-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.compact-message {
+  margin-bottom: 0;
+}
+
 .inline-warning {
   background: #fef3c7;
   border: 1px solid #f59e0b;

@@ -569,6 +569,21 @@ export type ExecutionTimepointCoverage = {
   health_label: string;
 };
 
+export type ManualExecutionTimepointOddsPayload = {
+  target_minutes_before_kickoff: number;
+  market_type: "asian_handicap" | "total_goals" | "match_winner" | string;
+  market_line: string;
+  odds_by_side: Record<string, string>;
+  note?: string;
+};
+
+export type ManualExecutionTimepointOddsResult = {
+  status: "created" | "already_exists" | string;
+  inserted_count: number;
+  snapshot_time: string | null;
+  message: string;
+};
+
 export type MatchDetail = MatchListMatch & {
   team_data_note: string;
   execution_timepoint_coverage: ExecutionTimepointCoverage;

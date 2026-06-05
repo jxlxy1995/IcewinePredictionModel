@@ -732,15 +732,18 @@ def _count_candidate_matches_for_league(
         )
         .filter(League.source_league_id == league_id)
         .filter(Match.season == season)
-        .filter(Match.status == "finished")
-        .filter(Match.home_score.isnot(None))
-        .filter(Match.away_score.isnot(None))
         .filter(
             (OddsSourceMatch.id.is_(None))
             | (OddsSourceMatch.historical_odds_status.is_(None))
             | (~OddsSourceMatch.historical_odds_status.in_({"empty", "unavailable", "unmatched"}))
         )
     )
+    if not match_ids:
+        query = (
+            query.filter(Match.status == "finished")
+            .filter(Match.home_score.isnot(None))
+            .filter(Match.away_score.isnot(None))
+        )
     if from_date is not None:
         query = query.filter(Match.kickoff_time >= from_date)
     if skip_match_ids:

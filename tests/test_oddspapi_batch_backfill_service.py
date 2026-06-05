@@ -330,6 +330,29 @@ def test_count_candidate_matches_includes_targeted_complete_historical_odds(sess
     assert count == 1
 
 
+def test_count_candidate_matches_includes_targeted_scheduled_matches(session):
+    scheduled_match = _batch_match(
+        session,
+        source_match_id="targeted-scheduled",
+        kickoff_time=datetime(2026, 5, 30, 19, 35, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+    scheduled_match.status = "scheduled"
+    scheduled_match.home_score = None
+    scheduled_match.away_score = None
+    session.commit()
+
+    count = batch_service._count_candidate_matches_for_league(
+        session=session,
+        league_id="169",
+        season=2026,
+        from_date=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
+        skip_match_ids=None,
+        match_ids={scheduled_match.id},
+    )
+
+    assert count == 1
+
+
 def test_batch_backfill_stops_league_after_consecutive_empty_rounds():
     calls = []
 

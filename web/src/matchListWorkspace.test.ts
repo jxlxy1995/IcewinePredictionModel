@@ -149,6 +149,7 @@ describe("matchListWorkspace", () => {
   it("summarizes match detail placeholders", () => {
     expect(summarizeMatchDetail(detail)).toEqual({
       fixture: "Hiroshima vs Kawasaki",
+      localMatchId: "local match_id: 16356",
       recommendations: "No paper records / No formal records",
       teamData: "Pending"
     });

@@ -91,6 +91,7 @@ export function summarizeMatchDetail(detail: MatchDetail) {
     fixture: `${detail.home_team_display_name ?? detail.home_team_name} vs ${
       detail.away_team_display_name ?? detail.away_team_name
     }`,
+    localMatchId: `local match_id: ${detail.match_id}`,
     recommendations: `${detail.paper_recommendation_summary.label} / ${detail.formal_recommendation_summary.label}`,
     teamData: detail.team_data_note
   };

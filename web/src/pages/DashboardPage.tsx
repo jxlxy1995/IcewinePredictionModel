@@ -1205,6 +1205,7 @@ function MatchDetailView({
             </strong>
             <span>{formatMatchStatus(detail.status_group)}</span>
             <small>{detail.kickoff_time}</small>
+            <small>{summary.localMatchId}</small>
           </div>
           <TeamBadge logoUrl={detail.away_team_logo_url} name={detail.away_team_display_name ?? detail.away_team_name} />
         </div>

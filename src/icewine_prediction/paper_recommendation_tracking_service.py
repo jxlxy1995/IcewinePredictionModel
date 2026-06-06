@@ -322,7 +322,8 @@ def _validate_recordable_candidate(row: PaperQueueRow) -> None:
         strategy.side is not None and row.side != strategy.side
     ):
         raise ValueError("paper record does not match the open strategy")
-    if row.edge is None or row.edge < strategy.edge_threshold:
+    effective_edge = row.scoring_edge if row.scoring_edge is not None else row.edge
+    if effective_edge is None or effective_edge < strategy.edge_threshold:
         raise ValueError("paper record edge is below strategy threshold")
     if row.line is None or row.odds is None:
         raise ValueError("paper record requires line and odds")

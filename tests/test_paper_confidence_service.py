@@ -71,15 +71,15 @@ def test_confidence_score_uses_scoring_edge_when_available(session):
             status="candidate",
             line=Decimal("-0.50"),
             edge=Decimal("0.3000"),
-            scoring_edge=Decimal("0.0500"),
+            scoring_edge=Decimal("0.1000"),
         ),
         recorded_at=_now(),
     )
 
     group = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all()).groups[0]
 
-    assert group.confidence_score == 55
-    assert group.suggested_stake_units == Decimal("0.50")
+    assert group.confidence_score == 60
+    assert group.suggested_stake_units == Decimal("0.75")
 
 
 def test_build_paper_confidence_workspace_exposes_match_display_fields(session):

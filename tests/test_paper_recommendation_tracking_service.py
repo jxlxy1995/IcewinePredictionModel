@@ -62,6 +62,52 @@ def test_create_paper_record_from_candidate_preserves_scoring_edge(session):
     assert record.scoring_edge == Decimal("0.1200")
 
 
+def test_create_paper_record_validates_threshold_with_scoring_edge_when_available(session):
+    match = _seed_match(session)
+    row = _queue_row(
+        match,
+        status="candidate",
+        line=Decimal("-0.50"),
+        edge=Decimal("0.0945"),
+        scoring_edge=Decimal("0.1071"),
+    )
+
+    record = create_paper_record_from_queue_row(session, row, recorded_at=_now())
+
+    assert record.edge == Decimal("0.0945")
+    assert record.scoring_edge == Decimal("0.1071")
+
+
+def test_create_paper_record_rejects_candidate_below_scoring_edge_threshold(session):
+    match = _seed_match(session)
+    row = _queue_row(
+        match,
+        status="candidate",
+        line=Decimal("-0.50"),
+        edge=Decimal("0.1800"),
+        scoring_edge=Decimal("0.0900"),
+    )
+
+    with pytest.raises(ValueError, match="below strategy threshold"):
+        create_paper_record_from_queue_row(session, row, recorded_at=_now())
+
+
+def test_create_paper_record_falls_back_to_edge_when_scoring_edge_is_missing(session):
+    match = _seed_match(session)
+    row = _queue_row(
+        match,
+        status="candidate",
+        line=Decimal("-0.50"),
+        edge=Decimal("0.1164"),
+        scoring_edge=None,
+    )
+
+    record = create_paper_record_from_queue_row(session, row, recorded_at=_now())
+
+    assert record.edge == Decimal("0.1164")
+    assert record.scoring_edge is None
+
+
 def test_create_paper_record_from_v2_candidate_preserves_strategy(session):
     match = _seed_match(session)
     row = _queue_row(

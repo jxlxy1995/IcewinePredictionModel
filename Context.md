@@ -970,3 +970,95 @@ npm run build
 ```
 
 Result: focused helper test `5 passed`; full frontend tests `41 passed`; production build succeeded.
+
+## 2026-06-06 Execution Timepoint Alignment And Manual Odds Supplement
+
+Recent commits relevant to the current handoff:
+
+- `8fa1860 Unify execution timepoint snapshot selection`
+- `583ebc1 完善赔率标准时点补齐与详情页覆盖展示`
+- `1cdea63 修正定向赔率回填计数口径`
+- `9121aa2 支持手动补录标准时点赔率`
+- `e1b7d6d 手动修改别名`
+
+Core product decision:
+
+- The user wants scheduled paper candidates, finished-match historical paper replay, and training/signal discovery to use aligned odds timepoint口径.
+- Current standard execution targets are `T-60/T-30/T-25/T-20/T-15/T-10`.
+- T-n selection uses shared `±5` minute tolerance via `execution_timepoint_service.DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES`.
+- Candidate decision price is T-10 oriented and can fall back through earlier available targets up to T-30. Robustness observations use the broader target set, including T-60.
+- `latest/T-5` style near-final close prices should not be reintroduced into this aligned paper-candidate flow without an explicit design change.
+
+Implemented odds snapshot tooling:
+
+- Raw supplement command/script:
+  - Script: `scripts/supplement_historical_odds_snapshots_from_raw.sh`
+  - CLI command: `icewine_cli odds-source oddspapi-supplement-snapshots-from-raw`
+  - It supplements missing standard target groups from `historical_odds_raw_snapshots` into `historical_odds_snapshots` where raw data has an eligible current main-market snapshot.
+- Historical snapshot sampling density was increased enough to preserve standard target points.
+- Match detail page displays a standard timepoint coverage matrix:
+  - Markets: Asian handicap / total goals / match winner.
+  - Targets: `T-60/T-30/T-25/T-20/T-15/T-10`.
+  - Health label/colors are based on available cells.
+- Manual supplement endpoint:
+  - `POST /api/matches/{match_id}/execution-timepoint-odds/manual`
+  - Payload fields: `target_minutes_before_kickoff`, `market_type`, `market_line`, `odds_by_side`, optional `note`.
+  - Writes rows into `historical_odds_snapshots` as `source_name=oddspapi`, `bookmaker=pinnacle`.
+  - Marks manual origin with `market_id=manual-...`, manual `market_name`, and `raw_payload.source=manual`.
+  - Does not overwrite an already-covered standard cell; duplicate/covered requests return `already_exists`.
+- Frontend behavior:
+  - Existing coverage cells do not render edit buttons.
+  - Missing cells render a compact plus button and form.
+  - Form side fields are market-aware: Asian handicap `home/away`, total goals `over/under`, match winner `home/draw/away`.
+  - Successful supplement reloads the match detail so coverage refreshes immediately.
+
+Verified manual supplement example:
+
+- Match: `16686`, Daegu FC vs Paju Citizen, kickoff `2026-06-05 18:30` Beijing time.
+- User manually added:
+  - Asian handicap `T-60`, line `-1.25`, home `2.06`, away `1.81`.
+  - Match winner `T-10`, home `1.42`, draw `4.48`, away `6.72`.
+- DB verification:
+  - Rows exist in `historical_odds_snapshots`.
+  - `source_name=oddspapi`, `bookmaker=pinnacle`.
+  - Market ids are `manual-asian_handicap-T60` and `manual-match_winner-T10`.
+  - `raw_payload` includes `"source": "manual"`.
+- Service verification:
+  - `build_match_detail(session, match_id=16686)` reports coverage `16/18`, health `medium/可用`.
+  - Manual Asian handicap T-60 and match-winner T-10 are selected by the standard coverage logic.
+  - `build_paper_recommendation_queue` for the 2026-06-05 Beijing-day window returns 3 candidate rows for this match:
+    - `asian_away_cover_hgb_edge_v1`
+    - `total_goals_hgb_bucket_v2`
+    - `asian_away_cover_hgb_bucket_v2`
+  - The Asian handicap robustness observed targets include `(10, 15, 20, 25, 30, 60)`, proving the manual T-60 row is consumed by the paper-candidate path.
+
+Signal/strategy state from this round:
+
+- Removed `total_goals_hgb_confirmed_under_mid_275_v1`; it was sample-poor after rerun and not worth keeping.
+- Kept `total_goals_hgb_low_line_bucket_v3`, but its own signal contribution is capped/lower. It should not cap the whole same-direction confidence group if other stronger signals trigger.
+- Added/kept newer formal paper signals to increase paper observation volume. Chinese display names should be used in Web, including the paper tracking `按策略` tab.
+- Existing paper records were cleared multiple times during this work so the user could replay from 2026-05-29 onward under the new口径.
+
+Fresh verification before commit `9121aa2`:
+
+```powershell
+$env:PYTHONPATH='src'; C:/ProgramData/anaconda3/python.exe -m pytest tests/test_historical_odds_service.py tests/test_web_console_api.py -q
+cd web; npm test
+cd web; npm run build
+git diff --check
+```
+
+Results:
+
+- Backend focused tests: `70 passed`.
+- Frontend tests: `59 passed`.
+- Frontend build succeeded.
+- `git diff --check` passed with only CRLF warnings.
+
+Later full backend verification during the same feature work:
+
+```powershell
+$env:PYTHONPATH='src'; C:/ProgramData/anaconda3/python.exe -m pytest -q
+```
+
+Result: `593 passed, 20 warnings` (sklearn imputer warnings already known).

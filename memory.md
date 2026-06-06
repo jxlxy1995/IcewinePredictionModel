@@ -28,6 +28,14 @@
 - Match sync diagnostics should be persisted per match. Odds diagnostics belong only to odds sync reports, not fixtures/results sync reports.
 - Paper recommendation candidates for `asian_away_cover_hgb_edge_v1` should require a usable Asian handicap odds snapshot within 3 hours before kickoff; stale/no-odds rows stay visible in queue diagnostics but must not enter the recordable paper workspace.
 - The Web model-training page should only show real training workspace/orchestration artifacts. Do not reintroduce mock-only panels for recent model runs, model market coverage, or league training coverage unless a real backend source is added first.
+- Training, finished-match paper replay, and scheduled-match paper candidates should stay aligned around standard execution-timepoint odds rather than mixing latest/near-close definitions.
+- Standard execution timepoints are currently `T-60/T-30/T-25/T-20/T-15/T-10` with shared `±5` minute tolerance. T-10 is the primary decision target; missing T-10 can search backward through T-30 before rejecting.
+- Raw-to-standard historical odds supplement should fill missing standard target groups from `historical_odds_raw_snapshots` when possible, but only with the current main-market definition.
+- Manual standard-timepoint odds supplement is intentionally written into `historical_odds_snapshots` as `oddspapi/pinnacle` so existing training/replay/paper-candidate paths consume it without a special read path. Manual rows are marked by `manual-` market ids and `raw_payload.source=manual`.
+- Manual standard-timepoint supplement must not overwrite already-covered cells. Backend returns `already_exists`; frontend should not render edit buttons for existing coverage cells.
+- `total_goals_hgb_confirmed_under_mid_275_v1` was removed after rerun/inspection because it remained sample-poor and not worth keeping. `total_goals_hgb_low_line_bucket_v3` remains but its own signal contribution is capped/lower; it should not cap the whole same-direction group if stronger signals also trigger.
+- Paper signal pool currently includes the older selected strategies plus newer formalized observation strategies from the T-10-aligned run: Asian away cover HGB edge/bucket, Asian home favorite bucket, total goals HGB bucket/low-line/low-under, and total-goals distribution confirmed variants. Keep Chinese strategy names in Web displays, including the "按策略" tab.
+- Paper tracking top-level summary and confidence-simulation/group summary have different statistical口径 by design; rename labels for clarity rather than forcing them into one metric.
 
 ## Oddspapi Backfill Learnings
 

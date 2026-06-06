@@ -62,8 +62,18 @@ C:\ProgramData\anaconda3\python.exe -m icewine_cli odds-source oddspapi-worker-s
 - Hidden pages/components/API for overview, coverage, unmatched, worker, Oddspapi audit, and standalone odds trend may still exist in code; they are not current navigation entry points.
 - `推荐记录` is kept as a page, but local demo/formal recommendation records were cleared from `recommendation_records`. Do not confuse this with `paper_recommendation_records`, which remains in use.
 - Match-list sync results are persisted as per-match `data_sync_run_items`. Use `GET /api/data-sync-runs/{run_id}/items` or the page's `最近同步诊断` panel when diagnosing failed odds/result syncs.
+- Match detail includes a standard execution-timepoint coverage matrix for `T-60/T-30/T-25/T-20/T-15/T-10` across Asian handicap, total goals, and match winner. Existing cells are read-only; missing cells expose manual supplement buttons.
+- Manual standard-timepoint odds supplement uses `POST /api/matches/{match_id}/execution-timepoint-odds/manual`. It writes to `historical_odds_snapshots` as `source_name=oddspapi`, `bookmaker=pinnacle`, with `market_id` prefixed by `manual-` and `raw_payload.source=manual`. It must not overwrite an already-covered standard timepoint; backend returns `already_exists`.
 - `同步赛程/赛果` skips truly live/in-play matches in program logic and reports `比赛进行中，暂不申请赛果`; this is intentional to avoid mixing live scores with final results.
 - API-Football client has lightweight pacing/retry defaults via `build_api_football_provider`: `0.8s` request cooldown, one retry, `2.0s` retry cooldown.
+
+## Execution Timepoint Rules
+
+- Standard T-n timepoints mean kickoff minus `n` minutes, with a shared tolerance of `±5` minutes from `execution_timepoint_service.DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES`.
+- The current standard targets are `T-60/T-30/T-25/T-20/T-15/T-10`.
+- Paper candidate generation uses the same historical snapshot source and timepoint concepts for scheduled and finished matches. Do not reintroduce separate "latest close only" logic for finished replay unless the user explicitly changes the design.
+- Candidate decision pricing is T-10 oriented and may fall back through earlier available targets up to T-30. Robustness observations may use the broader target set including T-60.
+- When diagnosing whether a match should enter paper candidates, inspect both the match detail coverage matrix and `build_paper_recommendation_queue` output; the matrix only proves odds availability, not that a strategy's robustness rule was met.
 
 ## OddsPapi Worker Defaults
 

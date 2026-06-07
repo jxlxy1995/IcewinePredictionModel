@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { dashboardNavItems, initialDashboardView } from "./pages/DashboardPage";
+import {
+  dashboardNavItems,
+  initialDashboardView,
+  shouldAutoLoadLazyView
+} from "./pages/DashboardPage";
 import { mockDashboardData } from "./mockData";
 
 describe("dashboard navigation", () => {
@@ -20,5 +24,11 @@ describe("dashboard navigation", () => {
 
   it("does not show mocked recommendation records", () => {
     expect(mockDashboardData.recommendationRecords).toEqual([]);
+  });
+
+  it("does not auto refresh paper candidates when the paper tracking page is first opened", () => {
+    expect(shouldAutoLoadLazyView("paperTracking")).toBe(false);
+    expect(shouldAutoLoadLazyView("matchList")).toBe(true);
+    expect(shouldAutoLoadLazyView("models")).toBe(true);
   });
 });

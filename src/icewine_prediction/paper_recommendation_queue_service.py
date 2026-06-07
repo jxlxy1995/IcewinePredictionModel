@@ -295,12 +295,16 @@ def build_paper_recommendation_rows_for_match(
     scorer: Callable[[dict[str, str]], PaperQueueScoreResult],
     edge_threshold: str = "0.10",
     display_name_service: DisplayNameService | None = None,
+    historical_snapshots: list[HistoricalOddsSnapshot] | None = None,
+    team_prior_states: dict[tuple[int, str], _TeamPriorState] | None = None,
 ) -> list[PaperQueueRow]:
     return _build_queue_rows(
         match,
         scorer=scorer,
         edge_threshold=_as_decimal(edge_threshold),
         display_name_service=display_name_service,
+        historical_snapshots=historical_snapshots,
+        team_prior_states=team_prior_states,
     )
 
 
@@ -507,7 +511,10 @@ def _build_queue_rows_with_diagnostics(
                 historical_snapshot_count=historical_snapshot_count,
             )
         )
-    elif not _has_allowed_candidate_odds_status(match, historical_snapshots=historical_snapshots):
+    elif not historical_snapshots and not _has_allowed_candidate_odds_status(
+        match,
+        historical_snapshots=historical_snapshots,
+    ):
         diagnostic_rows.append(
             _row(
                 match,

@@ -572,7 +572,7 @@ def test_build_paper_recommendation_queue_allows_near_odds_for_upcoming_matches(
     assert report.rows[0].status == "candidate"
 
 
-def test_build_paper_recommendation_queue_requires_filled_odds_for_finished_matches(session):
+def test_build_paper_recommendation_queue_does_not_require_close_match_winner_for_finished_matches(session):
     league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
     home = Team(canonical_name="Rosenborg")
     away = Team(canonical_name="Bodo/Glimt")
@@ -592,27 +592,23 @@ def test_build_paper_recommendation_queue_requires_filled_odds_for_finished_matc
     )
     session.add(match)
     session.flush()
-    _add_historical_market_pair(
-        session,
-        match,
-        market_type="asian_handicap",
-        line=Decimal("-0.50"),
-        outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
-    )
-    _add_historical_market_pair(
-        session,
-        match,
-        market_type="total_goals",
-        line=Decimal("2.50"),
-        outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
-    )
-    _add_historical_market_pair(
-        session,
-        match,
-        market_type="match_winner",
-        line=Decimal("0.00"),
-        outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
-    )
+    for target_minutes in (60, 30, 25, 20, 15, 10):
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="asian_handicap",
+            line=Decimal("-0.50"),
+            outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
+        )
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            target_minutes=target_minutes,
+            market_type="total_goals",
+            line=Decimal("2.50"),
+            outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+        )
     session.commit()
 
     report = build_paper_recommendation_queue(
@@ -629,8 +625,14 @@ def test_build_paper_recommendation_queue_requires_filled_odds_for_finished_matc
         ),
     )
 
-    assert report.candidate_count == 0
-    assert report.rows[0].status == "odds_status_not_ready"
+    assert report.candidate_count == 1
+    candidate = report.rows[0]
+    assert candidate.status == "candidate"
+    assert candidate.source_match_id == "finished-pending-fill"
+    assert candidate.odds_source == "oddspapi_historical"
+    assert candidate.execution_target == "T-10"
+    assert candidate.robustness_status == "kept"
+    assert candidate.recommended_handicap.endswith("+0.50")
 
 
 def test_build_paper_recommendation_queue_replays_finished_match_with_historical_close_odds(session):

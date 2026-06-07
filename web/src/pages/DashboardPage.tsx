@@ -181,6 +181,10 @@ export const dashboardNavItems: NavItem[] = [
   { key: "records", label: "推荐记录", icon: ListChecks }
 ];
 
+export function shouldAutoLoadLazyView(view: ViewKey): boolean {
+  return view !== "paperTracking" && view !== "records";
+}
+
 const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
   overview: {
     title: "控制台总览",
@@ -304,6 +308,10 @@ export function DashboardPage() {
     const markLazyViewLoaded = () => {
       setLoadedLazyViews((current) => new Set([...current, activeView]));
     };
+    if (!shouldAutoLoadLazyView(activeView)) {
+      markLazyViewLoaded();
+      return;
+    }
     if (activeView === "matchList") {
       setMatchListAction("refresh");
       refreshMatchListWorkspace(setData, matchListFilters)

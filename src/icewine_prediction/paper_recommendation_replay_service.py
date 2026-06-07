@@ -11,11 +11,12 @@ from sqlalchemy.orm import Session, joinedload
 
 from icewine_prediction.display_service import DisplayNameService
 from icewine_prediction.baseline_training_dataset_service import EXCLUDED_AUXILIARY_LEAGUE_IDS
-from icewine_prediction.models import League, Match, PaperRecommendationRecord
+from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, PaperRecommendationRecord
 from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScoreResult,
     build_paper_recommendation_rows_for_match,
     train_paper_queue_scorer_from_rows,
+    _team_prior_states_by_match,
 )
 from icewine_prediction.paper_recommendation_tracking_service import (
     create_paper_record_from_queue_row,
@@ -50,6 +51,8 @@ def replay_finished_matches_as_paper_recommendations(
     display_name_service: DisplayNameService | None = None,
 ) -> PaperRecommendationReplayResult:
     matches = _list_finished_matches(session, from_time=from_time, to_time=to_time)
+    team_prior_states = _team_prior_states_by_match(session, matches)
+    historical_snapshots_by_match_id = _historical_snapshots_by_match_id(session, matches)
     created_records: list[PaperRecommendationRecord] = []
     candidate_rows = 0
     duplicate_records = 0
@@ -60,6 +63,8 @@ def replay_finished_matches_as_paper_recommendations(
             scorer=scorer,
             edge_threshold=edge_threshold,
             display_name_service=display_name_service,
+            historical_snapshots=historical_snapshots_by_match_id.get(match.id, []),
+            team_prior_states=team_prior_states,
         )
         for row in rows:
             if row.status != "candidate":
@@ -144,6 +149,24 @@ def _list_finished_matches(
         .order_by(Match.kickoff_time.asc(), Match.id.asc())
         .all()
     )
+
+
+def _historical_snapshots_by_match_id(
+    session: Session,
+    matches: list[Match],
+) -> dict[int, list[HistoricalOddsSnapshot]]:
+    match_ids = [match.id for match in matches]
+    if not match_ids:
+        return {}
+    snapshots = (
+        session.query(HistoricalOddsSnapshot)
+        .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
+        .all()
+    )
+    snapshots_by_match_id: dict[int, list[HistoricalOddsSnapshot]] = {}
+    for snapshot in snapshots:
+        snapshots_by_match_id.setdefault(snapshot.match_id, []).append(snapshot)
+    return snapshots_by_match_id
 
 
 def _parse_datetime(value: str) -> datetime:

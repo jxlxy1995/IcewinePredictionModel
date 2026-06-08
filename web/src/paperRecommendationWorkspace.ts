@@ -2,7 +2,9 @@ import type {
   PaperConfidenceSimulationGroup,
   PaperCandidate,
   PaperGroupSummary,
-  PaperRecommendationWorkspace
+  PaperRecommendationWorkspace,
+  PaperStrategyPerformanceGroup,
+  PaperStrategyPerformanceReport
 } from "./types";
 import { toDatetimeLocalValue } from "./matchListWorkspace";
 
@@ -51,6 +53,20 @@ export type PaperDisplayGroupSummary = {
   roi: string;
   settledRecords: number;
   stakeUnits: string;
+};
+
+export type PaperStrategyPerformanceDisplayRow = {
+  averageEdge: string;
+  averageScoringEdge: string;
+  groupName: string;
+  hitRate: string;
+  pendingRecords: number;
+  profitUnits: string;
+  recordCount: number;
+  roi: string;
+  settledRecords: number;
+  stakeUnits: string;
+  warningText: string;
 };
 
 export type PaperRecordGroups = {
@@ -206,6 +222,37 @@ export function buildPaperConfidenceSimulationCards(
     { label: "1手ROI", value: formatRatioAsPercent(summary.flat_roi) },
     { label: "动态ROI", value: formatRatioAsPercent(summary.weighted_roi) }
   ];
+}
+
+export function buildPaperStrategyPerformanceCards(
+  report: PaperStrategyPerformanceReport
+): PaperSummaryCard[] {
+  return [
+    { label: "记录", value: report.summary.total_records.toLocaleString() },
+    { label: "已结算", value: report.summary.settled_records.toLocaleString() },
+    { label: "待结算", value: report.summary.pending_records.toLocaleString() },
+    { label: "收益", value: report.summary.total_profit_units },
+    { label: "ROI", value: formatRatioAsPercent(report.summary.roi) },
+    { label: "小样本组", value: report.summary.low_sample_group_count.toLocaleString() }
+  ];
+}
+
+export function buildPaperStrategyPerformanceGroupRows(
+  groups: PaperStrategyPerformanceGroup[]
+): PaperStrategyPerformanceDisplayRow[] {
+  return groups.map((group) => ({
+    averageEdge: group.average_edge,
+    averageScoringEdge: group.average_scoring_edge ?? "-",
+    groupName: group.group_name,
+    hitRate: formatRatioAsPercent(group.hit_rate),
+    pendingRecords: group.pending_records,
+    profitUnits: group.total_profit_units,
+    recordCount: group.record_count,
+    roi: formatRatioAsPercent(group.roi),
+    settledRecords: group.settled_records,
+    stakeUnits: group.total_stake_units,
+    warningText: formatPerformanceWarning(group.warning)
+  }));
 }
 
 export function buildPaperConfidenceSimulationRows(
@@ -385,6 +432,13 @@ function numericEdge(row: PaperCandidateRow): number {
 
 function formatRatioAsPercent(value: string): string {
   return `${(Number(value) * 100).toFixed(2)}%`;
+}
+
+function formatPerformanceWarning(value: string | null): string {
+  const labels: Record<string, string> = {
+    low_sample: "小样本"
+  };
+  return value ? labels[value] ?? value : "-";
 }
 
 function formatMarketType(value: string): string {

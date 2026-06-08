@@ -7,6 +7,8 @@ import {
   buildPaperConfidenceSimulationRows,
   buildPaperDiagnosticCards,
   buildPaperRecordGroups,
+  buildPaperStrategyPerformanceCards,
+  buildPaperStrategyPerformanceGroupRows,
   buildPaperSummaryCards,
   defaultPaperRecommendationDateRange,
   explainPaperCandidateSignal,
@@ -14,6 +16,7 @@ import {
   formatPaperSettlementResult
 } from "./paperRecommendationWorkspace";
 import type { PaperRecommendationWorkspace } from "./types";
+import type { PaperStrategyPerformanceReport } from "./types";
 
 const workspace: PaperRecommendationWorkspace = {
   strategies: [
@@ -204,6 +207,43 @@ const workspace: PaperRecommendationWorkspace = {
   }
 };
 
+const performanceReport: PaperStrategyPerformanceReport = {
+  summary: {
+    total_records: 3,
+    active_records: 3,
+    settled_records: 2,
+    pending_records: 1,
+    void_records: 0,
+    total_stake_units: "2.00",
+    total_profit_units: "-0.070",
+    hit_rate: "0.5000",
+    roi: "-0.0350",
+    low_sample_group_count: 1
+  },
+  by_strategy: [
+    {
+      group_key: "asian_away_cover_hgb_edge_v1",
+      group_name: "亚盘客队方向 · HGB边际 v1",
+      record_count: 2,
+      settled_records: 2,
+      pending_records: 0,
+      total_stake_units: "2.00",
+      total_profit_units: "-0.070",
+      hit_rate: "0.5000",
+      roi: "-0.0350",
+      average_edge: "0.0900",
+      average_scoring_edge: "0.1000",
+      warning: "low_sample"
+    }
+  ],
+  by_market_side: [],
+  by_league: [],
+  by_line_bucket: [],
+  by_manual_adjustment: [],
+  by_edge_bucket: [],
+  by_settlement_result: []
+};
+
 describe("paperRecommendationWorkspace", () => {
   it("builds summary cards with percentage formatting", () => {
     expect(buildPaperSummaryCards(workspace)).toEqual([
@@ -358,6 +398,33 @@ describe("paperRecommendationWorkspace", () => {
       suggestedStakeUnits: "1.25",
       triggeredSignals: "asian_away_cover_hgb_edge_v1, asian_away_cover_hgb_bucket_v2",
       weightedProfitUnits: "1.163"
+    });
+  });
+
+  it("builds paper strategy performance cards with readable percentages", () => {
+    expect(buildPaperStrategyPerformanceCards(performanceReport)).toEqual([
+      { label: "记录", value: "3" },
+      { label: "已结算", value: "2" },
+      { label: "待结算", value: "1" },
+      { label: "收益", value: "-0.070" },
+      { label: "ROI", value: "-3.50%" },
+      { label: "小样本组", value: "1" }
+    ]);
+  });
+
+  it("builds paper strategy performance group rows with warning text", () => {
+    expect(buildPaperStrategyPerformanceGroupRows(performanceReport.by_strategy)[0]).toEqual({
+      averageEdge: "0.0900",
+      averageScoringEdge: "0.1000",
+      groupName: "亚盘客队方向 · HGB边际 v1",
+      hitRate: "50.00%",
+      pendingRecords: 0,
+      profitUnits: "-0.070",
+      recordCount: 2,
+      roi: "-3.50%",
+      settledRecords: 2,
+      stakeUnits: "2.00",
+      warningText: "小样本"
     });
   });
 

@@ -78,6 +78,10 @@ from icewine_prediction.paper_recommendation_tracking_service import (
     settle_paper_records,
     void_paper_record,
 )
+from icewine_prediction.paper_strategy_performance_service import (
+    PaperStrategyPerformanceFilters,
+    build_paper_strategy_performance_report,
+)
 from icewine_prediction.oddspapi_sync_runner import run_oddspapi_sync_result
 from icewine_prediction.sources.api_football_client import ApiFootballApiError
 from icewine_prediction.sources.api_football_mapper import map_fixtures
@@ -698,6 +702,33 @@ def create_web_app(
                 ),
             ),
         )
+
+    @app.get("/api/paper-recommendations/performance")
+    def paper_recommendation_performance(
+        start_time: str | None = None,
+        end_time: str | None = None,
+        strategy_key: str | None = None,
+        market_type: str | None = None,
+        side: str | None = None,
+        league_name: str | None = None,
+        line_bucket: str | None = None,
+        manual_adjustment: bool | None = None,
+    ) -> dict[str, Any]:
+        with session_factory() as session:
+            report = build_paper_strategy_performance_report(
+                session,
+                PaperStrategyPerformanceFilters(
+                    start_time=_parse_optional_datetime(start_time),
+                    end_time=_parse_optional_datetime(end_time),
+                    strategy_key=strategy_key or None,
+                    market_type=market_type or None,
+                    side=side or None,
+                    league_name=league_name or None,
+                    line_bucket=line_bucket or None,
+                    manual_adjustment=manual_adjustment,
+                ),
+            )
+            return build_paper_strategy_performance_payload(report)
 
     @app.post("/api/paper-recommendations/records")
     def create_paper_recommendation_record(payload: dict[str, Any]) -> dict[str, Any]:
@@ -2127,6 +2158,72 @@ def build_paper_confidence_group_payload(group) -> dict[str, Any]:
         "settlement_result": group.settlement_result,
         "flat_profit_units": _format_decimal(group.flat_profit_units, "0.000"),
         "weighted_profit_units": _format_decimal(group.weighted_profit_units, "0.000"),
+        "warning": group.warning,
+    }
+
+
+def build_paper_strategy_performance_payload(report) -> dict[str, Any]:
+    return {
+        "summary": build_paper_strategy_performance_summary_payload(report.summary),
+        "by_strategy": [
+            build_paper_strategy_performance_group_payload(group)
+            for group in report.by_strategy
+        ],
+        "by_market_side": [
+            build_paper_strategy_performance_group_payload(group)
+            for group in report.by_market_side
+        ],
+        "by_league": [
+            build_paper_strategy_performance_group_payload(group)
+            for group in report.by_league
+        ],
+        "by_line_bucket": [
+            build_paper_strategy_performance_group_payload(group)
+            for group in report.by_line_bucket
+        ],
+        "by_manual_adjustment": [
+            build_paper_strategy_performance_group_payload(group)
+            for group in report.by_manual_adjustment
+        ],
+        "by_edge_bucket": [
+            build_paper_strategy_performance_group_payload(group)
+            for group in report.by_edge_bucket
+        ],
+        "by_settlement_result": [
+            build_paper_strategy_performance_group_payload(group)
+            for group in report.by_settlement_result
+        ],
+    }
+
+
+def build_paper_strategy_performance_summary_payload(summary) -> dict[str, Any]:
+    return {
+        "total_records": summary.total_records,
+        "active_records": summary.active_records,
+        "settled_records": summary.settled_records,
+        "pending_records": summary.pending_records,
+        "void_records": summary.void_records,
+        "total_stake_units": _format_decimal(summary.total_stake_units, "0.00"),
+        "total_profit_units": _format_decimal(summary.total_profit_units, "0.000"),
+        "hit_rate": _format_decimal(summary.hit_rate, "0.0000"),
+        "roi": _format_decimal(summary.roi, "0.0000"),
+        "low_sample_group_count": summary.low_sample_group_count,
+    }
+
+
+def build_paper_strategy_performance_group_payload(group) -> dict[str, Any]:
+    return {
+        "group_key": group.group_key,
+        "group_name": group.group_name,
+        "record_count": group.record_count,
+        "settled_records": group.settled_records,
+        "pending_records": group.pending_records,
+        "total_stake_units": _format_decimal(group.total_stake_units, "0.00"),
+        "total_profit_units": _format_decimal(group.total_profit_units, "0.000"),
+        "hit_rate": _format_decimal(group.hit_rate, "0.0000"),
+        "roi": _format_decimal(group.roi, "0.0000"),
+        "average_edge": _format_decimal(group.average_edge, "0.0000"),
+        "average_scoring_edge": _format_optional_decimal(group.average_scoring_edge, "0.0000"),
         "warning": group.warning,
     }
 

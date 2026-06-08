@@ -6,6 +6,7 @@ import {
   loadLatestTrainingRun,
   loadMatchListWorkspace,
   loadMatchSyncRunDetail,
+  loadPaperStrategyPerformanceReport,
   loadPaperRecommendationWorkspace,
   recordPaperCandidates,
   startTrainingFullRefresh,
@@ -90,6 +91,27 @@ const apiPayloads: Record<string, unknown> = {
       by_line_bucket: [],
       by_manual_adjustment: []
     }
+  },
+  "/api/paper-recommendations/performance": {
+    summary: {
+      total_records: 2,
+      active_records: 2,
+      settled_records: 2,
+      pending_records: 0,
+      void_records: 0,
+      total_stake_units: "2.00",
+      total_profit_units: "-0.070",
+      hit_rate: "0.5000",
+      roi: "-0.0350",
+      low_sample_group_count: 1
+    },
+    by_strategy: [],
+    by_market_side: [],
+    by_league: [],
+    by_line_bucket: [],
+    by_manual_adjustment: [],
+    by_edge_bucket: [],
+    by_settlement_result: []
   },
   "/api/match-list/workspace": {
     filters: {
@@ -180,6 +202,23 @@ describe("apiClient", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/paper-recommendations/workspace?end_time=2026-05-30T23%3A59&start_time=2026-05-30T00%3A00"
     );
+  });
+
+  it("loads paper strategy performance report with date filters", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json(apiPayloads["/api/paper-recommendations/performance"])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const report = await loadPaperStrategyPerformanceReport({
+      end_time: "2026-05-31T00:00",
+      start_time: "2026-05-30T00:00"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/paper-recommendations/performance?end_time=2026-05-31T00%3A00&start_time=2026-05-30T00%3A00"
+    );
+    expect(report.summary.roi).toBe("-0.0350");
   });
 
   it("records paper candidates with one batch request", async () => {

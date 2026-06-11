@@ -1,4 +1,9 @@
 leagues:
+  - name: FIFA World Cup
+    country: World
+    api_football_id: 1
+    enabled: true
+    priority: 101
   - name: Premier League
     country: England
     api_football_id: 39

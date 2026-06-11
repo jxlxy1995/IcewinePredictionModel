@@ -27,6 +27,18 @@ const apiPayloads: Record<string, unknown> = {
   "/api/unmatched": [],
   "/api/matches/with-odds": [],
   "/api/display/missing-team-names": [],
+  "/api/display/team-name-workspaces": [
+    {
+      league_id: 49,
+      league_name: "World Cup (World)",
+      league_display_name: "世界杯",
+      country_or_region: "World",
+      season: 2026,
+      team_count: 48,
+      match_count: 72,
+      latest_kickoff_time: "2026-06-28T18:00:00+08:00"
+    }
+  ],
   "/api/display/translation-status": { done_league_seasons: ["1-2026"] },
   "/api/recommendation-records": [],
   "/api/oddspapi/backfill-audit?season=2025": {
@@ -128,6 +140,7 @@ describe("apiClient", () => {
 
     expect(data.source).toBe("api");
     expect(data.summary.total_matches).toBe(3);
+    expect(data.teamDisplayWorkspaces).toEqual(apiPayloads["/api/display/team-name-workspaces"]);
     expect(data.doneDisplayTranslationKeys).toEqual(["1-2026"]);
     expect(fetchMock).not.toHaveBeenCalledWith("/api/training/workspace");
     expect(fetchMock).not.toHaveBeenCalledWith("/api/paper-recommendations/workspace");

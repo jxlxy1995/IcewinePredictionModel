@@ -343,7 +343,7 @@ export function DashboardPage() {
         .finally(() => setPaperAction(null));
     }
     if (activeView === "displayNames") {
-      const firstLeague = data.leagues[0];
+      const firstLeague = data.teamDisplayWorkspaces[0];
       if (firstLeague?.season != null) {
         loadTeamDisplayNameWorkspace(firstLeague.league_id, firstLeague.season)
           .then((workspace) => {
@@ -365,7 +365,7 @@ export function DashboardPage() {
           .catch(() => setOddsTrendError("读取首场赔率走势失败"));
       }
     }
-  }, [activeView, data.leagues, data.matchesWithOdds, isLoading, loadedLazyViews, matchListFilters]);
+  }, [activeView, data.teamDisplayWorkspaces, data.matchesWithOdds, isLoading, loadedLazyViews, matchListFilters]);
 
   useEffect(() => {
     if (activeView !== "models" || data.trainingWorkspace.latest_run?.status !== "running") {
@@ -1768,7 +1768,7 @@ function DisplayNamesView({
   workspaceError: string | null;
   workspaceMessage: string | null;
 }) {
-  const workspaceOptions = buildTeamDisplayWorkspaceOptions(data.leagues, doneKeys);
+  const workspaceOptions = buildTeamDisplayWorkspaceOptions(data.teamDisplayWorkspaces, doneKeys);
   const visibleTeams = filterTeamDisplayRows(workspace?.teams ?? [], {
     draftNames,
     filterText,

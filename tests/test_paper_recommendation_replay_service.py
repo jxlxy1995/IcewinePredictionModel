@@ -286,6 +286,80 @@ def test_replay_finished_matches_excludes_auxiliary_uefa_matches(session):
     assert result.scanned_matches == 0
 
 
+def test_replay_finished_matches_includes_world_cup_paper_replay(session):
+    league = League(
+        name="FIFA World Cup",
+        country_or_region="World",
+        level=1,
+        is_enabled=True,
+        source_league_id="1",
+    )
+    home = Team(canonical_name="United States")
+    away = Team(canonical_name="Canada")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 6, 12, 8, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="finished",
+        home_score=0,
+        away_score=1,
+        source_name="api_football",
+        source_match_id="world-cup-finished",
+    )
+    session.add(match)
+    session.flush()
+    session.add(
+        OddsSnapshot(
+            match=match,
+            captured_at=kickoff - timedelta(hours=1),
+            data_source="oddspapi",
+            bookmaker="pinnacle",
+            asian_handicap=Decimal("-0.25"),
+            home_odds=Decimal("1.950"),
+            away_odds=Decimal("1.950"),
+            total_line=Decimal("2.25"),
+            over_odds=Decimal("1.900"),
+            under_odds=Decimal("2.000"),
+            match_winner_home_odds=Decimal("2.200"),
+            match_winner_draw_odds=Decimal("3.100"),
+            match_winner_away_odds=Decimal("3.300"),
+        )
+    )
+    session.commit()
+
+    def fake_scorer_factory(cutoff):
+        assert cutoff == kickoff
+
+        def score(row):
+            assert row["match_id"] == str(match.id)
+            return PaperQueueScore(
+                side="away_cover",
+                model_probability=Decimal("0.6500"),
+                market_probability=Decimal("0.5000"),
+                edge=Decimal("0.1500"),
+                model_name="fake_hgb",
+            )
+
+        return score
+
+    result = replay_finished_matches_as_paper_recommendations(
+        session,
+        from_time=datetime(2026, 6, 12, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        to_time=datetime(2026, 6, 13, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        scorer_factory=fake_scorer_factory,
+        recorded_at=datetime(2026, 6, 13, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        settle=False,
+    )
+
+    assert result.scanned_matches == 1
+    assert result.created_records == 1
+    assert result.records[0].league_name == "FIFA World Cup"
+
+
 def test_build_walk_forward_replay_scorer_factory_uses_only_rows_before_cutoff(tmp_path, monkeypatch):
     feature_csv = tmp_path / "features.csv"
     feature_csv.write_text(

@@ -232,6 +232,19 @@ def create_web_app(
             ),
         )
 
+    @app.get("/api/display/team-name-workspaces")
+    def team_name_workspaces() -> list[dict[str, Any]]:
+        return cached_response(
+            ("team-name-workspaces",),
+            lambda: _with_session(
+                session_factory,
+                lambda session: build_team_display_name_workspace_options(
+                    session,
+                    display_name_service=display_name_service,
+                ),
+            ),
+        )
+
     @app.get("/api/display/team-name-workspace")
     def team_name_workspace(league_id: int, season: int) -> dict[str, Any]:
         with session_factory() as session:
@@ -1332,6 +1345,60 @@ def build_team_display_name_workspace(
         ),
         "teams": items,
     }
+
+
+def build_team_display_name_workspace_options(
+    session: Session,
+    *,
+    display_name_service: DisplayNameService | None = None,
+) -> list[dict[str, Any]]:
+    display_name_service = display_name_service or DisplayNameService()
+    rows = (
+        session.query(
+            League.id.label("league_id"),
+            League.name.label("league_name"),
+            League.country_or_region.label("country_or_region"),
+            Match.season.label("season"),
+            func.count(func.distinct(Match.id)).label("match_count"),
+            func.count(func.distinct(Match.home_team_id)).label("home_team_count"),
+            func.count(func.distinct(Match.away_team_id)).label("away_team_count"),
+            func.max(Match.kickoff_time).label("latest_kickoff_time"),
+        )
+        .join(Match, Match.league_id == League.id)
+        .filter(Match.season.isnot(None))
+        .group_by(League.id, League.name, League.country_or_region, Match.season)
+        .order_by(League.name.asc(), Match.season.desc())
+        .all()
+    )
+    return [
+        {
+            "league_id": row.league_id,
+            "league_name": row.league_name,
+            "league_display_name": display_name_service.display_league(row.league_name),
+            "country_or_region": row.country_or_region,
+            "season": row.season,
+            "team_count": _team_count_for_league_season(session, row.league_id, row.season),
+            "match_count": row.match_count,
+            "latest_kickoff_time": _format_datetime(row.latest_kickoff_time),
+        }
+        for row in rows
+    ]
+
+
+def _team_count_for_league_season(session: Session, league_id: int, season: int) -> int:
+    team_ids = set(
+        session.query(Match.home_team_id)
+        .filter(Match.league_id == league_id)
+        .filter(Match.season == season)
+        .all()
+    )
+    team_ids.update(
+        session.query(Match.away_team_id)
+        .filter(Match.league_id == league_id)
+        .filter(Match.season == season)
+        .all()
+    )
+    return len({team_id for (team_id,) in team_ids if team_id is not None})
 
 
 def build_matches_with_odds(

@@ -1,8 +1,8 @@
-import type { LeagueCoverage, TeamDisplayNameRow } from "./types";
+import type { TeamDisplayNameRow, TeamDisplayNameWorkspaceOption } from "./types";
 
 export type DisplayNameStatusFilter = "all" | "missing" | "changed";
 
-export type TeamDisplayWorkspaceOption = {
+export type BuiltTeamDisplayWorkspaceOption = {
   isDone: boolean;
   key: string;
   label: string;
@@ -47,9 +47,9 @@ export function filterTeamDisplayRows(
 }
 
 export function buildTeamDisplayWorkspaceOptions(
-  leagues: LeagueCoverage[],
+  leagues: TeamDisplayNameWorkspaceOption[],
   doneKeys: Set<string>
-): TeamDisplayWorkspaceOption[] {
+): BuiltTeamDisplayWorkspaceOption[] {
   return Array.from(
     new Map(
       leagues

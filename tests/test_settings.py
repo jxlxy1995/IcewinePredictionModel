@@ -102,3 +102,7 @@ def test_default_league_whitelist_contains_mainstream_leagues():
     assert all(leagues_by_id[league_id].enabled for league_id in newly_promoted_main_league_ids)
     assert leagues_by_id[262].name == "Liga MX"
     assert leagues_by_id[262].country == "Mexico"
+
+    assert leagues_by_id[1].name == "FIFA World Cup"
+    assert leagues_by_id[1].country == "World"
+    assert leagues_by_id[1].enabled is True

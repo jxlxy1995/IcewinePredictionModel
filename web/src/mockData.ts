@@ -672,6 +672,14 @@ export const mockOddspapiBackfillAudit: OddspapiBackfillAudit = {
   ]
 };
 
+function latestMockTeamKickoffTime(workspace: TeamDisplayNameWorkspace): string | null {
+  const values = workspace.teams
+    .map((team) => team.latest_kickoff_time)
+    .filter((value): value is string => Boolean(value))
+    .sort();
+  return values.length > 0 ? values[values.length - 1] : null;
+}
+
 export const mockDashboardData: DashboardData = {
   source: "mock",
   summary: {
@@ -727,6 +735,16 @@ export const mockDashboardData: DashboardData = {
       unmatched_matches: 33
     }
   ],
+  teamDisplayWorkspaces: mockTeamDisplayNameWorkspaces.map((workspace) => ({
+    league_id: workspace.league_id,
+    league_name: workspace.league_name,
+    league_display_name: workspace.league_display_name,
+    country_or_region: "",
+    season: workspace.season,
+    team_count: workspace.teams.length,
+    match_count: workspace.teams.reduce((total, team) => total + team.match_count, 0),
+    latest_kickoff_time: latestMockTeamKickoffTime(workspace)
+  })),
   workers: [
     {
       pid: 27776,

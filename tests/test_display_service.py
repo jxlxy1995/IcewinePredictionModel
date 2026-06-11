@@ -60,6 +60,7 @@ def test_default_display_names_include_new_main_league_chinese_names():
     assert service.display_league("1. Division (Denmark)") == "丹麦甲"
     assert service.display_league("Liga 1 (Indonesia)") == "印尼超"
     assert service.display_league("Liga MX (Mexico)") == "墨西超"
+    assert service.display_league("World Cup (World)") == "世界杯"
 
 
 def test_save_team_display_names_merges_existing_yaml(tmp_path):

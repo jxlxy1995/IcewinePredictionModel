@@ -102,6 +102,7 @@ API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "262": 27466,
     "274": 1015,
     "357": 192,
+    "358": 193,
     "1087": 55,
 }
 

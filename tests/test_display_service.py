@@ -55,6 +55,7 @@ def test_default_display_names_include_new_main_league_chinese_names():
     service = DisplayNameService()
 
     assert service.display_league("Premier Division (Ireland)") == "爱超"
+    assert service.display_league("First Division (Ireland)") == "爱甲"
     assert service.display_league("Ykkösliiga (Finland)") == "芬甲"
     assert service.display_league("1. Division (Norway)") == "挪甲"
     assert service.display_league("1. Division (Denmark)") == "丹麦甲"

@@ -68,6 +68,7 @@ leagues:
   Eliteserien: 挪超
   Eliteserien (Norway): 挪超
   Premier Division (Ireland): 爱超
+  First Division (Ireland): 爱甲
   Ykkösliiga: 芬甲
   Ykkösliiga (Finland): 芬甲
   1. Division (Norway): 挪甲
@@ -169,6 +170,7 @@ teams:
   Aston Villa: 阿斯顿维拉
   Atalanta: 亚特兰大
   Athletic Club: 毕尔巴鄂竞技
+  Athlone Town: 阿斯隆城
   Atlanta United FC: 亚特兰大联
   Atlas: 阿特拉斯
   Atletico Madrid: 马德里竞技
@@ -224,6 +226,7 @@ teams:
   Bournemouth: 伯恩茅斯
   Bradford: 布拉德福德
   Brann: 布兰
+  Bray Wanderers: 布雷流浪者
   Brazil: 巴西
   Breidablik: 贝雷达比历克
   Brentford: 布伦特福德
@@ -276,6 +279,7 @@ teams:
   Club Brugge KV: 布鲁日
   Club Queretaro: 克雷塔罗
   Club Tijuana: 蒂华纳
+  Cobh Ramblers: 科布漫游者
   Cobresal: 科布雷萨尔
   Colo Colo: 科洛科洛
   Colombia: 哥伦比亚
@@ -288,6 +292,7 @@ teams:
   Cordoba: 科尔多瓦
   Corinthians: 科林蒂安
   Coritiba: 科里蒂巴
+  Cork City: 科克城
   Coventry: 考文垂
   Cracovia Krakow: 克拉科维亚
   Cremonese: 克雷莫纳
@@ -403,6 +408,7 @@ teams:
   Fenerbahçe: 费内巴切
   Ferencvarosi TC: 费伦茨罗斯
   Feyenoord: 费耶诺德
+  Finn Harps: 费恩夏普
   Fiorentina: 佛罗伦萨
   Flamengo: 弗拉门戈
   Fluminense: 弗鲁米嫩塞
@@ -530,6 +536,7 @@ teams:
   Kasımpaşa: 卡斯帕萨
   Kawasaki Frontale: 川崎前锋
   Kayserispor: 开塞利体育
+  Kerry: 凯里FC
   Kifisia: 基菲萨
   Kilmarnock: 基尔马诺克
   Klubi-04: 克鲁比04
@@ -577,6 +584,7 @@ teams:
   Ljungskile SK: 卢恩斯基尔
   Lokomotiv: 莫火车头
   Lommel United: 洛默尔
+  Longford Town: 郎福德城
   Lorient: 洛里昂
   Los Angeles FC: 洛杉矶FC
   Los Angeles Galaxy: 洛杉矶银河
@@ -867,6 +875,7 @@ teams:
   Tottenham: 热刺
   Toulouse: 图卢兹
   Trabzonspor: 特拉布宗
+  Treaty United: 条约联
   Trelleborg: 特雷勒堡
   Tromso: 特罗姆瑟
   Tunisia: 突尼斯
@@ -875,6 +884,7 @@ teams:
   Türkiye: 土耳其
   U. Catolica: 天主大学
   U.N.A.M. - Pumas: 美洲狮
+  UCD: 都柏林大学
   USA: 美国
   Udinese: 乌迪内斯
   Ulsan Hyundai FC: 蔚山HD
@@ -930,6 +940,7 @@ teams:
   West Brom: 西布罗姆维奇
   West Ham: 西汉姆联
   Western Sydney Wanderers: 西悉尼流浪者
+  Wexford: 韦克斯福德
   Widzew Łódź: 维德祖罗兹
   Wigan: 维冈竞技
   Willem II: 威廉二世

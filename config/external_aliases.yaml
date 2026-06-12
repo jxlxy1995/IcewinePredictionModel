@@ -391,3 +391,7 @@ aliases:
     source_name: oddspapi
     canonical_name: Bosnia & Herzegovina
     alias_name: Bosnia and Herzegovina
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: UCD
+    alias_name: University College Dublin

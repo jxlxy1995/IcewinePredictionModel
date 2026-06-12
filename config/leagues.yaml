@@ -229,6 +229,11 @@ leagues:
     api_football_id: 357
     enabled: true
     priority: 51
+  - name: First Division
+    country: Ireland
+    api_football_id: 358
+    enabled: true
+    priority: 50
   - name: Liga 1
     country: Indonesia
     api_football_id: 274

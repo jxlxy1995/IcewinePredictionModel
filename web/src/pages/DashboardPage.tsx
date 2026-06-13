@@ -92,6 +92,7 @@ import {
   buildExecutionTimepointCoverageView,
   buildMatchFreshnessCards,
   buildMatchSyncSummary,
+  buildMatchTimeFilterChange,
   defaultMatchListDateRange,
   formatMatchStatus,
   summarizeMatchDetail
@@ -885,7 +886,9 @@ function MatchListView({
           <label>
             <span>开始时间</span>
             <input
-              onChange={(event) => onFiltersChange({ start_time: event.target.value })}
+              onChange={(event) =>
+                onFiltersChange(buildMatchTimeFilterChange("start_time", event.target.value))
+              }
               type="datetime-local"
               value={filters.start_time}
             />
@@ -893,7 +896,9 @@ function MatchListView({
           <label>
             <span>结束时间</span>
             <input
-              onChange={(event) => onFiltersChange({ end_time: event.target.value })}
+              onChange={(event) =>
+                onFiltersChange(buildMatchTimeFilterChange("end_time", event.target.value))
+              }
               type="datetime-local"
               value={filters.end_time}
             />
@@ -1043,7 +1048,9 @@ function FilteredMatchListView({
           <label>
             <span>开始时间</span>
             <input
-              onChange={(event) => onFiltersChange({ start_time: event.target.value })}
+              onChange={(event) =>
+                onFiltersChange(buildMatchTimeFilterChange("start_time", event.target.value))
+              }
               type="datetime-local"
               value={filters.start_time}
             />
@@ -1051,7 +1058,9 @@ function FilteredMatchListView({
           <label>
             <span>结束时间</span>
             <input
-              onChange={(event) => onFiltersChange({ end_time: event.target.value })}
+              onChange={(event) =>
+                onFiltersChange(buildMatchTimeFilterChange("end_time", event.target.value))
+              }
               type="datetime-local"
               value={filters.end_time}
             />

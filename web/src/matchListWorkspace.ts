@@ -27,6 +27,14 @@ export type MatchSyncSummary = {
   line: string;
 };
 
+export type MatchTimeFilterKey = "start_time" | "end_time";
+
+export type MatchTimeFilterChange = {
+  end_time?: string;
+  league_name: string;
+  start_time?: string;
+};
+
 export type ExecutionTimepointCoverageView = {
   summary: string;
   healthClassName: string;
@@ -148,6 +156,16 @@ export function defaultMatchListDateRange(now = new Date()): {
   return {
     start_time: toDatetimeLocalValue(start),
     end_time: toDatetimeLocalValue(end)
+  };
+}
+
+export function buildMatchTimeFilterChange(
+  key: MatchTimeFilterKey,
+  value: string
+): MatchTimeFilterChange {
+  return {
+    [key]: value,
+    league_name: ""
   };
 }
 

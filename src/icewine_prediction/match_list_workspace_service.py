@@ -273,7 +273,12 @@ def build_match_list_workspace(
             search=search,
         ),
         freshness=_freshness(session),
-        leagues=_league_options(session, display_name_service=display_name_service),
+        leagues=_league_options(
+            session,
+            start=start,
+            end=end,
+            display_name_service=display_name_service,
+        ),
         total_matches=len(matches),
         matches=[
             _match_row(
@@ -577,9 +582,17 @@ def _latest_success_run(session: Session, sync_type: str) -> DataSyncRun | None:
 def _league_options(
     session: Session,
     *,
+    start: datetime,
+    end: datetime,
     display_name_service: DisplayNameService,
 ) -> list[MatchListLeagueOption]:
-    rows = session.query(Match).options(joinedload(Match.league)).all()
+    rows = (
+        session.query(Match)
+        .options(joinedload(Match.league))
+        .filter(Match.kickoff_time >= start)
+        .filter(Match.kickoff_time <= end)
+        .all()
+    )
     return [
         MatchListLeagueOption(
             name=league_name,

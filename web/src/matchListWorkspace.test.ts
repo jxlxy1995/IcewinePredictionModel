@@ -5,6 +5,7 @@ import {
   buildMatchFreshnessCards,
   buildMatchListRows,
   buildMatchSyncSummary,
+  buildMatchTimeFilterChange,
   defaultMatchListDateRange,
   formatMatchStatus,
   formatOddsAvailability,
@@ -133,6 +134,17 @@ describe("matchListWorkspace", () => {
     expect(range).toEqual({
       start_time: "2026-05-30T00:00",
       end_time: "2026-05-31T12:00"
+    });
+  });
+
+  it("clears league selection when a time filter changes", () => {
+    expect(buildMatchTimeFilterChange("start_time", "2026-06-01T00:00")).toEqual({
+      league_name: "",
+      start_time: "2026-06-01T00:00"
+    });
+    expect(buildMatchTimeFilterChange("end_time", "2026-06-02T12:00")).toEqual({
+      end_time: "2026-06-02T12:00",
+      league_name: ""
     });
   });
 

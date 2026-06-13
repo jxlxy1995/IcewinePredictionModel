@@ -241,6 +241,36 @@ def test_match_list_workspace_filters_by_status_odds_league_and_search(session):
     assert workspace.matches[0].status_group == "not_started"
 
 
+def test_match_list_workspace_league_options_follow_time_window(session):
+    now = datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING)
+    inside_league = League(name="J1 League", country_or_region="Japan", level=1)
+    outside_league = League(name="K League 1", country_or_region="Korea", level=1)
+    session.add_all([inside_league, outside_league])
+    session.flush()
+    _add_match(
+        session,
+        inside_league,
+        "Inside League",
+        datetime(2026, 5, 30, 13, 0, tzinfo=BEIJING),
+    )
+    _add_match(
+        session,
+        outside_league,
+        "Outside League",
+        datetime(2026, 6, 2, 13, 0, tzinfo=BEIJING),
+    )
+    session.commit()
+
+    workspace = build_match_list_workspace(
+        session,
+        now=now,
+        start_time=datetime(2026, 5, 30, 0, 0, tzinfo=BEIJING),
+        end_time=datetime(2026, 5, 31, 0, 0, tzinfo=BEIJING),
+    )
+
+    assert [league.name for league in workspace.leagues] == ["J1 League"]
+
+
 def test_match_list_workspace_classifies_and_filters_odds_statuses(session):
     now = datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING)
     league = League(name="J1 League", country_or_region="Japan", level=1)

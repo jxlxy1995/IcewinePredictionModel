@@ -491,10 +491,10 @@ describe("apiClient", () => {
     expect(tasks).toEqual([]);
   });
 
-  it("falls back to an empty paper automation task list", async () => {
+  it("surfaces paper automation task list failures", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("failed", { status: 500 })));
 
-    await expect(loadPaperAutomationTasks()).resolves.toEqual([]);
+    await expect(loadPaperAutomationTasks()).rejects.toThrow("failed");
   });
 
   it("creates paper automation task with scheduling payload", async () => {

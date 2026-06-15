@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Clock,
   Database,
+  Eye,
   FileCheck2,
   FlaskConical,
   Languages,
@@ -315,6 +316,7 @@ export function DashboardPage() {
   const [automationTaskAction, setAutomationTaskAction] = useState<string | null>(null);
   const [automationTaskMessage, setAutomationTaskMessage] = useState<string | null>(null);
   const [automationTaskError, setAutomationTaskError] = useState<string | null>(null);
+  const [selectedAutomationTask, setSelectedAutomationTask] = useState<PaperAutomationTask | null>(null);
   const [selectedMatchDetail, setSelectedMatchDetail] = useState<MatchDetail | null>(null);
   const [loadedLazyViews, setLoadedLazyViews] = useState<Set<ViewKey>>(new Set());
 
@@ -629,6 +631,7 @@ export function DashboardPage() {
             actionInFlight={automationTaskAction}
             errorText={automationTaskError}
             messageText={automationTaskMessage}
+            selectedTask={selectedAutomationTask}
             tasks={paperAutomationTasks}
             onCancelTask={(taskId) => {
               setAutomationTaskAction(`cancel-${taskId}`);
@@ -639,11 +642,13 @@ export function DashboardPage() {
                   setPaperAutomationTasks((current) =>
                     current.map((task) => (task.id === updatedTask.id ? updatedTask : task))
                   );
+                  setSelectedAutomationTask((current) => (current?.id === updatedTask.id ? updatedTask : current));
                   setAutomationTaskMessage("自动任务已取消");
                 })
                 .catch((error) => setAutomationTaskError(formatActionError("取消自动任务失败", error)))
                 .finally(() => setAutomationTaskAction(null));
             }}
+            onOpenDetail={setSelectedAutomationTask}
             onRefresh={() => {
               setAutomationTaskAction("refresh");
               setAutomationTaskError(null);
@@ -651,6 +656,7 @@ export function DashboardPage() {
               loadPaperAutomationTasks()
                 .then((tasks) => {
                   setPaperAutomationTasks(tasks);
+                  setSelectedAutomationTask((current) => tasks.find((task) => task.id === current?.id) ?? null);
                   setAutomationTaskMessage("自动任务已刷新");
                   setLoadedLazyViews((current) => new Set([...current, "automationTasks"]));
                 })
@@ -2563,14 +2569,18 @@ function PaperAutomationTaskView({
   errorText,
   messageText,
   onCancelTask,
+  onOpenDetail,
   onRefresh,
+  selectedTask,
   tasks
 }: {
   actionInFlight: string | null;
   errorText: string | null;
   messageText: string | null;
   onCancelTask: (taskId: number) => void;
+  onOpenDetail: (task: PaperAutomationTask) => void;
   onRefresh: () => void;
+  selectedTask: PaperAutomationTask | null;
   tasks: PaperAutomationTask[];
 }) {
   const summary = buildPaperAutomationSummary(tasks);
@@ -2602,62 +2612,101 @@ function PaperAutomationTaskView({
         {tasks.length === 0 && !errorText ? (
           <div className="empty-state">暂无自动任务</div>
         ) : tasks.length > 0 ? (
-          <table className="automation-task-table">
-            <thead>
-              <tr>
-                <th>触发时间</th>
-                <th>比赛时间段</th>
-                <th>状态</th>
-                <th>比赛数</th>
-                <th>Bark</th>
-                <th>更新时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tasks.map((task) => {
-                const isCancelling = actionInFlight === `cancel-${task.id}`;
-                return (
-                  <tr key={task.id}>
-                    <td>{formatAutomationShortDateTime(task.trigger_at)}</td>
-                    <td>{formatAutomationWindow(task)}</td>
-                    <td>
-                      <span className={`status-pill ${automationStatusClass(task.status)}`}>
-                        {formatAutomationStatus(task.status)}
-                      </span>
-                    </td>
-                    <td>{task.target_match_count.toLocaleString()}</td>
-                    <td>
-                      <span
-                        className={`status-pill ${notificationStatusClass(task.notification_status)}`}
-                        title={task.notification_error ?? undefined}
-                      >
-                        {formatNotificationStatus(task.notification_status)}
-                      </span>
-                    </td>
-                    <td>{formatAutomationShortDateTime(task.updated_at)}</td>
-                    <td>
-                      {task.status === "pending" ? (
-                        <button
-                          className="compact-action-button"
-                          disabled={isBusy}
-                          onClick={() => onCancelTask(task.id)}
-                          type="button"
+          <div className="table-scroll">
+            <table className="automation-task-table">
+              <thead>
+                <tr>
+                  <th>触发时间</th>
+                  <th>比赛时间段</th>
+                  <th>状态</th>
+                  <th>比赛数</th>
+                  <th>Bark</th>
+                  <th>更新时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tasks.map((task) => {
+                  const isCancelling = actionInFlight === `cancel-${task.id}`;
+                  return (
+                    <tr key={task.id}>
+                      <td>{formatAutomationShortDateTime(task.trigger_at)}</td>
+                      <td>{formatAutomationWindow(task)}</td>
+                      <td>
+                        <span className={`status-pill ${automationStatusClass(task.status)}`}>
+                          {formatAutomationStatus(task.status)}
+                        </span>
+                      </td>
+                      <td>{task.target_match_count.toLocaleString()}</td>
+                      <td>
+                        <span
+                          className={`status-pill ${notificationStatusClass(task.notification_status)}`}
+                          title={task.notification_error ?? undefined}
                         >
-                          <XCircle size={15} />
-                          {isCancelling ? "取消中" : "取消"}
-                        </button>
-                      ) : (
-                        <span className="muted-text">-</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                          {formatNotificationStatus(task.notification_status)}
+                        </span>
+                      </td>
+                      <td>{formatAutomationShortDateTime(task.updated_at)}</td>
+                      <td>
+                        <div className="automation-task-actions">
+                          <button className="compact-action-button" onClick={() => onOpenDetail(task)} type="button">
+                            <Eye size={15} />
+                            详情
+                          </button>
+                          {task.status === "pending" && (
+                            <button
+                              className="compact-action-button"
+                              disabled={isBusy}
+                              onClick={() => onCancelTask(task.id)}
+                              type="button"
+                            >
+                              <XCircle size={15} />
+                              {isCancelling ? "取消中" : "取消"}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         ) : null}
       </Panel>
+      {selectedTask && (
+        <Panel title="任务详情">
+          <div className="automation-task-detail-grid">
+            <div>
+              <span>任务 ID</span>
+              <strong>{selectedTask.id}</strong>
+            </div>
+            <div>
+              <span>状态</span>
+              <strong>{formatAutomationStatus(selectedTask.status)}</strong>
+            </div>
+            <div>
+              <span>Bark 状态</span>
+              <strong>{formatNotificationStatus(selectedTask.notification_status)}</strong>
+            </div>
+            <div>
+              <span>触发时间</span>
+              <strong>{formatAutomationShortDateTime(selectedTask.trigger_at)}</strong>
+            </div>
+            <div>
+              <span>比赛时间段</span>
+              <strong>{formatAutomationWindow(selectedTask)}</strong>
+            </div>
+            <div>
+              <span>目标比赛数</span>
+              <strong>{selectedTask.target_match_count.toLocaleString()}</strong>
+            </div>
+          </div>
+          {selectedTask.error_message && <div className="inline-warning">{selectedTask.error_message}</div>}
+          {selectedTask.notification_error && <div className="inline-warning">{selectedTask.notification_error}</div>}
+          <pre className="json-preview">{JSON.stringify(selectedTask.result_payload ?? {}, null, 2)}</pre>
+        </Panel>
+      )}
     </section>
   );
 }

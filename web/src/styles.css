@@ -1549,9 +1549,59 @@ th {
   flex-wrap: wrap;
 }
 
+.table-scroll {
+  overflow-x: auto;
+}
+
 .automation-task-table td:last-child,
 .automation-task-table th:last-child {
-  width: 96px;
+  min-width: 160px;
+}
+
+.automation-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.automation-task-detail-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-bottom: 12px;
+}
+
+.automation-task-detail-grid div {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.automation-task-detail-grid span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.automation-task-detail-grid strong {
+  color: #1d2733;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.json-preview {
+  background: #0f172a;
+  border-radius: 8px;
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
 }
 
 .muted-text {

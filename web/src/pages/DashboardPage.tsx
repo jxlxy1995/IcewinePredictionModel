@@ -5,20 +5,26 @@ import {
   BrainCircuit,
   CircleAlert,
   ClipboardList,
+  Clock,
   Database,
+  Eye,
   FileCheck2,
   FlaskConical,
   Languages,
   ListChecks,
   Plus,
   Play,
+  RefreshCw,
   ScrollText,
   Search,
+  XCircle,
   Radio
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import {
+  cancelPaperAutomationTask,
+  createPaperAutomationTask,
   createManualExecutionTimepointOdds,
   loadDashboardData,
   loadMatchDetail,
@@ -26,6 +32,7 @@ import {
   loadMatchOddsTrend,
   loadMatchSyncRunDetail,
   loadOddspapiBackfillAudit,
+  loadPaperAutomationTasks,
   loadPaperRecommendationWorkspace,
   loadTrainingWorkspace,
   startTrainingFullRefresh,
@@ -89,6 +96,13 @@ import {
   formatPaperSingleRecordMessage
 } from "../paperBatchRecordMessage";
 import {
+  buildPaperAutomationSummary,
+  formatAutomationStatus,
+  formatAutomationWindow,
+  formatNotificationStatus,
+  formatShortDateTime as formatAutomationShortDateTime
+} from "../paperAutomationWorkspace";
+import {
   buildExecutionTimepointCoverageView,
   buildMatchFreshnessCards,
   buildMatchSyncSummary,
@@ -109,6 +123,8 @@ import type {
   MatchOddsTrends,
   ManualExecutionTimepointOddsPayload,
   PaperCandidate,
+  CreatePaperAutomationTaskPayload,
+  PaperAutomationTask,
   PaperRecord,
   TeamDisplayNameWorkspace
 } from "../types";
@@ -116,6 +132,7 @@ import type {
 type ViewKey =
   | "overview"
   | "matchList"
+  | "automationTasks"
   | "coverage"
   | "workers"
   | "oddspapiAudit"
@@ -176,6 +193,7 @@ export const initialDashboardView: ViewKey = "matchList";
 
 export const dashboardNavItems: NavItem[] = [
   { key: "matchList", label: "比赛列表", icon: Search },
+  { key: "automationTasks", label: "自动任务", icon: Clock },
   { key: "displayNames", label: "中文名", icon: Languages },
   { key: "models", label: "模型训练", icon: BrainCircuit },
   { key: "paperTracking", label: "纸面跟踪", icon: ScrollText },
@@ -194,6 +212,10 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
   matchList: {
     title: "比赛列表",
     subtitle: "同步近期数据，按时间、联赛、状态和赔率浏览本地比赛"
+  },
+  automationTasks: {
+    title: "自动任务",
+    subtitle: "查看一次性纸面自动任务的执行状态、Bark 推送和失败诊断"
   },
   coverage: {
     title: "联赛覆盖率",
@@ -282,6 +304,20 @@ export function DashboardPage() {
     search: "",
     status_filter: "all"
   });
+  const [automationDialogOpen, setAutomationDialogOpen] = useState(false);
+  const [automationDraft, setAutomationDraft] = useState<CreatePaperAutomationTaskPayload>({
+    trigger_at: "",
+    match_window_start: "",
+    match_window_end: ""
+  });
+  const [automationMessage, setAutomationMessage] = useState<string | null>(null);
+  const [automationError, setAutomationError] = useState<string | null>(null);
+  const [isCreatingAutomationTask, setIsCreatingAutomationTask] = useState(false);
+  const [paperAutomationTasks, setPaperAutomationTasks] = useState<PaperAutomationTask[]>([]);
+  const [automationTaskAction, setAutomationTaskAction] = useState<string | null>(null);
+  const [automationTaskMessage, setAutomationTaskMessage] = useState<string | null>(null);
+  const [automationTaskError, setAutomationTaskError] = useState<string | null>(null);
+  const [selectedAutomationTask, setSelectedAutomationTask] = useState<PaperAutomationTask | null>(null);
   const [selectedMatchDetail, setSelectedMatchDetail] = useState<MatchDetail | null>(null);
   const [loadedLazyViews, setLoadedLazyViews] = useState<Set<ViewKey>>(new Set());
 
@@ -319,6 +355,17 @@ export function DashboardPage() {
         .then(markLazyViewLoaded)
         .catch((error) => setMatchListError(formatActionError("刷新比赛列表失败", error)))
         .finally(() => setMatchListAction(null));
+    }
+    if (activeView === "automationTasks") {
+      setAutomationTaskAction("refresh");
+      setAutomationTaskError(null);
+      loadPaperAutomationTasks()
+        .then((tasks) => {
+          setPaperAutomationTasks(tasks);
+          markLazyViewLoaded();
+        })
+        .catch(() => setAutomationTaskError("读取自动任务失败"))
+        .finally(() => setAutomationTaskAction(null));
     }
     if (activeView === "oddspapiAudit") {
       loadOddspapiBackfillAudit().then((audit) => {
@@ -444,6 +491,16 @@ export function DashboardPage() {
               setMatchDetailOddsTrends(null);
               setMatchDetailOddsError(null);
             }}
+            onCreateAutomationTask={() => {
+              setAutomationMessage(null);
+              setAutomationError(null);
+              setAutomationDraft({
+                trigger_at: "",
+                match_window_start: matchListFilters.start_time,
+                match_window_end: matchListFilters.end_time
+              });
+              setAutomationDialogOpen(true);
+            }}
             onFiltersChange={(nextFilters) => {
               const merged = { ...matchListFilters, ...nextFilters };
               setMatchListFilters(merged);
@@ -567,6 +624,45 @@ export function DashboardPage() {
                 .then(() => setMatchListMessage("赔率同步完成"))
                 .catch((error) => setMatchListError(formatActionError("赔率同步失败", error)))
                 .finally(() => setMatchListAction(null));
+            }}
+          />
+        )}
+        {activeView === "automationTasks" && (
+          <PaperAutomationTaskView
+            actionInFlight={automationTaskAction}
+            errorText={automationTaskError}
+            messageText={automationTaskMessage}
+            selectedTask={selectedAutomationTask}
+            tasks={paperAutomationTasks}
+            onCancelTask={(taskId) => {
+              setAutomationTaskAction(`cancel-${taskId}`);
+              setAutomationTaskError(null);
+              setAutomationTaskMessage(null);
+              cancelPaperAutomationTask(taskId)
+                .then((updatedTask) => {
+                  setPaperAutomationTasks((current) =>
+                    current.map((task) => (task.id === updatedTask.id ? updatedTask : task))
+                  );
+                  setSelectedAutomationTask((current) => (current?.id === updatedTask.id ? updatedTask : current));
+                  setAutomationTaskMessage("自动任务已取消");
+                })
+                .catch((error) => setAutomationTaskError(formatActionError("取消自动任务失败", error)))
+                .finally(() => setAutomationTaskAction(null));
+            }}
+            onOpenDetail={setSelectedAutomationTask}
+            onRefresh={() => {
+              setAutomationTaskAction("refresh");
+              setAutomationTaskError(null);
+              setAutomationTaskMessage(null);
+              loadPaperAutomationTasks()
+                .then((tasks) => {
+                  setPaperAutomationTasks(tasks);
+                  setSelectedAutomationTask((current) => tasks.find((task) => task.id === current?.id) ?? null);
+                  setAutomationTaskMessage("自动任务已刷新");
+                  setLoadedLazyViews((current) => new Set([...current, "automationTasks"]));
+                })
+                .catch(() => setAutomationTaskError("读取自动任务失败"))
+                .finally(() => setAutomationTaskAction(null));
             }}
           />
         )}
@@ -796,6 +892,39 @@ export function DashboardPage() {
           />
         )}
         {activeView === "records" && <RecordsView data={data} />}
+        {automationDialogOpen && (
+          <PaperAutomationTaskDialog
+            draft={automationDraft}
+            errorText={automationError}
+            isSaving={isCreatingAutomationTask}
+            messageText={automationMessage}
+            onCancel={() => {
+              if (!isCreatingAutomationTask) {
+                setAutomationDialogOpen(false);
+              }
+            }}
+            onDraftChange={(nextDraft) => {
+              setAutomationDraft((current) => ({ ...current, ...nextDraft }));
+            }}
+            onSubmit={() => {
+              setAutomationError(null);
+              setAutomationMessage(null);
+              setIsCreatingAutomationTask(true);
+              createPaperAutomationTask(automationDraft)
+                .then((task) => {
+                  const message = `自动任务已创建，将于 ${task.trigger_at} 执行`;
+                  setPaperAutomationTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
+                  setAutomationMessage(message);
+                  setAutomationTaskMessage(message);
+                  setMatchListError(null);
+                  setMatchListMessage(message);
+                  setAutomationDialogOpen(false);
+                })
+                .catch((error) => setAutomationError(formatActionError("创建自动任务失败", error)))
+                .finally(() => setIsCreatingAutomationTask(false));
+            }}
+          />
+        )}
       </main>
     </div>
   );
@@ -953,6 +1082,7 @@ function FilteredMatchListView({
   syncReport,
   syncRunDetail,
   onBackToList,
+  onCreateAutomationTask,
   onDiscoverFixtures,
   onDetailUpdated,
   onFiltersChange,
@@ -974,6 +1104,7 @@ function FilteredMatchListView({
   syncReport: MatchSyncReport | null;
   syncRunDetail: MatchSyncRunDetail | null;
   onBackToList: () => void;
+  onCreateAutomationTask: () => void;
   onDiscoverFixtures: () => void;
   onDetailUpdated: (detail: MatchDetail) => void;
   onFiltersChange: (filters: Partial<MatchListFilterState>) => void;
@@ -1022,6 +1153,12 @@ function FilteredMatchListView({
         <div className="sync-action">
           <button disabled={isBusy} onClick={onSyncOdds} type="button">
             同步赔率
+          </button>
+        </div>
+        <div className="sync-action">
+          <button disabled={isBusy} onClick={onCreateAutomationTask} type="button">
+            <Clock size={16} />
+            创建自动任务
           </button>
         </div>
       </section>
@@ -1106,6 +1243,86 @@ function FilteredMatchListView({
         />
       </Panel>
     </section>
+  );
+}
+
+function PaperAutomationTaskDialog({
+  draft,
+  errorText,
+  isSaving,
+  messageText,
+  onCancel,
+  onDraftChange,
+  onSubmit
+}: {
+  draft: CreatePaperAutomationTaskPayload;
+  errorText: string | null;
+  isSaving: boolean;
+  messageText: string | null;
+  onCancel: () => void;
+  onDraftChange: (draft: Partial<CreatePaperAutomationTaskPayload>) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form
+        aria-describedby="paper-automation-dialog-description"
+        aria-labelledby="paper-automation-dialog-title"
+        aria-modal="true"
+        className="modal-panel"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+        role="dialog"
+      >
+        <div className="modal-header">
+          <div>
+            <h2 id="paper-automation-dialog-title">创建自动任务</h2>
+            <p id="paper-automation-dialog-description">设置任务触发时间和比赛筛选窗口。</p>
+          </div>
+        </div>
+        <div className="automation-dialog-grid">
+          <label>
+            <span>触发任务时间</span>
+            <input
+              onChange={(event) => onDraftChange({ trigger_at: event.target.value })}
+              required
+              type="datetime-local"
+              value={draft.trigger_at}
+            />
+          </label>
+          <label>
+            <span>筛选比赛开始时间</span>
+            <input
+              onChange={(event) => onDraftChange({ match_window_start: event.target.value })}
+              required
+              type="datetime-local"
+              value={draft.match_window_start}
+            />
+          </label>
+          <label>
+            <span>筛选比赛结束时间</span>
+            <input
+              onChange={(event) => onDraftChange({ match_window_end: event.target.value })}
+              required
+              type="datetime-local"
+              value={draft.match_window_end}
+            />
+          </label>
+        </div>
+        {messageText && <div className="success-text">{messageText}</div>}
+        {errorText && <div className="error-text">{errorText}</div>}
+        <div className="dialog-actions">
+          <button disabled={isSaving} onClick={onCancel} type="button">
+            取消
+          </button>
+          <button disabled={isSaving} type="submit">
+            {isSaving ? "保存中..." : "保存任务"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -2354,6 +2571,190 @@ function formatPaperAction(action: string) {
     return "作废记录";
   }
   return action;
+}
+
+function PaperAutomationTaskView({
+  actionInFlight,
+  errorText,
+  messageText,
+  onCancelTask,
+  onOpenDetail,
+  onRefresh,
+  selectedTask,
+  tasks
+}: {
+  actionInFlight: string | null;
+  errorText: string | null;
+  messageText: string | null;
+  onCancelTask: (taskId: number) => void;
+  onOpenDetail: (task: PaperAutomationTask) => void;
+  onRefresh: () => void;
+  selectedTask: PaperAutomationTask | null;
+  tasks: PaperAutomationTask[];
+}) {
+  const summary = buildPaperAutomationSummary(tasks);
+  const isBusy = actionInFlight !== null;
+
+  return (
+    <section className="single-column">
+      <section className="metrics compact-metrics">
+        <MetricCard label="待执行" value={summary.pending.toLocaleString()} />
+        <MetricCard label="执行中" value={summary.running.toLocaleString()} />
+        <MetricCard label="今日完成" value={summary.completedToday.toLocaleString()} />
+        <MetricCard
+          label="失败/Bark失败"
+          value={summary.failedOrNotificationFailed.toLocaleString()}
+          tone="warning"
+        />
+      </section>
+
+      <Panel title="任务队列">
+        <div className="table-toolbar automation-task-toolbar">
+          <button disabled={isBusy} onClick={onRefresh} type="button">
+            <RefreshCw size={16} />
+            刷新
+          </button>
+          {actionInFlight && <span>正在执行 {formatAutomationAction(actionInFlight)}</span>}
+          {messageText && <span className="success-text">{messageText}</span>}
+          {errorText && <span className="error-text">{errorText}</span>}
+        </div>
+        {tasks.length === 0 && !errorText ? (
+          <div className="empty-state">暂无自动任务</div>
+        ) : tasks.length > 0 ? (
+          <div className="table-scroll">
+            <table className="automation-task-table">
+              <thead>
+                <tr>
+                  <th>触发时间</th>
+                  <th>比赛时间段</th>
+                  <th>状态</th>
+                  <th>比赛数</th>
+                  <th>Bark</th>
+                  <th>更新时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tasks.map((task) => {
+                  const isCancelling = actionInFlight === `cancel-${task.id}`;
+                  return (
+                    <tr key={task.id}>
+                      <td>{formatAutomationShortDateTime(task.trigger_at)}</td>
+                      <td>{formatAutomationWindow(task)}</td>
+                      <td>
+                        <span className={`status-pill ${automationStatusClass(task.status)}`}>
+                          {formatAutomationStatus(task.status)}
+                        </span>
+                      </td>
+                      <td>{task.target_match_count.toLocaleString()}</td>
+                      <td>
+                        <span
+                          className={`status-pill ${notificationStatusClass(task.notification_status)}`}
+                          title={task.notification_error ?? undefined}
+                        >
+                          {formatNotificationStatus(task.notification_status)}
+                        </span>
+                      </td>
+                      <td>{formatAutomationShortDateTime(task.updated_at)}</td>
+                      <td>
+                        <div className="automation-task-actions">
+                          <button className="compact-action-button" onClick={() => onOpenDetail(task)} type="button">
+                            <Eye size={15} />
+                            详情
+                          </button>
+                          {task.status === "pending" && (
+                            <button
+                              className="compact-action-button"
+                              disabled={isBusy}
+                              onClick={() => onCancelTask(task.id)}
+                              type="button"
+                            >
+                              <XCircle size={15} />
+                              {isCancelling ? "取消中" : "取消"}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </Panel>
+      {selectedTask && (
+        <Panel title="任务详情">
+          <div className="automation-task-detail-grid">
+            <div>
+              <span>任务 ID</span>
+              <strong>{selectedTask.id}</strong>
+            </div>
+            <div>
+              <span>状态</span>
+              <strong>{formatAutomationStatus(selectedTask.status)}</strong>
+            </div>
+            <div>
+              <span>Bark 状态</span>
+              <strong>{formatNotificationStatus(selectedTask.notification_status)}</strong>
+            </div>
+            <div>
+              <span>触发时间</span>
+              <strong>{formatAutomationShortDateTime(selectedTask.trigger_at)}</strong>
+            </div>
+            <div>
+              <span>比赛时间段</span>
+              <strong>{formatAutomationWindow(selectedTask)}</strong>
+            </div>
+            <div>
+              <span>目标比赛数</span>
+              <strong>{selectedTask.target_match_count.toLocaleString()}</strong>
+            </div>
+          </div>
+          {selectedTask.error_message && (
+            <div className="inline-warning">{`任务执行错误：${selectedTask.error_message}`}</div>
+          )}
+          {selectedTask.notification_error && (
+            <div className="inline-warning">{`Bark 推送错误：${selectedTask.notification_error}`}</div>
+          )}
+          <pre className="json-preview">{JSON.stringify(selectedTask.result_payload ?? {}, null, 2)}</pre>
+        </Panel>
+      )}
+    </section>
+  );
+}
+
+function formatAutomationAction(action: string): string {
+  if (action === "refresh") {
+    return "刷新任务";
+  }
+  if (action.startsWith("cancel-")) {
+    return "取消任务";
+  }
+  return action;
+}
+
+function automationStatusClass(status: string): string {
+  if (status === "success") {
+    return "ready";
+  }
+  if (status === "running") {
+    return "training";
+  }
+  if (status === "failed" || status === "missed") {
+    return "failed";
+  }
+  return "";
+}
+
+function notificationStatusClass(status: string): string {
+  if (status === "sent" || status === "not_configured") {
+    return "ready";
+  }
+  if (status === "failed") {
+    return "failed";
+  }
+  return "";
 }
 
 function RecordsView({ data }: { data: DashboardData }) {

@@ -496,6 +496,58 @@ export type PaperRecommendationWorkspace = {
   batch_result?: PaperBatchRecordResult;
 };
 
+export type PaperAutomationTaskResult = {
+  target_match_ids: number[];
+  odds: unknown;
+  odds_sync_result?: unknown;
+  queue: {
+    total_matches: number;
+    candidate_count: number;
+    status_counts: Record<string, number>;
+    discarded_by_robustness_match_count?: number;
+  };
+  batch_record: {
+    created_record_ids: number[];
+    created_count: number;
+    skipped_count: number;
+    skipped: PaperBatchRecordSkippedItem[];
+  };
+  created_record_ids?: number[];
+  confidence_group_keys?: string[];
+  bark: {
+    notification_status: string;
+    notification_error: string | null;
+    messages: Array<{ title: string; body: string }>;
+  };
+  bark_message_count?: number;
+};
+
+export type PaperAutomationTask = {
+  id: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  trigger_at: string;
+  match_window_start: string;
+  match_window_end: string;
+  started_at: string | null;
+  finished_at: string | null;
+  missed_at: string | null;
+  cancelled_at: string | null;
+  status: "pending" | "running" | "success" | "failed" | "missed" | "cancelled" | string;
+  notification_status: "pending" | "not_configured" | "sent" | "failed" | string;
+  notification_error: string | null;
+  error_message: string | null;
+  target_match_count: number;
+  result_payload: PaperAutomationTaskResult | null;
+};
+
+export type CreatePaperAutomationTaskPayload = {
+  trigger_at: string;
+  match_window_start: string;
+  match_window_end: string;
+};
+
 export type DataSyncFreshness = {
   latest_fixtures_results_sync: string | null;
   latest_odds_sync: string | null;

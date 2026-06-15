@@ -175,6 +175,27 @@ table {
   padding: 0 10px;
 }
 
+.table-toolbar button,
+.compact-action-button {
+  align-items: center;
+  background: #1f2937;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.table-toolbar button:disabled,
+.compact-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .table-toolbar input {
   flex: 1;
 }
@@ -1499,7 +1520,9 @@ th {
 }
 
 .status-pill {
+  background: #f1f5f9;
   border-radius: 999px;
+  color: #475569;
   display: inline-flex;
   font-size: 12px;
   line-height: 1;
@@ -1519,6 +1542,20 @@ th {
 .status-pill.failed {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.automation-task-toolbar {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.automation-task-table td:last-child,
+.automation-task-table th:last-child {
+  width: 96px;
+}
+
+.muted-text {
+  color: #94a3b8;
 }
 
 .model-market-list {

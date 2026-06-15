@@ -13,13 +13,16 @@ import {
   ListChecks,
   Plus,
   Play,
+  RefreshCw,
   ScrollText,
   Search,
+  XCircle,
   Radio
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import {
+  cancelPaperAutomationTask,
   createPaperAutomationTask,
   createManualExecutionTimepointOdds,
   loadDashboardData,
@@ -28,6 +31,7 @@ import {
   loadMatchOddsTrend,
   loadMatchSyncRunDetail,
   loadOddspapiBackfillAudit,
+  loadPaperAutomationTasks,
   loadPaperRecommendationWorkspace,
   loadTrainingWorkspace,
   startTrainingFullRefresh,
@@ -91,6 +95,13 @@ import {
   formatPaperSingleRecordMessage
 } from "../paperBatchRecordMessage";
 import {
+  buildPaperAutomationSummary,
+  formatAutomationStatus,
+  formatAutomationWindow,
+  formatNotificationStatus,
+  formatShortDateTime as formatAutomationShortDateTime
+} from "../paperAutomationWorkspace";
+import {
   buildExecutionTimepointCoverageView,
   buildMatchFreshnessCards,
   buildMatchSyncSummary,
@@ -111,6 +122,7 @@ import type {
   ManualExecutionTimepointOddsPayload,
   PaperCandidate,
   CreatePaperAutomationTaskPayload,
+  PaperAutomationTask,
   PaperRecord,
   TeamDisplayNameWorkspace
 } from "../types";
@@ -118,6 +130,7 @@ import type {
 type ViewKey =
   | "overview"
   | "matchList"
+  | "automationTasks"
   | "coverage"
   | "workers"
   | "oddspapiAudit"
@@ -178,6 +191,7 @@ export const initialDashboardView: ViewKey = "matchList";
 
 export const dashboardNavItems: NavItem[] = [
   { key: "matchList", label: "比赛列表", icon: Search },
+  { key: "automationTasks", label: "自动任务", icon: Clock },
   { key: "displayNames", label: "中文名", icon: Languages },
   { key: "models", label: "模型训练", icon: BrainCircuit },
   { key: "paperTracking", label: "纸面跟踪", icon: ScrollText },
@@ -196,6 +210,10 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
   matchList: {
     title: "比赛列表",
     subtitle: "同步近期数据，按时间、联赛、状态和赔率浏览本地比赛"
+  },
+  automationTasks: {
+    title: "自动任务",
+    subtitle: "查看一次性纸面自动任务的执行状态、Bark 推送和失败诊断"
   },
   coverage: {
     title: "联赛覆盖率",
@@ -293,6 +311,10 @@ export function DashboardPage() {
   const [automationMessage, setAutomationMessage] = useState<string | null>(null);
   const [automationError, setAutomationError] = useState<string | null>(null);
   const [isCreatingAutomationTask, setIsCreatingAutomationTask] = useState(false);
+  const [paperAutomationTasks, setPaperAutomationTasks] = useState<PaperAutomationTask[]>([]);
+  const [automationTaskAction, setAutomationTaskAction] = useState<string | null>(null);
+  const [automationTaskMessage, setAutomationTaskMessage] = useState<string | null>(null);
+  const [automationTaskError, setAutomationTaskError] = useState<string | null>(null);
   const [selectedMatchDetail, setSelectedMatchDetail] = useState<MatchDetail | null>(null);
   const [loadedLazyViews, setLoadedLazyViews] = useState<Set<ViewKey>>(new Set());
 
@@ -330,6 +352,17 @@ export function DashboardPage() {
         .then(markLazyViewLoaded)
         .catch((error) => setMatchListError(formatActionError("刷新比赛列表失败", error)))
         .finally(() => setMatchListAction(null));
+    }
+    if (activeView === "automationTasks") {
+      setAutomationTaskAction("refresh");
+      setAutomationTaskError(null);
+      loadPaperAutomationTasks()
+        .then((tasks) => {
+          setPaperAutomationTasks(tasks);
+          markLazyViewLoaded();
+        })
+        .catch(() => setAutomationTaskError("读取自动任务失败"))
+        .finally(() => setAutomationTaskAction(null));
     }
     if (activeView === "oddspapiAudit") {
       loadOddspapiBackfillAudit().then((audit) => {
@@ -591,6 +624,41 @@ export function DashboardPage() {
             }}
           />
         )}
+        {activeView === "automationTasks" && (
+          <PaperAutomationTaskView
+            actionInFlight={automationTaskAction}
+            errorText={automationTaskError}
+            messageText={automationTaskMessage}
+            tasks={paperAutomationTasks}
+            onCancelTask={(taskId) => {
+              setAutomationTaskAction(`cancel-${taskId}`);
+              setAutomationTaskError(null);
+              setAutomationTaskMessage(null);
+              cancelPaperAutomationTask(taskId)
+                .then((updatedTask) => {
+                  setPaperAutomationTasks((current) =>
+                    current.map((task) => (task.id === updatedTask.id ? updatedTask : task))
+                  );
+                  setAutomationTaskMessage("自动任务已取消");
+                })
+                .catch((error) => setAutomationTaskError(formatActionError("取消自动任务失败", error)))
+                .finally(() => setAutomationTaskAction(null));
+            }}
+            onRefresh={() => {
+              setAutomationTaskAction("refresh");
+              setAutomationTaskError(null);
+              setAutomationTaskMessage(null);
+              loadPaperAutomationTasks()
+                .then((tasks) => {
+                  setPaperAutomationTasks(tasks);
+                  setAutomationTaskMessage("自动任务已刷新");
+                  setLoadedLazyViews((current) => new Set([...current, "automationTasks"]));
+                })
+                .catch(() => setAutomationTaskError("读取自动任务失败"))
+                .finally(() => setAutomationTaskAction(null));
+            }}
+          />
+        )}
         {activeView === "coverage" && (
           <CoverageView
             data={data}
@@ -838,7 +906,9 @@ export function DashboardPage() {
               createPaperAutomationTask(automationDraft)
                 .then((task) => {
                   const message = `自动任务已创建，将于 ${task.trigger_at} 执行`;
+                  setPaperAutomationTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
                   setAutomationMessage(message);
+                  setAutomationTaskMessage(message);
                   setMatchListError(null);
                   setMatchListMessage(message);
                   setAutomationDialogOpen(false);
@@ -2486,6 +2556,143 @@ function formatPaperAction(action: string) {
     return "作废记录";
   }
   return action;
+}
+
+function PaperAutomationTaskView({
+  actionInFlight,
+  errorText,
+  messageText,
+  onCancelTask,
+  onRefresh,
+  tasks
+}: {
+  actionInFlight: string | null;
+  errorText: string | null;
+  messageText: string | null;
+  onCancelTask: (taskId: number) => void;
+  onRefresh: () => void;
+  tasks: PaperAutomationTask[];
+}) {
+  const summary = buildPaperAutomationSummary(tasks);
+  const isBusy = actionInFlight !== null;
+
+  return (
+    <section className="single-column">
+      <section className="metrics compact-metrics">
+        <MetricCard label="待执行" value={summary.pending.toLocaleString()} />
+        <MetricCard label="执行中" value={summary.running.toLocaleString()} />
+        <MetricCard label="今日完成" value={summary.completedToday.toLocaleString()} />
+        <MetricCard
+          label="失败/Bark失败"
+          value={summary.failedOrNotificationFailed.toLocaleString()}
+          tone="warning"
+        />
+      </section>
+
+      <Panel title="任务队列">
+        <div className="table-toolbar automation-task-toolbar">
+          <button disabled={isBusy} onClick={onRefresh} type="button">
+            <RefreshCw size={16} />
+            刷新
+          </button>
+          {actionInFlight && <span>正在执行 {formatAutomationAction(actionInFlight)}</span>}
+          {messageText && <span className="success-text">{messageText}</span>}
+          {errorText && <span className="error-text">{errorText}</span>}
+        </div>
+        {tasks.length === 0 ? (
+          <div className="empty-state">暂无自动任务</div>
+        ) : (
+          <table className="automation-task-table">
+            <thead>
+              <tr>
+                <th>触发时间</th>
+                <th>比赛时间段</th>
+                <th>状态</th>
+                <th>比赛数</th>
+                <th>Bark</th>
+                <th>更新时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map((task) => {
+                const isCancelling = actionInFlight === `cancel-${task.id}`;
+                return (
+                  <tr key={task.id}>
+                    <td>{formatAutomationShortDateTime(task.trigger_at)}</td>
+                    <td>{formatAutomationWindow(task)}</td>
+                    <td>
+                      <span className={`status-pill ${automationStatusClass(task.status)}`}>
+                        {formatAutomationStatus(task.status)}
+                      </span>
+                    </td>
+                    <td>{task.target_match_count.toLocaleString()}</td>
+                    <td>
+                      <span
+                        className={`status-pill ${notificationStatusClass(task.notification_status)}`}
+                        title={task.notification_error ?? undefined}
+                      >
+                        {formatNotificationStatus(task.notification_status)}
+                      </span>
+                    </td>
+                    <td>{formatAutomationShortDateTime(task.updated_at)}</td>
+                    <td>
+                      {task.status === "pending" ? (
+                        <button
+                          className="compact-action-button"
+                          disabled={isBusy}
+                          onClick={() => onCancelTask(task.id)}
+                          type="button"
+                        >
+                          <XCircle size={15} />
+                          {isCancelling ? "取消中" : "取消"}
+                        </button>
+                      ) : (
+                        <span className="muted-text">-</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+    </section>
+  );
+}
+
+function formatAutomationAction(action: string): string {
+  if (action === "refresh") {
+    return "刷新任务";
+  }
+  if (action.startsWith("cancel-")) {
+    return "取消任务";
+  }
+  return action;
+}
+
+function automationStatusClass(status: string): string {
+  if (status === "success") {
+    return "ready";
+  }
+  if (status === "running") {
+    return "training";
+  }
+  if (status === "failed" || status === "missed") {
+    return "failed";
+  }
+  return "";
+}
+
+function notificationStatusClass(status: string): string {
+  if (status === "sent" || status === "not_configured") {
+    return "ready";
+  }
+  if (status === "failed") {
+    return "failed";
+  }
+  return "";
 }
 
 function RecordsView({ data }: { data: DashboardData }) {

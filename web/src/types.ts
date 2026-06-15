@@ -510,7 +510,7 @@ export type PaperAutomationTaskResult = {
     created_record_ids: number[];
     created_count: number;
     skipped_count: number;
-    skipped: Array<Record<string, unknown>>;
+    skipped: PaperBatchRecordSkippedItem[];
   };
   created_record_ids?: number[];
   confidence_group_keys?: string[];
@@ -535,7 +535,7 @@ export type PaperAutomationTask = {
   missed_at: string | null;
   cancelled_at: string | null;
   status: "pending" | "running" | "success" | "failed" | "missed" | "cancelled" | string;
-  notification_status: "pending" | "success" | "failed" | "disabled" | string;
+  notification_status: "pending" | "not_configured" | "sent" | "failed" | string;
   notification_error: string | null;
   error_message: string | null;
   target_match_count: number;

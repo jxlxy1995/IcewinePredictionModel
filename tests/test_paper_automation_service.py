@@ -65,6 +65,9 @@ def _confidence_group(
     kickoff: datetime | None = None,
     confidence_score: int = 80,
     suggested_stake_units: Decimal = Decimal("1.50"),
+    league_display_name: str | None = "日职联",
+    home_team_display_name: str | None = None,
+    away_team_display_name: str | None = None,
 ) -> PaperConfidenceGroup:
     return PaperConfidenceGroup(
         group_key=f"group-{index}",
@@ -72,13 +75,13 @@ def _confidence_group(
         source_match_id=f"fixture-{index}",
         kickoff_time=kickoff or datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING),
         league_name="J1 League",
-        league_display_name="日职联",
+        league_display_name=league_display_name,
         home_team_name=f"Home {index}",
-        home_team_display_name=f"横滨水手{index}",
+        home_team_display_name=home_team_display_name or f"横滨水手{index}",
         home_team_logo_url=None,
         home_score=None,
         away_team_name=f"Away {index}",
-        away_team_display_name=f"神户胜利船{index}",
+        away_team_display_name=away_team_display_name or f"神户胜利船{index}",
         away_team_logo_url=None,
         away_score=None,
         market_type="asian_handicap",
@@ -175,6 +178,25 @@ def test_format_bark_messages_splits_without_dropping_groups():
         assert combined_body.count(f"{index}. 日职联 横滨水手{index} vs 神户胜利船{index}") == 1
 
 
+def test_format_bark_messages_splits_oversized_group_without_dropping_text():
+    group = _confidence_group(
+        1,
+        league_display_name="超长联赛名称" * 5,
+        home_team_display_name="超长主队名称" * 8,
+        away_team_display_name="超长客队名称" * 8,
+    )
+    expected_body = format_paper_automation_bark_messages(groups=[group])[0].body
+
+    messages = format_paper_automation_bark_messages(
+        groups=[group],
+        max_body_chars=30,
+    )
+
+    assert len(messages) > 1
+    assert "".join(message.body for message in messages) == expected_body
+    assert all(len(message.body) <= 30 for message in messages)
+
+
 def test_format_bark_messages_returns_empty_candidate_notice():
     messages = format_paper_automation_bark_messages(groups=[], recorded_count=0)
 
@@ -208,6 +230,25 @@ def test_push_bark_message_posts_json_and_preserves_failure_text(monkeypatch):
 
     assert calls == [("https://example.com/bark", {"title": "标题", "body": "正文"}, 3)]
     assert result == BarkPushResult(success=False, status_code=500, response_text="server error")
+
+
+def test_push_bark_message_redacts_secret_url_from_exception(monkeypatch):
+    def fake_post(push_url, *, json, timeout):
+        raise bark_notification_service.requests.RequestException(
+            f"request failed for {push_url}"
+        )
+
+    monkeypatch.setattr(bark_notification_service.requests, "post", fake_post)
+
+    result = push_bark_message(
+        "https://api.day.app/secret-token/纸面自动任务",
+        BarkMessage(title="标题", body="正文"),
+    )
+
+    assert result.success is False
+    assert result.error is not None
+    assert "api.day.app" not in result.error
+    assert "secret-token" not in result.error
 
 
 def test_create_task_rejects_empty_match_window():

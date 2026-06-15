@@ -47,7 +47,7 @@ def push_bark_message(
             timeout=timeout_seconds,
         )
     except requests.RequestException as exc:
-        return BarkPushResult(success=False, error=str(exc))
+        return BarkPushResult(success=False, error=f"{type(exc).__name__}: Bark request failed")
     return BarkPushResult(
         success=200 <= response.status_code < 300,
         status_code=response.status_code,
@@ -92,12 +92,19 @@ def _format_group_line(index: int, group: PaperConfidenceGroup) -> str:
 
 def _split_group_blocks(blocks: list[str], *, max_body_chars: int) -> list[str]:
     if max_body_chars <= 0:
-        return ["\n".join(blocks)]
+        raise ValueError("max_body_chars must be positive")
 
     chunks: list[str] = []
     current_blocks: list[str] = []
     current_length = 0
     for block in blocks:
+        if len(block) > max_body_chars:
+            if current_blocks:
+                chunks.append("\n".join(current_blocks))
+                current_blocks = []
+                current_length = 0
+            chunks.extend(_split_text(block, max_body_chars=max_body_chars))
+            continue
         separator_length = 1 if current_blocks else 0
         candidate_length = current_length + separator_length + len(block)
         if current_blocks and candidate_length > max_body_chars:
@@ -110,6 +117,13 @@ def _split_group_blocks(blocks: list[str], *, max_body_chars: int) -> list[str]:
     if current_blocks:
         chunks.append("\n".join(current_blocks))
     return chunks
+
+
+def _split_text(text: str, *, max_body_chars: int) -> list[str]:
+    return [
+        text[start : start + max_body_chars]
+        for start in range(0, len(text), max_body_chars)
+    ]
 
 
 def _format_kickoff_time(value: object) -> str:

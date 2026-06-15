@@ -284,6 +284,27 @@ class PaperRecommendationRecord(Base):
     match: Mapped["Match"] = relationship()
 
 
+class PaperAutomationTask(Base):
+    __tablename__ = "paper_automation_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(40), nullable=False, default="web")
+    trigger_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    match_window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    match_window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    notification_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    notification_error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    missed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    result_payload: Mapped[str | None] = mapped_column(Text)
+
+
 class DataSyncRun(Base):
     __tablename__ = "data_sync_runs"
 

@@ -18,9 +18,11 @@ import type {
   MatchSyncResponse,
   MatchWithOdds,
   MatchOddsTrends,
+  CreatePaperAutomationTaskPayload,
   ManualExecutionTimepointOddsPayload,
   ManualExecutionTimepointOddsResult,
   OddspapiBackfillAudit,
+  PaperAutomationTask,
   PaperRecommendationWorkspace,
   RecommendationRecord,
   TeamDisplayNameRow,
@@ -302,6 +304,24 @@ export async function createManualExecutionTimepointOdds(
 
 export async function loadMatchSyncRunDetail(runId: number): Promise<MatchSyncRunDetail> {
   return await getJson<MatchSyncRunDetail>(`/api/data-sync-runs/${runId}/items`);
+}
+
+export async function loadPaperAutomationTasks(): Promise<PaperAutomationTask[]> {
+  return await getJson<PaperAutomationTask[]>("/api/paper-automation/tasks");
+}
+
+export async function createPaperAutomationTask(
+  payload: CreatePaperAutomationTaskPayload
+): Promise<PaperAutomationTask> {
+  return await postJson<PaperAutomationTask>("/api/paper-automation/tasks", payload);
+}
+
+export async function loadPaperAutomationTask(taskId: number): Promise<PaperAutomationTask> {
+  return await getJson<PaperAutomationTask>(`/api/paper-automation/tasks/${taskId}`);
+}
+
+export async function cancelPaperAutomationTask(taskId: number): Promise<PaperAutomationTask> {
+  return await postJson<PaperAutomationTask>(`/api/paper-automation/tasks/${taskId}/cancel`, {});
 }
 
 function serializeOddsFilter(value: string | string[] | undefined): string | undefined {

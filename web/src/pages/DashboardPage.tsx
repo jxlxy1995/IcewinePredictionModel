@@ -1181,16 +1181,20 @@ function PaperAutomationTaskDialog({
   return (
     <div className="modal-backdrop" role="presentation">
       <form
+        aria-describedby="paper-automation-dialog-description"
+        aria-labelledby="paper-automation-dialog-title"
+        aria-modal="true"
         className="modal-panel"
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit();
         }}
+        role="dialog"
       >
         <div className="modal-header">
           <div>
-            <h2>创建自动任务</h2>
-            <p>设置任务触发时间和比赛筛选窗口。</p>
+            <h2 id="paper-automation-dialog-title">创建自动任务</h2>
+            <p id="paper-automation-dialog-description">设置任务触发时间和比赛筛选窗口。</p>
           </div>
         </div>
         <div className="automation-dialog-grid">

@@ -12,7 +12,7 @@ from time import monotonic
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -688,7 +688,7 @@ def create_web_app(
             )
 
     @app.get("/api/paper-automation/tasks")
-    def paper_automation_tasks(limit: int = 100) -> list[dict[str, Any]]:
+    def paper_automation_tasks(limit: int = Query(100, ge=1, le=200)) -> list[dict[str, Any]]:
         with session_factory() as session:
             return [
                 build_paper_automation_task_payload(session, task)

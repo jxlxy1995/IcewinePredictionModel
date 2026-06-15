@@ -134,6 +134,7 @@ def build_paper_automation_task_payload(
 ) -> dict[str, Any]:
     return {
         "id": task.id,
+        "created_by": task.created_by,
         "created_at": _format_beijing_datetime(task.created_at),
         "updated_at": _format_beijing_datetime(task.updated_at),
         "trigger_at": _format_beijing_datetime(task.trigger_at),

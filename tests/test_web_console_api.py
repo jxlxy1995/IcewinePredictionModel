@@ -2438,6 +2438,7 @@ def test_web_console_api_creates_paper_automation_task(tmp_path):
     assert response.status_code == 200
     payload = response.json()
     assert payload["id"] > 0
+    assert payload["created_by"] == "web"
     assert payload["created_at"] == "2026-05-20T20:00:00+08:00"
     assert payload["updated_at"] == "2026-05-20T20:00:00+08:00"
     assert payload["trigger_at"] == "2026-05-20T21:00:00+08:00"
@@ -2517,12 +2518,14 @@ def test_web_console_api_lists_details_and_cancels_paper_automation_task(tmp_pat
     newer = newer_response.json()
 
     list_response = client.get("/api/paper-automation/tasks")
+    invalid_limit_response = client.get("/api/paper-automation/tasks?limit=-1")
     detail_response = client.get(f"/api/paper-automation/tasks/{older['id']}")
     missing_response = client.get("/api/paper-automation/tasks/999")
     cancel_response = client.post(f"/api/paper-automation/tasks/{older['id']}/cancel")
     duplicate_cancel_response = client.post(f"/api/paper-automation/tasks/{older['id']}/cancel")
 
     assert list_response.status_code == 200
+    assert invalid_limit_response.status_code == 422
     tasks = list_response.json()
     assert [task["id"] for task in tasks] == [newer["id"], older["id"]]
     assert detail_response.status_code == 200

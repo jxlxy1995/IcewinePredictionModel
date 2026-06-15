@@ -102,6 +102,7 @@ import {
   formatNotificationStatus,
   formatShortDateTime as formatAutomationShortDateTime
 } from "../paperAutomationWorkspace";
+import { updateDraftFromTriggerTime } from "../paperAutomationDraft";
 import {
   buildExecutionTimepointCoverageView,
   buildMatchFreshnessCards,
@@ -1286,7 +1287,7 @@ function PaperAutomationTaskDialog({
           <label>
             <span>触发任务时间</span>
             <input
-              onChange={(event) => onDraftChange({ trigger_at: event.target.value })}
+              onChange={(event) => onDraftChange(updateDraftFromTriggerTime(draft, event.target.value))}
               required
               type="datetime-local"
               value={draft.trigger_at}

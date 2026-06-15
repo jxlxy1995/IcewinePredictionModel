@@ -2599,9 +2599,9 @@ function PaperAutomationTaskView({
           {messageText && <span className="success-text">{messageText}</span>}
           {errorText && <span className="error-text">{errorText}</span>}
         </div>
-        {tasks.length === 0 ? (
+        {tasks.length === 0 && !errorText ? (
           <div className="empty-state">暂无自动任务</div>
-        ) : (
+        ) : tasks.length > 0 ? (
           <table className="automation-task-table">
             <thead>
               <tr>
@@ -2656,7 +2656,7 @@ function PaperAutomationTaskView({
               })}
             </tbody>
           </table>
-        )}
+        ) : null}
       </Panel>
     </section>
   );

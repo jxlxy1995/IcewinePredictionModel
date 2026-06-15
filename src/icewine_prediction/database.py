@@ -98,6 +98,8 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
         },
     }
     with engine.begin() as connection:
+        if "paper_automation_tasks" not in table_names:
+            Base.metadata.tables["paper_automation_tasks"].create(connection, checkfirst=True)
         for table_name, columns in missing_columns_by_table.items():
             if table_name not in table_names:
                 continue

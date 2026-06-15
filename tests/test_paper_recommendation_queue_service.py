@@ -1583,6 +1583,10 @@ def test_build_paper_recommendation_queue_adds_home_favorite_v1_candidate(sessio
         "line_bucket:home_favorite",
         "strategy:asian_home_favorite_bucket_v1",
     )
+    assert not any(
+        row.strategy_key == "asian_away_cover_hgb_edge_v1" and row.side == "home_cover"
+        for row in report.rows
+    )
 
 
 def test_build_paper_recommendation_queue_does_not_add_home_favorite_v1_outside_bucket(session):

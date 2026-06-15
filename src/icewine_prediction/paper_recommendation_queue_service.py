@@ -592,7 +592,7 @@ def _build_queue_rows_with_diagnostics(
             continue
         scored_rows.append(scored)
         bucket_rows = _bucket_strategy_rows(scored)
-        if scored.market_type == DEFAULT_STRATEGY.market_type:
+        if scored.market_type == DEFAULT_STRATEGY.market_type and scored.side == DEFAULT_STRATEGY.side:
             rows.append(scored)
         elif scored.status != "candidate" and not _is_total_goals_distribution_row(scored):
             rows.append(scored)
@@ -825,16 +825,17 @@ def _strategy_items_for_key(
 def _strategy_observation_rows_for_scored(row: PaperQueueRow) -> list[PaperQueueRow]:
     rows = []
     if row.market_type == DEFAULT_STRATEGY.market_type:
-        rows.append(
-            PaperQueueRow(
-                **{
-                    **row.__dict__,
-                    "strategy_key": DEFAULT_STRATEGY.strategy_key,
-                    "strategy_display_name": DEFAULT_STRATEGY.display_name,
-                    "signal_version": DEFAULT_STRATEGY.signal_version,
-                }
+        if row.side == DEFAULT_STRATEGY.side:
+            rows.append(
+                PaperQueueRow(
+                    **{
+                        **row.__dict__,
+                        "strategy_key": DEFAULT_STRATEGY.strategy_key,
+                        "strategy_display_name": DEFAULT_STRATEGY.display_name,
+                        "signal_version": DEFAULT_STRATEGY.signal_version,
+                    }
+                )
             )
-        )
         away_row = _v2_observation_row(row)
         if away_row is not None:
             rows.append(away_row)
@@ -1263,7 +1264,7 @@ def _strategy_rows_for_feature_row(
             continue
         scored_rows.append(scored)
         bucket_rows = _bucket_strategy_rows(scored)
-        if scored.market_type == DEFAULT_STRATEGY.market_type:
+        if scored.market_type == DEFAULT_STRATEGY.market_type and scored.side == DEFAULT_STRATEGY.side:
             rows.append(scored)
         elif scored.status != "candidate" and not _is_total_goals_distribution_row(scored):
             rows.append(scored)

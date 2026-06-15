@@ -129,6 +129,31 @@ def test_create_task_rejects_duplicate_pending_task():
             )
 
 
+def test_create_task_rejects_duplicate_running_task():
+    now = datetime(2026, 6, 15, 17, 0, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    with _session() as session:
+        _seed_match(session, kickoff)
+        task = create_paper_automation_task(
+            session,
+            trigger_at=datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING),
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now,
+        )
+        task.status = "running"
+        session.commit()
+
+        with pytest.raises(PaperAutomationValidationError, match="重复"):
+            create_paper_automation_task(
+                session,
+                trigger_at=datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING),
+                match_window_start=kickoff,
+                match_window_end=kickoff,
+                now=now,
+            )
+
+
 def test_claim_due_task_marks_missed_after_grace():
     now = datetime(2026, 6, 15, 18, 50, tzinfo=BEIJING)
     kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
@@ -146,6 +171,36 @@ def test_claim_due_task_marks_missed_after_grace():
 
         assert claimed is None
         assert session.get(type(task), task.id).status == "missed"
+
+
+def test_claim_due_task_skips_missed_backlog_and_claims_next_due_task():
+    now = datetime(2026, 6, 15, 18, 50, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 19, 0, tzinfo=BEIJING)
+    created_at = datetime(2026, 6, 15, 17, 0, tzinfo=BEIJING)
+    with _session() as session:
+        _seed_match(session, kickoff)
+        overdue = create_paper_automation_task(
+            session,
+            trigger_at=datetime(2026, 6, 15, 18, 0, tzinfo=BEIJING),
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=created_at,
+        )
+        claimable = create_paper_automation_task(
+            session,
+            trigger_at=datetime(2026, 6, 15, 18, 45, tzinfo=BEIJING),
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=created_at,
+        )
+
+        claimed = claim_due_paper_automation_task(session, now=now, grace_minutes=20)
+
+        assert claimed is not None
+        assert claimed.id == claimable.id
+        assert claimed.status == "running"
+        assert session.get(type(overdue), overdue.id).status == "missed"
+        assert session.get(type(overdue), overdue.id).missed_at == now
 
 
 def test_claim_due_task_sets_running_and_cancel_only_pending():
@@ -168,3 +223,23 @@ def test_claim_due_task_sets_running_and_cancel_only_pending():
         assert claimed.status == "running"
         with pytest.raises(PaperAutomationValidationError, match="只能取消待执行"):
             cancel_paper_automation_task(session, task.id, now=now)
+
+
+def test_cancel_pending_task_marks_cancelled_and_timestamps():
+    now = datetime(2026, 6, 15, 18, 0, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    with _session() as session:
+        _seed_match(session, kickoff)
+        task = create_paper_automation_task(
+            session,
+            trigger_at=datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING),
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=datetime(2026, 6, 15, 17, 0, tzinfo=BEIJING),
+        )
+
+        cancelled = cancel_paper_automation_task(session, task.id, now=now)
+
+        assert cancelled.status == "cancelled"
+        assert cancelled.cancelled_at == now
+        assert cancelled.updated_at == now

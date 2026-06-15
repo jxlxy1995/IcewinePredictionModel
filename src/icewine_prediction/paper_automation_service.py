@@ -95,20 +95,23 @@ def claim_due_paper_automation_task(
     running = session.query(PaperAutomationTask).filter(PaperAutomationTask.status == "running").first()
     if running is not None:
         return None
-    task = (
-        session.query(PaperAutomationTask)
-        .filter(PaperAutomationTask.status == "pending")
-        .order_by(PaperAutomationTask.trigger_at.asc(), PaperAutomationTask.id.asc())
-        .first()
-    )
-    if task is None or as_beijing_datetime(task.trigger_at) > now:
-        return None
-    if now > as_beijing_datetime(task.trigger_at) + timedelta(minutes=grace_minutes):
+
+    while True:
+        task = (
+            session.query(PaperAutomationTask)
+            .filter(PaperAutomationTask.status == "pending")
+            .order_by(PaperAutomationTask.trigger_at.asc(), PaperAutomationTask.id.asc())
+            .first()
+        )
+        if task is None or as_beijing_datetime(task.trigger_at) > now:
+            return None
+        if now <= as_beijing_datetime(task.trigger_at) + timedelta(minutes=grace_minutes):
+            break
         task.status = "missed"
         task.missed_at = now
         task.updated_at = now
         session.commit()
-        return None
+
     task.status = "running"
     task.started_at = now
     task.updated_at = now

@@ -280,6 +280,24 @@ def test_format_bark_messages_splits_after_summary_without_exceeding_limit():
         assert combined_body.count(f"{index}. 日职联 横滨水手{index} vs 神户胜利船{index}") == 1
 
 
+def test_format_bark_messages_splits_oversized_summary_without_exceeding_limit():
+    group = _confidence_group(1)
+
+    messages = format_paper_automation_bark_messages(
+        groups=[group],
+        recorded_count=1,
+        summary_lines=["摘要" * 20],
+        max_body_chars=10,
+    )
+
+    assert len(messages) > 1
+    assert all(len(message.body) <= 10 for message in messages)
+    combined_body = "\n".join(message.body for message in messages)
+    normalized_body = combined_body.replace("\n", "")
+    assert "摘要摘要摘要" in combined_body
+    assert "1. 日职联 横滨水手1 vs 神户胜利船1" in normalized_body
+
+
 def test_format_bark_messages_splits_oversized_group_without_dropping_text():
     group = _confidence_group(
         1,

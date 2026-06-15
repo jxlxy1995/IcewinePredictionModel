@@ -71,19 +71,27 @@ def format_paper_automation_bark_messages(
         if group_list
         else ["没有记录到候选"]
     )
-    detail_limit = max_body_chars
-    if summary_text:
-        detail_limit = max(1, max_body_chars - len(summary_text) - 1)
+    if summary_text and len(summary_text) >= max_body_chars:
+        chunks = [
+            *_split_text(summary_text, max_body_chars=max_body_chars),
+            *_split_group_blocks(blocks, max_body_chars=max_body_chars),
+        ]
+        return _messages_from_chunks(base_title, chunks)
+    detail_limit = max_body_chars - len(summary_text) - 1 if summary_text else max_body_chars
     chunks = _split_group_blocks(blocks, max_body_chars=detail_limit)
     bodies = [
         f"{summary_text}\n{chunk}" if summary_text else chunk
         for chunk in chunks
     ]
+    return _messages_from_chunks(base_title, bodies)
+
+
+def _messages_from_chunks(base_title: str, chunks: list[str]) -> list[BarkMessage]:
     if len(chunks) == 1:
-        return [BarkMessage(title=base_title, body=bodies[0])]
+        return [BarkMessage(title=base_title, body=chunks[0])]
     return [
         BarkMessage(title=f"{base_title}（{index}/{len(chunks)}）", body=body)
-        for index, body in enumerate(bodies, start=1)
+        for index, body in enumerate(chunks, start=1)
     ]
 
 

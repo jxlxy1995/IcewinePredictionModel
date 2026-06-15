@@ -146,6 +146,67 @@ def test_build_paper_recommendation_queue_marks_candidate_no_odds_and_prefetch(s
     assert candidate.recommended_handicap.endswith("-0.25")
 
 
+def test_build_paper_recommendation_queue_includes_world_cup_but_excludes_disabled_leagues(session):
+    world_cup = League(
+        name="FIFA World Cup",
+        country_or_region="World",
+        level=1,
+        is_enabled=True,
+        source_league_id="1",
+    )
+    disabled = League(
+        name="Disabled Cup",
+        country_or_region="World",
+        level=1,
+        is_enabled=False,
+        source_league_id="9999",
+    )
+    home = Team(canonical_name="Canada")
+    away = Team(canonical_name="Mexico")
+    other_home = Team(canonical_name="Disabled Home")
+    other_away = Team(canonical_name="Disabled Away")
+    session.add_all([world_cup, disabled, home, away, other_home, other_away])
+    session.flush()
+    now = datetime(2026, 6, 12, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    world_cup_match = Match(
+        league=world_cup,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 6, 12, 8, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="world-cup",
+    )
+    disabled_match = Match(
+        league=disabled,
+        home_team=other_home,
+        away_team=other_away,
+        kickoff_time=datetime(2026, 6, 12, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="disabled-cup",
+    )
+    session.add_all([world_cup_match, disabled_match])
+    session.commit()
+    seen_match_ids = []
+
+    def no_candidate_scorer(row):
+        seen_match_ids.append(row["match_id"])
+        return None
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=24,
+        scorer=no_candidate_scorer,
+    )
+
+    assert report.total_matches == 1
+    assert seen_match_ids == [str(world_cup_match.id)]
+    assert [row.match_id for row in report.rows] == [world_cup_match.id]
+    assert report.rows[0].league_name == "FIFA World Cup"
+
+
 def test_build_paper_recommendation_queue_uses_latest_successful_training_features(
     session,
     monkeypatch,

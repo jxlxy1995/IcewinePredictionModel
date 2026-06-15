@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { LeagueCoverage, TeamDisplayNameRow } from "./types";
+import type { TeamDisplayNameRow, TeamDisplayNameWorkspaceOption } from "./types";
 import {
   buildTeamDisplayWorkspaceOptions,
   filterTeamDisplayRows,
@@ -75,17 +75,16 @@ describe("display name workspace helpers", () => {
   });
 
   it("builds league options with unfinished work first", () => {
-    const leagues: LeagueCoverage[] = [
+    const leagues: TeamDisplayNameWorkspaceOption[] = [
       {
         league_id: 78,
         league_name: "Bundesliga",
         league_display_name: "德甲",
         country_or_region: "Germany",
         season: 2025,
-        finished_matches: 306,
-        matches_with_historical_odds: 286,
-        coverage_ratio: "0.9346",
-        unmatched_matches: 4
+        team_count: 18,
+        match_count: 306,
+        latest_kickoff_time: "2026-05-17T21:30:00+08:00"
       },
       {
         league_id: 39,
@@ -93,10 +92,9 @@ describe("display name workspace helpers", () => {
         league_display_name: "英超",
         country_or_region: "England",
         season: 2025,
-        finished_matches: 380,
-        matches_with_historical_odds: 350,
-        coverage_ratio: "0.9211",
-        unmatched_matches: 8
+        team_count: 20,
+        match_count: 380,
+        latest_kickoff_time: "2026-05-18T23:00:00+08:00"
       }
     ];
 
@@ -114,6 +112,31 @@ describe("display name workspace helpers", () => {
         label: "英超 · 2025 · 已完成",
         leagueId: 39,
         season: 2025
+      }
+    ]);
+  });
+
+  it("builds league options from scheduled-only workspace rows", () => {
+    const leagues: TeamDisplayNameWorkspaceOption[] = [
+      {
+        league_id: 49,
+        league_name: "World Cup (World)",
+        league_display_name: "世界杯",
+        country_or_region: "World",
+        season: 2026,
+        team_count: 48,
+        match_count: 72,
+        latest_kickoff_time: "2026-06-28T18:00:00+08:00"
+      }
+    ];
+
+    expect(buildTeamDisplayWorkspaceOptions(leagues, new Set())).toEqual([
+      {
+        isDone: false,
+        key: "49-2026",
+        label: "世界杯 · 2026",
+        leagueId: 49,
+        season: 2026
       }
     ]);
   });

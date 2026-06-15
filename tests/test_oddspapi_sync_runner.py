@@ -988,6 +988,12 @@ def test_api_football_league_mappings_include_new_main_leagues():
     assert mappings["262"] == 27466
 
 
+def test_api_football_world_cup_maps_to_oddspapi_world_cup():
+    mappings = oddspapi_sync_runner.API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS
+
+    assert mappings["1"] == 16
+
+
 def test_run_oddspapi_sync_for_session_preserves_execution_timepoints_after_sampling(session):
     _match(session)
     raw_client = FakeOddsPapiClient()

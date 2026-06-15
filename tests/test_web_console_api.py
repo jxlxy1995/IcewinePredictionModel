@@ -440,6 +440,66 @@ def test_web_console_api_returns_team_display_name_workspace(tmp_path):
     ]
 
 
+def test_web_console_api_returns_team_display_workspace_options_for_scheduled_world_cup(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(
+            name="World Cup (World)",
+            country_or_region="World",
+            level=1,
+            is_enabled=True,
+            source_name="api_football",
+            source_league_id="1",
+        )
+        home = Team(canonical_name="Mexico")
+        away = Team(canonical_name="South Africa")
+        session.add_all([league, home, away])
+        session.flush()
+        session.add(
+            Match(
+                league=league,
+                home_team=home,
+                away_team=away,
+                kickoff_time=datetime(2026, 6, 12, 11, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                season=2026,
+                status="scheduled",
+                source_name="api_football",
+                source_match_id="world-cup-opener",
+            )
+        )
+        session.commit()
+        league_id = league.id
+    display_name_service = DisplayNameService(
+        DisplayNames(leagues={"World Cup (World)": "世界杯"}, teams={})
+    )
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            display_name_service=display_name_service,
+        )
+    )
+
+    response = client.get("/api/display/team-name-workspaces")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "league_id": league_id,
+            "league_name": "World Cup (World)",
+            "league_display_name": "世界杯",
+            "country_or_region": "World",
+            "season": 2026,
+            "team_count": 2,
+            "match_count": 1,
+            "latest_kickoff_time": "2026-06-12T11:00:00",
+        }
+    ]
+
+
 def test_web_console_api_marks_team_display_name_workspace_done(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

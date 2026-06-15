@@ -20,6 +20,7 @@ from icewine_prediction.models import League, Match
 BEIJING = ZoneInfo(BEIJING_TIMEZONE)
 DEFAULT_BASELINE_ELIGIBLE_START = datetime(2026, 1, 15, tzinfo=BEIJING)
 EXCLUDED_AUXILIARY_LEAGUE_IDS = {"2", "3", "848"}
+TRAINING_EXCLUDED_LEAGUE_IDS = EXCLUDED_AUXILIARY_LEAGUE_IDS | {"1"}
 REQUIRED_MARKETS = ("asian_handicap", "total_goals", "match_winner")
 RATIO_QUANT = Decimal("0.0000")
 CSV_FIELDNAMES = (
@@ -207,7 +208,7 @@ def _list_eligible_main_matches(
         )
         .join(League, Match.league_id == League.id)
         .filter(League.is_enabled.is_(True))
-        .filter(~League.source_league_id.in_(EXCLUDED_AUXILIARY_LEAGUE_IDS))
+        .filter(~League.source_league_id.in_(TRAINING_EXCLUDED_LEAGUE_IDS))
         .filter(Match.status == "finished")
         .filter(Match.home_score.isnot(None))
         .filter(Match.away_score.isnot(None))

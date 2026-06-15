@@ -25,6 +25,7 @@ import type {
   PaperStrategyPerformanceReport,
   RecommendationRecord,
   TeamDisplayNameRow,
+  TeamDisplayNameWorkspaceOption,
   TeamDisplayNameWorkspace,
   TrainingRun,
   TrainingWorkspace,
@@ -52,12 +53,14 @@ export async function loadDashboardData(): Promise<DashboardData> {
       unmatched,
       matchesWithOdds,
       missingTeamDisplayNames,
+      teamDisplayWorkspaces,
       recommendationRecords
     ] = await Promise.all([
       getJsonOrFallback<WorkerStatus[]>("/api/workers", []),
       getJsonOrFallback<UnmatchedMatch[]>("/api/unmatched", []),
       getJsonOrFallback<MatchWithOdds[]>("/api/matches/with-odds", []),
       getJsonOrFallback<TeamDisplayNameRow[]>("/api/display/missing-team-names", []),
+      getJsonOrFallback<TeamDisplayNameWorkspaceOption[]>("/api/display/team-name-workspaces", []),
       getJsonOrFallback<RecommendationRecord[]>("/api/recommendation-records", [])
     ]);
     const oddsTrends = await loadFirstOddsTrend(matchesWithOdds);
@@ -70,6 +73,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
       oddsTrends,
       matchesWithOdds,
       missingTeamDisplayNames,
+      teamDisplayWorkspaces,
       doneDisplayTranslationKeys: displayTranslationStatus.done_league_seasons,
       recommendationRecords,
       oddspapiBackfillAudit: mockDashboardData.oddspapiBackfillAudit,
@@ -80,6 +84,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
   } catch {
     return {
       ...mockDashboardData,
+      teamDisplayWorkspaces: mockDashboardData.teamDisplayWorkspaces,
       doneDisplayTranslationKeys: Array.from(fallbackDoneDisplayTranslationKeys)
     };
   }

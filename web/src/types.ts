@@ -173,6 +173,17 @@ export type TeamDisplayNameWorkspace = {
   teams: TeamDisplayNameRow[];
 };
 
+export type TeamDisplayNameWorkspaceOption = {
+  league_id: number;
+  league_name: string;
+  league_display_name?: string;
+  country_or_region: string;
+  season: number;
+  team_count: number;
+  match_count: number;
+  latest_kickoff_time: string | null;
+};
+
 export type DisplayTranslationStatus = {
   done_league_seasons: string[];
 };
@@ -692,6 +703,7 @@ export type MatchSyncRunDetail = MatchSyncResponse;
 export type DashboardData = {
   summary: DashboardSummary;
   leagues: LeagueCoverage[];
+  teamDisplayWorkspaces: TeamDisplayNameWorkspaceOption[];
   workers: WorkerStatus[];
   oddspapiBackfillAudit: OddspapiBackfillAudit;
   unmatched: UnmatchedMatch[];

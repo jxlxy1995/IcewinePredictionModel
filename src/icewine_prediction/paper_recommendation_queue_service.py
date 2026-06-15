@@ -50,7 +50,7 @@ from icewine_prediction.execution_timepoint_service import (
     DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES,
     select_execution_timepoint_pair,
 )
-from icewine_prediction.models import HistoricalOddsSnapshot, Match, TrainingRun
+from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, TrainingRun
 from icewine_prediction.oddspapi_sync_runner import (
     COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT,
     COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW,
@@ -396,12 +396,14 @@ def _list_candidate_matches(
 ) -> list[Match]:
     query = (
         session.query(Match)
+        .join(League, Match.league_id == League.id)
         .options(
             joinedload(Match.league),
             joinedload(Match.home_team),
             joinedload(Match.away_team),
             selectinload(Match.odds_snapshots),
         )
+        .filter(League.is_enabled.is_(True))
         .order_by(Match.kickoff_time.asc(), Match.id.asc())
     )
     if start_time is not None or end_time is not None:

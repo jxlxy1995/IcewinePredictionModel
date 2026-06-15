@@ -379,3 +379,15 @@ aliases:
     source_name: oddspapi
     canonical_name: Larisa
     alias_name: AE Larissa FC
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: South Korea
+    alias_name: Korea Republic
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Czech Republic
+    alias_name: Czechia
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Bosnia & Herzegovina
+    alias_name: Bosnia and Herzegovina

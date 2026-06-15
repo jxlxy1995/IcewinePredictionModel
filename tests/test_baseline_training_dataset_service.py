@@ -120,6 +120,26 @@ def test_build_baseline_training_dataset_uses_database_wall_time_start_boundary(
     assert [row["match_id"] for row in dataset.rows] == [str(at_start.id)]
 
 
+def test_build_baseline_training_dataset_excludes_world_cup_from_training_rows(session):
+    league_match = _add_match(session, league_name="Premier League", source_league_id="39")
+    _add_complete_three_market_close_snapshots(session, league_match)
+    world_cup_match = _add_match(
+        session,
+        league_name="FIFA World Cup",
+        source_league_id="1",
+    )
+    _add_complete_three_market_close_snapshots(session, world_cup_match)
+    session.commit()
+
+    dataset = build_baseline_training_dataset(
+        session,
+        eligible_start=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+
+    assert dataset.audit.eligible_match_count == 1
+    assert [row["league_source_id"] for row in dataset.rows] == ["39"]
+
+
 def _add_match(
     session,
     *,

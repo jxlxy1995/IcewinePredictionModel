@@ -234,6 +234,11 @@ leagues:
     api_football_id: 358
     enabled: true
     priority: 50
+  - name: Úrvalsdeild
+    country: Iceland
+    api_football_id: 164
+    enabled: true
+    priority: 50
   - name: Liga 1
     country: Indonesia
     api_football_id: 274

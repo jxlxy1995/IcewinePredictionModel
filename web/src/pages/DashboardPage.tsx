@@ -2702,8 +2702,12 @@ function PaperAutomationTaskView({
               <strong>{selectedTask.target_match_count.toLocaleString()}</strong>
             </div>
           </div>
-          {selectedTask.error_message && <div className="inline-warning">{selectedTask.error_message}</div>}
-          {selectedTask.notification_error && <div className="inline-warning">{selectedTask.notification_error}</div>}
+          {selectedTask.error_message && (
+            <div className="inline-warning">{`任务执行错误：${selectedTask.error_message}`}</div>
+          )}
+          {selectedTask.notification_error && (
+            <div className="inline-warning">{`Bark 推送错误：${selectedTask.notification_error}`}</div>
+          )}
           <pre className="json-preview">{JSON.stringify(selectedTask.result_payload ?? {}, null, 2)}</pre>
         </Panel>
       )}

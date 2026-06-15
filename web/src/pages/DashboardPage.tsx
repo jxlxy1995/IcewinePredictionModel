@@ -5,6 +5,7 @@ import {
   BrainCircuit,
   CircleAlert,
   ClipboardList,
+  Clock,
   Database,
   FileCheck2,
   FlaskConical,
@@ -19,6 +20,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import {
+  createPaperAutomationTask,
   createManualExecutionTimepointOdds,
   loadDashboardData,
   loadMatchDetail,
@@ -108,6 +110,7 @@ import type {
   MatchOddsTrends,
   ManualExecutionTimepointOddsPayload,
   PaperCandidate,
+  CreatePaperAutomationTaskPayload,
   PaperRecord,
   TeamDisplayNameWorkspace
 } from "../types";
@@ -281,6 +284,15 @@ export function DashboardPage() {
     search: "",
     status_filter: "all"
   });
+  const [automationDialogOpen, setAutomationDialogOpen] = useState(false);
+  const [automationDraft, setAutomationDraft] = useState<CreatePaperAutomationTaskPayload>({
+    trigger_at: "",
+    match_window_start: "",
+    match_window_end: ""
+  });
+  const [automationMessage, setAutomationMessage] = useState<string | null>(null);
+  const [automationError, setAutomationError] = useState<string | null>(null);
+  const [isCreatingAutomationTask, setIsCreatingAutomationTask] = useState(false);
   const [selectedMatchDetail, setSelectedMatchDetail] = useState<MatchDetail | null>(null);
   const [loadedLazyViews, setLoadedLazyViews] = useState<Set<ViewKey>>(new Set());
 
@@ -442,6 +454,16 @@ export function DashboardPage() {
               setSelectedMatchDetail(null);
               setMatchDetailOddsTrends(null);
               setMatchDetailOddsError(null);
+            }}
+            onCreateAutomationTask={() => {
+              setAutomationMessage(null);
+              setAutomationError(null);
+              setAutomationDraft({
+                trigger_at: "",
+                match_window_start: matchListFilters.start_time,
+                match_window_end: matchListFilters.end_time
+              });
+              setAutomationDialogOpen(true);
             }}
             onFiltersChange={(nextFilters) => {
               const merged = { ...matchListFilters, ...nextFilters };
@@ -795,6 +817,37 @@ export function DashboardPage() {
           />
         )}
         {activeView === "records" && <RecordsView data={data} />}
+        {automationDialogOpen && (
+          <PaperAutomationTaskDialog
+            draft={automationDraft}
+            errorText={automationError}
+            isSaving={isCreatingAutomationTask}
+            messageText={automationMessage}
+            onCancel={() => {
+              if (!isCreatingAutomationTask) {
+                setAutomationDialogOpen(false);
+              }
+            }}
+            onDraftChange={(nextDraft) => {
+              setAutomationDraft((current) => ({ ...current, ...nextDraft }));
+            }}
+            onSubmit={() => {
+              setAutomationError(null);
+              setAutomationMessage(null);
+              setIsCreatingAutomationTask(true);
+              createPaperAutomationTask(automationDraft)
+                .then((task) => {
+                  const message = `自动任务已创建，将于 ${task.trigger_at} 执行`;
+                  setAutomationMessage(message);
+                  setMatchListError(null);
+                  setMatchListMessage(message);
+                  setAutomationDialogOpen(false);
+                })
+                .catch((error) => setAutomationError(formatActionError("创建自动任务失败", error)))
+                .finally(() => setIsCreatingAutomationTask(false));
+            }}
+          />
+        )}
       </main>
     </div>
   );
@@ -948,6 +1001,7 @@ function FilteredMatchListView({
   syncReport,
   syncRunDetail,
   onBackToList,
+  onCreateAutomationTask,
   onDiscoverFixtures,
   onDetailUpdated,
   onFiltersChange,
@@ -969,6 +1023,7 @@ function FilteredMatchListView({
   syncReport: MatchSyncReport | null;
   syncRunDetail: MatchSyncRunDetail | null;
   onBackToList: () => void;
+  onCreateAutomationTask: () => void;
   onDiscoverFixtures: () => void;
   onDetailUpdated: (detail: MatchDetail) => void;
   onFiltersChange: (filters: Partial<MatchListFilterState>) => void;
@@ -1017,6 +1072,12 @@ function FilteredMatchListView({
         <div className="sync-action">
           <button disabled={isBusy} onClick={onSyncOdds} type="button">
             同步赔率
+          </button>
+        </div>
+        <div className="sync-action">
+          <button disabled={isBusy} onClick={onCreateAutomationTask} type="button">
+            <Clock size={16} />
+            创建自动任务
           </button>
         </div>
       </section>
@@ -1097,6 +1158,82 @@ function FilteredMatchListView({
         />
       </Panel>
     </section>
+  );
+}
+
+function PaperAutomationTaskDialog({
+  draft,
+  errorText,
+  isSaving,
+  messageText,
+  onCancel,
+  onDraftChange,
+  onSubmit
+}: {
+  draft: CreatePaperAutomationTaskPayload;
+  errorText: string | null;
+  isSaving: boolean;
+  messageText: string | null;
+  onCancel: () => void;
+  onDraftChange: (draft: Partial<CreatePaperAutomationTaskPayload>) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form
+        className="modal-panel"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        <div className="modal-header">
+          <div>
+            <h2>创建自动任务</h2>
+            <p>设置任务触发时间和比赛筛选窗口。</p>
+          </div>
+        </div>
+        <div className="automation-dialog-grid">
+          <label>
+            <span>触发任务时间</span>
+            <input
+              onChange={(event) => onDraftChange({ trigger_at: event.target.value })}
+              required
+              type="datetime-local"
+              value={draft.trigger_at}
+            />
+          </label>
+          <label>
+            <span>筛选比赛开始时间</span>
+            <input
+              onChange={(event) => onDraftChange({ match_window_start: event.target.value })}
+              required
+              type="datetime-local"
+              value={draft.match_window_start}
+            />
+          </label>
+          <label>
+            <span>筛选比赛结束时间</span>
+            <input
+              onChange={(event) => onDraftChange({ match_window_end: event.target.value })}
+              required
+              type="datetime-local"
+              value={draft.match_window_end}
+            />
+          </label>
+        </div>
+        {messageText && <div className="success-text">{messageText}</div>}
+        {errorText && <div className="error-text">{errorText}</div>}
+        <div className="dialog-actions">
+          <button disabled={isSaving} onClick={onCancel} type="button">
+            取消
+          </button>
+          <button disabled={isSaving} type="submit">
+            {isSaving ? "保存中..." : "保存任务"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 

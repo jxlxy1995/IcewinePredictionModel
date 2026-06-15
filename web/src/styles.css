@@ -639,7 +639,7 @@ th {
   align-items: stretch;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto auto;
 }
 
 .sync-card {
@@ -689,12 +689,16 @@ th {
 }
 
 .sync-action button {
+  align-items: center;
   background: #1d2733;
   border: 0;
   border-radius: 8px;
   color: #ffffff;
   cursor: pointer;
+  display: inline-flex;
   font: inherit;
+  gap: 6px;
+  justify-content: center;
   min-height: 32px;
   padding: 0 10px;
   white-space: nowrap;
@@ -719,6 +723,102 @@ th {
   justify-content: space-between;
   font-size: 14px;
   margin-bottom: 12px;
+}
+
+.modal-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.28);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 20;
+}
+
+.modal-panel {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.16);
+  display: grid;
+  gap: 16px;
+  max-width: 520px;
+  padding: 18px;
+  width: min(520px, 100%);
+}
+
+.modal-header {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-header h2 {
+  color: #1d2733;
+  font-size: 18px;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.modal-header p {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 5px 0 0;
+}
+
+.automation-dialog-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.automation-dialog-grid label {
+  color: #64748b;
+  display: grid;
+  font-size: 12px;
+  gap: 5px;
+}
+
+.automation-dialog-grid input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+  min-height: 38px;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.dialog-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.dialog-actions button {
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  min-height: 36px;
+  padding: 0 14px;
+}
+
+.dialog-actions button:first-child {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.dialog-actions button:last-child {
+  background: #1d2733;
+  color: #ffffff;
+}
+
+.dialog-actions button:disabled {
+  cursor: default;
+  opacity: 0.58;
 }
 
 .compact-action {
@@ -1499,6 +1599,22 @@ th {
   .metrics,
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .match-sync-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .sync-action {
+    flex-wrap: wrap;
+  }
+
+  .dialog-actions {
+    justify-content: stretch;
+  }
+
+  .dialog-actions button {
+    flex: 1 1 0;
   }
 
   .paper-diagnostic-grid {

@@ -241,15 +241,15 @@ def execute_paper_automation_task(
             recorded_at=now,
         )
         groups = _confidence_groups_for_records(session, created_record_ids)
-        messages = _add_execution_summary_to_bark_messages(
-            format_paper_automation_bark_messages(
-                groups=groups,
-                recorded_count=len(groups),
+        messages = format_paper_automation_bark_messages(
+            groups=groups,
+            recorded_count=len(created_record_ids),
+            summary_lines=_execution_summary_lines(
+                odds_sync_result=odds_sync_result,
+                queue_report=queue_report,
+                created_count=len(created_record_ids),
+                skipped_count=len(skipped_records),
             ),
-            odds_sync_result=odds_sync_result,
-            queue_report=queue_report,
-            created_count=len(created_record_ids),
-            skipped_count=len(skipped_records),
         )
         notification_status, notification_error = _send_bark_messages(
             messages,
@@ -316,29 +316,19 @@ def execute_paper_automation_task(
         raise
 
 
-def _add_execution_summary_to_bark_messages(
-    messages: list[BarkMessage],
+def _execution_summary_lines(
     *,
     odds_sync_result: Any,
     queue_report: PaperRecommendationQueueReport,
     created_count: int,
     skipped_count: int,
-) -> list[BarkMessage]:
-    prefix = "\n".join(
-        [
-            _odds_summary_text(odds_sync_result),
-            (
-                f"候选{queue_report.candidate_count} "
-                f"记录{created_count} 跳过{skipped_count}"
-            ),
-        ]
-    )
+) -> list[str]:
     return [
-        BarkMessage(
-            title=message.title,
-            body=f"{prefix}\n{message.body}",
-        )
-        for message in messages
+        _odds_summary_text(odds_sync_result),
+        (
+            f"候选{queue_report.candidate_count} "
+            f"记录{created_count} 跳过{skipped_count}"
+        ),
     ]
 
 

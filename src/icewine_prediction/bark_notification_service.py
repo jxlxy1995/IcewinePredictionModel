@@ -59,21 +59,31 @@ def format_paper_automation_bark_messages(
     *,
     groups: Iterable[PaperConfidenceGroup],
     recorded_count: int | None = None,
+    summary_lines: Iterable[str] | None = None,
     max_body_chars: int = DEFAULT_MAX_BODY_CHARS,
 ) -> list[BarkMessage]:
     group_list = list(groups)
     total_count = len(group_list) if recorded_count is None else recorded_count
     base_title = f"纸面自动任务：已记录 {total_count} 条"
-    if not group_list:
-        return [BarkMessage(title=base_title, body="没有记录到候选")]
-
-    blocks = [_format_group_line(index, group) for index, group in enumerate(group_list, start=1)]
-    chunks = _split_group_blocks(blocks, max_body_chars=max_body_chars)
+    summary_text = "\n".join(line for line in (summary_lines or []) if line)
+    blocks = (
+        [_format_group_line(index, group) for index, group in enumerate(group_list, start=1)]
+        if group_list
+        else ["没有记录到候选"]
+    )
+    detail_limit = max_body_chars
+    if summary_text:
+        detail_limit = max(1, max_body_chars - len(summary_text) - 1)
+    chunks = _split_group_blocks(blocks, max_body_chars=detail_limit)
+    bodies = [
+        f"{summary_text}\n{chunk}" if summary_text else chunk
+        for chunk in chunks
+    ]
     if len(chunks) == 1:
-        return [BarkMessage(title=base_title, body=chunks[0])]
+        return [BarkMessage(title=base_title, body=bodies[0])]
     return [
         BarkMessage(title=f"{base_title}（{index}/{len(chunks)}）", body=body)
-        for index, body in enumerate(chunks, start=1)
+        for index, body in enumerate(bodies, start=1)
     ]
 
 

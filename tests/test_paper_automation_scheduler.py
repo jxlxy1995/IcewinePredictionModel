@@ -243,6 +243,35 @@ def test_scheduler_start_is_idempotent_and_stop_returns(monkeypatch):
     assert len(calls) >= 2
 
 
+def test_scheduler_logs_poll_failures(monkeypatch, caplog):
+    calls = []
+
+    def fake_poll(session_factory, *, now, grace_minutes, executor):
+        calls.append((now, grace_minutes))
+        if len(calls) == 1:
+            raise RuntimeError("transient scheduler failure")
+
+    scheduler = PaperAutomationScheduler(
+        session_factory=lambda: None,
+        executor=lambda task_id: None,
+        grace_minutes=7,
+        poll_seconds=0.01,
+        clock=lambda: datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING),
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.paper_automation_scheduler.poll_paper_automation_once",
+        fake_poll,
+    )
+
+    caplog.set_level("ERROR", logger="icewine_prediction.paper_automation_scheduler")
+    scheduler.start()
+    time.sleep(0.05)
+    scheduler.stop()
+
+    assert "paper automation scheduler poll failed" in caplog.text
+    assert len(calls) >= 2
+
+
 def test_scheduler_stop_returns_when_poll_is_blocked(monkeypatch):
     entered = Event()
     release = Event()

@@ -262,6 +262,24 @@ def test_format_bark_messages_splits_without_dropping_groups():
         assert combined_body.count(f"{index}. 日职联 横滨水手{index} vs 神户胜利船{index}") == 1
 
 
+def test_format_bark_messages_splits_after_summary_without_exceeding_limit():
+    groups = [_confidence_group(index) for index in range(1, 5)]
+
+    messages = format_paper_automation_bark_messages(
+        groups=groups,
+        recorded_count=len(groups),
+        summary_lines=["赔率回填：成功4 失败0 跳过0", "候选4 记录4 跳过0"],
+        max_body_chars=130,
+    )
+
+    assert len(messages) > 1
+    assert all(len(message.body) <= 130 for message in messages)
+    assert all(message.body.startswith("赔率回填：成功4 失败0 跳过0\n候选4 记录4 跳过0") for message in messages)
+    combined_body = "\n".join(message.body for message in messages)
+    for index in range(1, 5):
+        assert combined_body.count(f"{index}. 日职联 横滨水手{index} vs 神户胜利船{index}") == 1
+
+
 def test_format_bark_messages_splits_oversized_group_without_dropping_text():
     group = _confidence_group(
         1,
@@ -341,6 +359,53 @@ def test_execute_task_records_candidates_and_sends_bark_from_confidence_groups()
     assert payload["bark"]["messages"][0]["body"] == sent_messages[0][1].body
     assert sent_messages[0][0] == "https://example.com/bark/secret-token"
     assert "\u63a8\u83501.50\u624b" in sent_messages[0][1].body
+
+
+def test_execute_task_bark_title_uses_created_record_count(monkeypatch):
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    sent_messages = []
+
+    with _session() as session:
+        first_match = _seed_match(session, kickoff)
+        second_match = Match(
+            source_name="api-football",
+            source_match_id="fixture-second",
+            league=first_match.league,
+            home_team=first_match.home_team,
+            away_team=first_match.away_team,
+            kickoff_time=kickoff + timedelta(minutes=30),
+            status="scheduled",
+            season=2026,
+        )
+        session.add(second_match)
+        session.commit()
+        task = _seed_running_task(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff + timedelta(minutes=30),
+            now=now,
+        )
+
+        monkeypatch.setattr(
+            "icewine_prediction.paper_automation_service._confidence_groups_for_records",
+            lambda session_arg, record_ids: [_confidence_group(1)],
+        )
+
+        execute_paper_automation_task(
+            session,
+            task.id,
+            now=now,
+            odds_syncer=lambda match_ids: {"ok": match_ids},
+            queue_builder=lambda session_arg, task_arg: _queue_report(
+                [_queue_row(first_match), _queue_row(second_match)]
+            ),
+            bark_push_url="https://example.com/bark/secret-token",
+            bark_sender=lambda push_url, message: sent_messages.append(message)
+            or BarkPushResult(success=True),
+        )
+
+    assert sent_messages[0].title == "纸面自动任务：已记录 2 条"
 
 
 def test_execute_task_loads_default_bark_push_url_from_environment(monkeypatch):

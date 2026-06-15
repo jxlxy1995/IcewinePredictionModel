@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from threading import Event, Thread
@@ -9,6 +10,9 @@ from sqlalchemy.orm import Session
 
 from icewine_prediction.paper_automation_service import claim_due_paper_automation_task
 from icewine_prediction.time_utils import now_beijing
+
+
+logger = logging.getLogger(__name__)
 
 
 def poll_paper_automation_once(
@@ -66,5 +70,5 @@ class PaperAutomationScheduler:
                     executor=self.executor,
                 )
             except Exception:
-                pass
+                logger.exception("paper automation scheduler poll failed")
             self._stop_event.wait(self.poll_seconds)

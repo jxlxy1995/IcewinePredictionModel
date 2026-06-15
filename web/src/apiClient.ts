@@ -22,7 +22,6 @@ import type {
   ManualExecutionTimepointOddsResult,
   OddspapiBackfillAudit,
   PaperRecommendationWorkspace,
-  PaperStrategyPerformanceReport,
   RecommendationRecord,
   TeamDisplayNameRow,
   TeamDisplayNameWorkspaceOption,
@@ -206,22 +205,6 @@ export async function loadPaperRecommendationWorkspace(
   }
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return await getJson<PaperRecommendationWorkspace>(`/api/paper-recommendations/workspace${suffix}`);
-}
-
-export async function loadPaperStrategyPerformanceReport(
-  params: PaperRecommendationWorkspaceParams = {}
-): Promise<PaperStrategyPerformanceReport> {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value == null || value === "") {
-      continue;
-    }
-    query.set(key, value);
-  }
-  const suffix = query.toString() ? `?${query.toString()}` : "";
-  return await getJson<PaperStrategyPerformanceReport>(
-    `/api/paper-recommendations/performance${suffix}`
-  );
 }
 
 export async function loadMatchListWorkspace(params: {

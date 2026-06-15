@@ -14,7 +14,6 @@ from icewine_prediction.models import (
     Match,
     OddsSourceMatch,
     OddsSnapshot,
-    PaperRecommendationRecord,
     RecommendationRecord,
     Team,
     TrainingRun,
@@ -841,87 +840,6 @@ def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
     assert settled_workspace["records"][0]["away_team_logo_url"] == "https://img.example/away.png"
     assert settled_workspace["records"][0]["home_score"] == 1
     assert settled_workspace["records"][0]["away_score"] == 1
-
-
-def test_web_console_api_returns_paper_strategy_performance_report(tmp_path):
-    engine = create_memory_database()
-    initialize_database(engine)
-    session_factory = create_session_factory(engine)
-    with session_factory() as session:
-        league = League(name="Premier Division", country_or_region="Ireland", level=1)
-        home = Team(canonical_name="Drogheda United")
-        away = Team(canonical_name="Waterford")
-        match = Match(
-            league=league,
-            home_team=home,
-            away_team=away,
-            kickoff_time=datetime(2026, 5, 30, 2, 45, tzinfo=ZoneInfo("Asia/Shanghai")),
-            status="finished",
-            home_score=1,
-            away_score=1,
-            source_name="api_football",
-            source_match_id="17446",
-        )
-        session.add_all([league, home, away, match])
-        session.flush()
-        session.add(
-            PaperRecommendationRecord(
-                match_id=match.id,
-                source_match_id=match.source_match_id,
-                created_at=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
-                updated_at=datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
-                league_name=league.name,
-                league_display_name="爱超",
-                home_team_name=home.canonical_name,
-                home_team_display_name="德罗赫达联",
-                away_team_name=away.canonical_name,
-                away_team_display_name="沃特福德联",
-                kickoff_time=match.kickoff_time,
-                strategy_key="asian_away_cover_hgb_edge_v1",
-                strategy_display_name="Asian away HGB edge v1",
-                model_name="raw_hgb_team_form_plus_all_markets",
-                signal_version="v1",
-                market_type="asian_handicap",
-                side="away_cover",
-                recommended_handicap="客队 +0.50",
-                original_recommended_handicap="客队 +0.50",
-                line_bucket="away_underdog",
-                risk_tags="line_bucket:away_underdog",
-                original_market_line=Decimal("-0.50"),
-                original_odds=Decimal("1.930"),
-                current_market_line=Decimal("-0.50"),
-                current_odds=Decimal("1.930"),
-                model_probability=Decimal("0.6500"),
-                market_probability=Decimal("0.5000"),
-                edge=Decimal("0.1200"),
-                scoring_edge=Decimal("0.1000"),
-                stake_units=Decimal("1.00"),
-                status="settled",
-                is_manually_adjusted=False,
-                settlement_result="win",
-                profit_units=Decimal("0.930"),
-                settled_at=datetime(2026, 5, 30, 5, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
-            )
-        )
-        session.commit()
-
-    client = TestClient(create_web_app(session_factory=session_factory, log_dir=tmp_path))
-
-    response = client.get(
-        "/api/paper-recommendations/performance"
-        "?start_time=2026-05-30T00:00:00%2B08:00"
-        "&end_time=2026-05-31T00:00:00%2B08:00"
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["summary"]["total_records"] == 1
-    assert payload["summary"]["total_profit_units"] == "0.930"
-    assert payload["summary"]["roi"] == "0.9300"
-    assert payload["by_strategy"][0]["group_key"] == "asian_away_cover_hgb_edge_v1"
-    assert payload["by_strategy"][0]["group_name"] == "亚盘客队方向 · HGB边际 v1"
-    assert payload["by_strategy"][0]["warning"] == "low_sample"
-    assert payload["by_market_side"][0]["group_name"] == "亚盘 / 客队方向"
 
 
 def test_web_console_api_voids_paper_record(tmp_path):

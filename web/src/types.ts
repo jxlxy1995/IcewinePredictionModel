@@ -496,45 +496,6 @@ export type PaperRecommendationWorkspace = {
   batch_result?: PaperBatchRecordResult;
 };
 
-export type PaperStrategyPerformanceSummary = {
-  total_records: number;
-  active_records: number;
-  settled_records: number;
-  pending_records: number;
-  void_records: number;
-  total_stake_units: string;
-  total_profit_units: string;
-  hit_rate: string;
-  roi: string;
-  low_sample_group_count: number;
-};
-
-export type PaperStrategyPerformanceGroup = {
-  group_key: string;
-  group_name: string;
-  record_count: number;
-  settled_records: number;
-  pending_records: number;
-  total_stake_units: string;
-  total_profit_units: string;
-  hit_rate: string;
-  roi: string;
-  average_edge: string;
-  average_scoring_edge: string | null;
-  warning: string | null;
-};
-
-export type PaperStrategyPerformanceReport = {
-  summary: PaperStrategyPerformanceSummary;
-  by_strategy: PaperStrategyPerformanceGroup[];
-  by_market_side: PaperStrategyPerformanceGroup[];
-  by_league: PaperStrategyPerformanceGroup[];
-  by_line_bucket: PaperStrategyPerformanceGroup[];
-  by_manual_adjustment: PaperStrategyPerformanceGroup[];
-  by_edge_bucket: PaperStrategyPerformanceGroup[];
-  by_settlement_result: PaperStrategyPerformanceGroup[];
-};
-
 export type DataSyncFreshness = {
   latest_fixtures_results_sync: string | null;
   latest_odds_sync: string | null;

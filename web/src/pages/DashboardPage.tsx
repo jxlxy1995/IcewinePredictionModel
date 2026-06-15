@@ -27,7 +27,6 @@ import {
   loadMatchSyncRunDetail,
   loadOddspapiBackfillAudit,
   loadPaperRecommendationWorkspace,
-  loadPaperStrategyPerformanceReport,
   loadTrainingWorkspace,
   startTrainingFullRefresh,
   markTeamDisplayNameWorkspaceDone,
@@ -82,8 +81,6 @@ import {
 import {
   buildPaperConfidenceSimulationCards,
   buildPaperRecordGroups,
-  buildPaperStrategyPerformanceCards,
-  buildPaperStrategyPerformanceGroupRows,
   buildPaperSummaryCards,
   defaultPaperRecommendationDateRange
 } from "../paperRecommendationWorkspace";
@@ -112,7 +109,6 @@ import type {
   ManualExecutionTimepointOddsPayload,
   PaperCandidate,
   PaperRecord,
-  PaperStrategyPerformanceReport,
   TeamDisplayNameWorkspace
 } from "../types";
 
@@ -268,8 +264,6 @@ export function DashboardPage() {
   const [paperAction, setPaperAction] = useState<string | null>(null);
   const [paperMessage, setPaperMessage] = useState<string | null>(null);
   const [paperError, setPaperError] = useState<string | null>(null);
-  const [paperPerformanceReport, setPaperPerformanceReport] =
-    useState<PaperStrategyPerformanceReport | null>(null);
   const [paperFilters, setPaperFilters] = useState<PaperFilterState>({
     ...defaultPaperRecommendationDateRange()
   });
@@ -698,7 +692,6 @@ export function DashboardPage() {
             errorText={paperError}
             filters={paperFilters}
             messageText={paperMessage}
-            performanceReport={paperPerformanceReport}
             onBatchRecord={(candidates) => {
               setPaperAction("batch-record");
               setPaperError(null);
@@ -760,18 +753,6 @@ export function DashboardPage() {
               refreshPaperWorkspace(setData, paperFilters)
                 .then(() => setPaperMessage("纸面跟踪已刷新"))
                 .catch(() => setPaperError("刷新纸面跟踪失败"))
-                .finally(() => setPaperAction(null));
-            }}
-            onGeneratePerformanceReport={() => {
-              setPaperAction("performance-report");
-              setPaperError(null);
-              setPaperMessage(null);
-              loadPaperStrategyPerformanceReport(paperFilters)
-                .then((report) => {
-                  setPaperPerformanceReport(report);
-                  setPaperMessage("策略表现报表已生成");
-                })
-                .catch(() => setPaperError("生成策略表现报表失败"))
                 .finally(() => setPaperAction(null));
             }}
             onSettle={() => {
@@ -2187,11 +2168,9 @@ function PaperTrackingView({
   errorText,
   filters,
   messageText,
-  performanceReport,
   onBatchRecord,
   onEdit,
   onFiltersChange,
-  onGeneratePerformanceReport,
   onRecord,
   onRefresh,
   onSettle,
@@ -2202,14 +2181,12 @@ function PaperTrackingView({
   errorText: string | null;
   filters: PaperFilterState;
   messageText: string | null;
-  performanceReport: PaperStrategyPerformanceReport | null;
   onBatchRecord: (candidates: PaperCandidate[]) => void;
   onEdit: (
     record: PaperRecord,
     payload: { current_market_line: string; current_odds: string; manual_note: string }
   ) => void;
   onFiltersChange: (filters: Partial<PaperFilterState>) => void;
-  onGeneratePerformanceReport: () => void;
   onRecord: (candidate: PaperCandidate) => void;
   onRefresh: () => void;
   onSettle: () => void;
@@ -2263,14 +2240,10 @@ function PaperTrackingView({
             结算已完赛
           </button>
           {actionInFlight && <span>正在执行 {formatPaperAction(actionInFlight)}</span>}
-          <button disabled={isBusy} onClick={onGeneratePerformanceReport} type="button">
-            生成策略表现报表
-          </button>
           {messageText && <span className="success-text">{messageText}</span>}
           {errorText && <span className="error-text">{errorText}</span>}
         </div>
       </Panel>
-      {performanceReport && <PaperStrategyPerformanceReportPanel report={performanceReport} />}
       <Panel title="候选队列">
         <PaperCandidateTable
           isBusy={isBusy}
@@ -2343,98 +2316,6 @@ function PaperGroupTable({
   );
 }
 
-function PaperStrategyPerformanceReportPanel({
-  report
-}: {
-  report: PaperStrategyPerformanceReport;
-}) {
-  const cards = buildPaperStrategyPerformanceCards(report);
-  return (
-    <>
-      <Panel title="策略表现报表">
-        <section className="metrics compact-metrics">
-          {cards.map((card) => (
-            <MetricCard key={card.label} label={card.label} value={card.value} />
-          ))}
-        </section>
-      </Panel>
-      <section className="grid">
-        <Panel title="按策略">
-          <PaperStrategyPerformanceGroupTable groups={report.by_strategy} />
-        </Panel>
-        <Panel title="按市场方向">
-          <PaperStrategyPerformanceGroupTable groups={report.by_market_side} />
-        </Panel>
-      </section>
-      <section className="grid">
-        <Panel title="按联赛">
-          <PaperStrategyPerformanceGroupTable groups={report.by_league} />
-        </Panel>
-        <Panel title="按盘口桶">
-          <PaperStrategyPerformanceGroupTable groups={report.by_line_bucket} />
-        </Panel>
-      </section>
-      <section className="grid">
-        <Panel title="按Edge桶">
-          <PaperStrategyPerformanceGroupTable groups={report.by_edge_bucket} />
-        </Panel>
-        <Panel title="按人工调整">
-          <PaperStrategyPerformanceGroupTable groups={report.by_manual_adjustment} />
-        </Panel>
-      </section>
-      <Panel title="按结算结果">
-        <PaperStrategyPerformanceGroupTable groups={report.by_settlement_result} />
-      </Panel>
-    </>
-  );
-}
-
-function PaperStrategyPerformanceGroupTable({
-  groups
-}: {
-  groups: PaperStrategyPerformanceReport["by_strategy"];
-}) {
-  const rows = buildPaperStrategyPerformanceGroupRows(groups);
-  if (rows.length === 0) {
-    return <div className="empty-state">暂无已结算记录</div>;
-  }
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>分组</th>
-          <th>记录</th>
-          <th>已结算</th>
-          <th>待结算</th>
-          <th>命中率</th>
-          <th>收益</th>
-          <th>ROI</th>
-          <th>Edge</th>
-          <th>提示</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.groupName}>
-            <td>{row.groupName}</td>
-            <td>{row.recordCount}</td>
-            <td>{row.settledRecords}</td>
-            <td>{row.pendingRecords}</td>
-            <td>{row.hitRate}</td>
-            <td>{row.profitUnits}</td>
-            <td>{row.roi}</td>
-            <td>
-              {row.averageEdge}
-              <span className="muted-text">评分 {row.averageScoringEdge}</span>
-            </td>
-            <td>{row.warningText}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
 function refreshPaperWorkspace(
   setData: React.Dispatch<React.SetStateAction<DashboardData>>,
   filters: PaperFilterState = { end_time: "", start_time: "" }
@@ -2453,9 +2334,6 @@ function formatPaperAction(action: string) {
   }
   if (action === "settle") {
     return "结算";
-  }
-  if (action === "performance-report") {
-    return "生成策略表现报表";
   }
   if (action.startsWith("record-")) {
     return "记录观察";

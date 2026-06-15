@@ -83,7 +83,7 @@ def _format_group_line(index: int, group: PaperConfidenceGroup) -> str:
     away_team = group.away_team_display_name or group.away_team_name
     kickoff_time = _format_kickoff_time(group.kickoff_time)
     recommendation = group.recommendation_text or _fallback_recommendation_text(group)
-    stake_units = _format_decimal(group.suggested_stake_units)
+    stake_units = _format_stake_units(group.suggested_stake_units)
     return (
         f"{index}. {league} {home_team} vs {away_team}\n"
         f"   {kickoff_time} {recommendation}  评分{group.confidence_score} 推荐{stake_units}手"
@@ -130,3 +130,7 @@ def _fallback_recommendation_text(group: PaperConfidenceGroup) -> str:
 
 def _format_decimal(value: Decimal) -> str:
     return format(value.normalize(), "f")
+
+
+def _format_stake_units(value: Decimal) -> str:
+    return format(value, ".2f")

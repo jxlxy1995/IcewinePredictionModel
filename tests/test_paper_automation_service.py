@@ -149,9 +149,9 @@ def test_format_bark_messages_includes_all_confidence_groups():
     assert messages[0].title == "纸面自动任务：已记录 3 条"
     body = messages[0].body
     assert "1. 日职联 横滨水手1 vs 神户胜利船1" in body
-    assert "18:30 客队 +0.50  评分80 推荐1.5手" in body
+    assert "18:30 客队 +0.50  评分80 推荐1.50手" in body
     assert "2. 日职联 横滨水手2 vs 神户胜利船2" in body
-    assert "18:30 客队 +0.50  评分92 推荐2.5手" in body
+    assert "18:30 客队 +0.50  评分92 推荐2.50手" in body
     assert "3. 日职联 横滨水手3 vs 神户胜利船3" in body
     assert "20:00 客队 +0.50  评分61 推荐0.75手" in body
 

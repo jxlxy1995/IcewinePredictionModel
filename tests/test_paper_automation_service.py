@@ -28,8 +28,10 @@ def test_initialize_database_creates_paper_automation_tasks_table():
         )
         session.add(task)
         session.commit()
+        task_id = task.id
 
-        loaded = session.get(PaperAutomationTask, task.id)
+    with session_factory() as session:
+        loaded = session.get(PaperAutomationTask, task_id)
 
     assert loaded is not None
     assert loaded.status == "pending"

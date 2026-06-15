@@ -30,6 +30,9 @@ from icewine_prediction.paper_automation_service import (
     execute_paper_automation_task,
 )
 from icewine_prediction.paper_strategy_registry import DEFAULT_STRATEGY
+from icewine_prediction.paper_recommendation_tracking_service import (
+    create_paper_record_from_queue_row,
+)
 
 
 BEIJING = ZoneInfo("Asia/Shanghai")
@@ -332,6 +335,10 @@ def test_execute_task_records_candidates_and_sends_bark_from_confidence_groups()
     assert loaded.notification_status == "sent"
     assert loaded.finished_at == now
     assert payload["created_record_ids"]
+    assert payload["batch_record"]["created_record_ids"] == payload["created_record_ids"]
+    assert payload["batch_record"]["skipped"] == []
+    assert payload["bark"]["notification_status"] == "sent"
+    assert payload["bark"]["messages"][0]["body"] == sent_messages[0][1].body
     assert sent_messages[0][0] == "https://example.com/bark/secret-token"
     assert "\u63a8\u83501.50\u624b" in sent_messages[0][1].body
 
@@ -369,6 +376,8 @@ def test_execute_task_continues_after_partial_odds_failure_and_sends_empty_notic
     assert loaded.notification_status == "sent"
     assert payload["target_match_ids"] == [match.id]
     assert payload["created_record_ids"] == []
+    assert "赔率回填" in sent_messages[0].body
+    assert "失败1" in sent_messages[0].body
     assert "\u6ca1\u6709\u8bb0\u5f55\u5230\u5019\u9009" in sent_messages[0].body
 
 
@@ -395,11 +404,13 @@ def test_execute_task_marks_bark_failure_without_failing_task():
             bark_sender=lambda push_url, message: BarkPushResult(
                 success=False,
                 status_code=500,
-                response_text="server error",
+                response_text=f"server error for {push_url}",
+                error="token secret-token rejected",
             ),
         )
 
         loaded = session.get(PaperAutomationTask, task.id)
+        payload = json.loads(loaded.result_payload)
 
     assert result.status == "success"
     assert loaded.status == "success"
@@ -408,6 +419,44 @@ def test_execute_task_marks_bark_failure_without_failing_task():
     assert "server error" in loaded.notification_error
     assert "example.com" not in loaded.notification_error
     assert "secret-token" not in loaded.notification_error
+    assert payload["bark"]["notification_status"] == "failed"
+    assert "example.com" not in payload["bark"]["notification_error"]
+    assert "secret-token" not in payload["bark"]["notification_error"]
+
+
+def test_execute_task_skips_duplicate_record_without_failing_task():
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+
+    with _session() as session:
+        match = _seed_match(session, kickoff)
+        row = _queue_row(match)
+        create_paper_record_from_queue_row(session, row, recorded_at=now - timedelta(minutes=1))
+        task = _seed_running_task(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now,
+        )
+
+        result = execute_paper_automation_task(
+            session,
+            task.id,
+            now=now,
+            odds_syncer=lambda match_ids: {"ok": match_ids},
+            queue_builder=lambda session_arg, task_arg: _queue_report([row]),
+            bark_push_url=None,
+        )
+
+        loaded = session.get(PaperAutomationTask, task.id)
+        payload = json.loads(loaded.result_payload)
+
+    assert result.status == "success"
+    assert loaded.status == "success"
+    assert payload["batch_record"]["created_record_ids"] == []
+    assert payload["batch_record"]["skipped_count"] == 1
+    assert payload["batch_record"]["skipped"][0]["match_id"] == match.id
+    assert "duplicate active paper recommendation record" in payload["batch_record"]["skipped"][0]["reason"]
 
 
 def test_load_bark_push_url_reads_environment(monkeypatch):

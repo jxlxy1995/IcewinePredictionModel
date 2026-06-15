@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -188,27 +189,56 @@ def execute_paper_automation_task(
         target_match_ids = _target_match_ids(session, task)
         odds_sync_result = odds_syncer(target_match_ids)
         queue_report = queue_builder(session, task)
-        created_record_ids = _record_queue_candidates(session, queue_report, recorded_at=now)
+        created_record_ids, skipped_records = _record_queue_candidates(
+            session,
+            queue_report,
+            recorded_at=now,
+        )
         groups = _confidence_groups_for_records(session, created_record_ids)
-        messages = format_paper_automation_bark_messages(
-            groups=groups,
-            recorded_count=len(groups),
+        messages = _add_execution_summary_to_bark_messages(
+            format_paper_automation_bark_messages(
+                groups=groups,
+                recorded_count=len(groups),
+            ),
+            odds_sync_result=odds_sync_result,
+            queue_report=queue_report,
+            created_count=len(created_record_ids),
+            skipped_count=len(skipped_records),
         )
         notification_status, notification_error = _send_bark_messages(
             messages,
             bark_push_url=bark_push_url,
             bark_sender=bark_sender,
         )
+        bark_payload = {
+            "notification_status": notification_status,
+            "notification_error": notification_error,
+            "messages": [{"title": message.title, "body": message.body} for message in messages],
+        }
+        batch_record_payload = {
+            "created_record_ids": created_record_ids,
+            "created_count": len(created_record_ids),
+            "skipped_count": len(skipped_records),
+            "skipped": skipped_records,
+        }
         result_payload = {
             "target_match_ids": target_match_ids,
+            "odds": odds_sync_result,
             "odds_sync_result": odds_sync_result,
             "queue": {
                 "total_matches": queue_report.total_matches,
                 "candidate_count": queue_report.candidate_count,
                 "status_counts": queue_report.status_counts,
+                "discarded_by_robustness_match_count": getattr(
+                    queue_report,
+                    "discarded_by_robustness_match_count",
+                    0,
+                ),
             },
+            "batch_record": batch_record_payload,
             "created_record_ids": created_record_ids,
             "confidence_group_keys": [group.group_key for group in groups],
+            "bark": bark_payload,
             "bark_message_count": len(messages),
         }
         task.status = "success"
@@ -225,12 +255,61 @@ def execute_paper_automation_task(
             result_payload=result_payload,
         )
     except Exception as exc:
-        task.status = "failed"
-        task.error_message = f"{type(exc).__name__}: {exc}"
-        task.finished_at = now
-        task.updated_at = now
-        session.commit()
+        session.rollback()
+        task = session.get(PaperAutomationTask, task_id)
+        if task is not None:
+            task.status = "failed"
+            task.error_message = f"{type(exc).__name__}: {exc}"
+            task.finished_at = now
+            task.updated_at = now
+            session.commit()
         raise
+
+
+def _add_execution_summary_to_bark_messages(
+    messages: list[BarkMessage],
+    *,
+    odds_sync_result: Any,
+    queue_report: PaperRecommendationQueueReport,
+    created_count: int,
+    skipped_count: int,
+) -> list[BarkMessage]:
+    prefix = "\n".join(
+        [
+            _odds_summary_text(odds_sync_result),
+            (
+                f"候选{queue_report.candidate_count} "
+                f"记录{created_count} 跳过{skipped_count}"
+            ),
+        ]
+    )
+    return [
+        BarkMessage(
+            title=message.title,
+            body=f"{prefix}\n{message.body}",
+        )
+        for message in messages
+    ]
+
+
+def _odds_summary_text(odds_sync_result: Any) -> str:
+    if not isinstance(odds_sync_result, dict):
+        return "赔率回填：结果已返回"
+    success_count = _count_result_items(odds_sync_result, "success")
+    failed_count = _count_result_items(odds_sync_result, "failed")
+    skipped_count = _count_result_items(odds_sync_result, "skipped")
+    if success_count == 0 and failed_count == 0 and skipped_count == 0:
+        return "赔率回填：结果已返回"
+    return f"赔率回填：成功{success_count} 失败{failed_count} 跳过{skipped_count}"
+
+
+def _count_result_items(payload: dict[str, Any], key: str) -> int:
+    value = payload.get(key)
+    if isinstance(value, list | tuple | set):
+        return len(value)
+    if value is None:
+        return 0
+    return 1
 
 
 def build_real_paper_queue_for_task(
@@ -267,14 +346,25 @@ def _record_queue_candidates(
     queue_report: PaperRecommendationQueueReport,
     *,
     recorded_at: datetime,
-) -> list[int]:
+) -> tuple[list[int], list[dict[str, Any]]]:
     created_record_ids: list[int] = []
+    skipped: list[dict[str, Any]] = []
     for row in queue_report.rows:
         if row.status != "candidate":
             continue
-        record = create_paper_record_from_queue_row(session, row, recorded_at=recorded_at)
+        try:
+            record = create_paper_record_from_queue_row(session, row, recorded_at=recorded_at)
+        except ValueError as exc:
+            skipped.append(
+                {
+                    "match_id": row.match_id,
+                    "strategy_key": row.strategy_key,
+                    "reason": str(exc),
+                }
+            )
+            continue
         created_record_ids.append(record.id)
-    return created_record_ids
+    return created_record_ids, skipped
 
 
 def _confidence_groups_for_records(
@@ -308,23 +398,45 @@ def _send_bark_messages(
 
     failures = []
     for message in messages:
-        result = bark_sender(bark_push_url, message)
+        try:
+            result = bark_sender(bark_push_url, message)
+        except Exception as exc:
+            result = BarkPushResult(success=False, error=f"{type(exc).__name__}: Bark sender failed")
         if not result.success:
-            failures.append(_summarize_bark_failure(result))
+            failures.append(_summarize_bark_failure(result, bark_push_url=bark_push_url))
     if failures:
         return "failed", "; ".join(failures)
     return "sent", None
 
 
-def _summarize_bark_failure(result: BarkPushResult) -> str:
+def _summarize_bark_failure(result: BarkPushResult, *, bark_push_url: str) -> str:
     parts = []
     if result.status_code is not None:
         parts.append(f"status={result.status_code}")
     if result.response_text:
-        parts.append(f"response={_truncate(result.response_text, 200)}")
+        parts.append(f"response={_safe_bark_detail(result.response_text, bark_push_url=bark_push_url)}")
     if result.error:
-        parts.append(f"error={_truncate(result.error, 200)}")
+        parts.append(f"error={_safe_bark_detail(result.error, bark_push_url=bark_push_url)}")
     return ", ".join(parts) or "Bark push failed"
+
+
+def _safe_bark_detail(value: str, *, bark_push_url: str) -> str:
+    return _truncate(_redact_bark_secret(value, bark_push_url=bark_push_url), 200)
+
+
+def _redact_bark_secret(value: str, *, bark_push_url: str) -> str:
+    redacted = value.replace(bark_push_url, "[BARK_PUSH_URL]")
+    parsed = urlparse(bark_push_url)
+    secrets = {parsed.netloc}
+    secrets.update(segment for segment in parsed.path.split("/") if segment)
+    if parsed.query:
+        secrets.add(parsed.query)
+    if parsed.fragment:
+        secrets.add(parsed.fragment)
+    for secret in sorted(secrets, key=len, reverse=True):
+        if secret:
+            redacted = redacted.replace(secret, "[redacted]")
+    return redacted
 
 
 def _truncate(value: str, max_chars: int) -> str:

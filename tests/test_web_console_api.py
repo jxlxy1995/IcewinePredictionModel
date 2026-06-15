@@ -23,6 +23,68 @@ from icewine_prediction import web_api
 from icewine_prediction.web_api import create_web_app
 
 
+def test_web_app_can_disable_paper_automation_scheduler(tmp_path, monkeypatch):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+
+    def fail_scheduler(*args, **kwargs):
+        raise AssertionError("scheduler should not be created when disabled")
+
+    monkeypatch.setattr(web_api, "PaperAutomationScheduler", fail_scheduler, raising=False)
+
+    app = create_web_app(
+        session_factory=session_factory,
+        log_dir=tmp_path,
+        start_paper_automation_scheduler=False,
+    )
+
+    assert app.title == "Icewine Prediction Console API"
+
+
+def test_web_app_starts_and_stops_paper_automation_scheduler_with_env_config(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    schedulers = []
+
+    class FakeScheduler:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.started = False
+            self.stopped = False
+            schedulers.append(self)
+
+        def start(self):
+            self.started = True
+
+        def stop(self):
+            self.stopped = True
+
+    monkeypatch.setattr(web_api, "PaperAutomationScheduler", FakeScheduler, raising=False)
+    monkeypatch.setenv("PAPER_AUTOMATION_GRACE_MINUTES", "9")
+    monkeypatch.setenv("PAPER_AUTOMATION_POLL_SECONDS", "invalid")
+
+    app = create_web_app(
+        session_factory=session_factory,
+        log_dir=tmp_path,
+        start_paper_automation_scheduler=True,
+    )
+
+    assert len(schedulers) == 1
+    assert schedulers[0].kwargs["grace_minutes"] == 9
+    assert schedulers[0].kwargs["poll_seconds"] == 20
+
+    with TestClient(app) as client:
+        assert schedulers[0].started is True
+        assert client.get("/api/health").status_code == 200
+
+    assert schedulers[0].stopped is True
+
+
 def test_web_console_api_returns_dashboard_summary(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

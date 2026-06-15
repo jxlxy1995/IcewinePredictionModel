@@ -343,6 +343,35 @@ def test_execute_task_records_candidates_and_sends_bark_from_confidence_groups()
     assert "\u63a8\u83501.50\u624b" in sent_messages[0][1].body
 
 
+def test_execute_task_loads_default_bark_push_url_from_environment(monkeypatch):
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    sent_messages = []
+    monkeypatch.setenv("BARK_PUSH_URL", " https://example.com/bark/from-env ")
+
+    with _session() as session:
+        match = _seed_match(session, kickoff)
+        task = _seed_running_task(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now,
+        )
+
+        result = execute_paper_automation_task(
+            session,
+            task.id,
+            now=now,
+            odds_syncer=lambda match_ids: {"ok": match_ids},
+            queue_builder=lambda session_arg, task_arg: _queue_report([_queue_row(match)]),
+            bark_sender=lambda push_url, message: sent_messages.append((push_url, message))
+            or BarkPushResult(success=True),
+        )
+
+    assert result.notification_status == "sent"
+    assert sent_messages[0][0] == "https://example.com/bark/from-env"
+
+
 def test_execute_task_continues_after_partial_odds_failure_and_sends_empty_notice():
     now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
     kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)

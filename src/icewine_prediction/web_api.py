@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import csv
 import json
+import os
 from pathlib import Path
 from threading import Thread
 from time import monotonic
@@ -57,11 +58,14 @@ from icewine_prediction.oddspapi_backfill_audit_service import (
 from icewine_prediction.oddspapi_worker_process_service import _is_process_running
 from icewine_prediction.paper_automation_service import (
     PaperAutomationValidationError,
+    build_real_paper_queue_for_task,
     build_paper_automation_task_payload,
     cancel_paper_automation_task,
     create_paper_automation_task,
+    execute_paper_automation_task,
     list_paper_automation_tasks,
 )
+from icewine_prediction.paper_automation_scheduler import PaperAutomationScheduler
 from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScore,
     PaperQueueScoreResult,
@@ -102,6 +106,13 @@ from icewine_prediction.training_orchestration_service import (
 )
 
 
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, ""))
+    except (TypeError, ValueError):
+        return default
+
+
 def create_web_app(
     *,
     session_factory: Callable[[], Session] | None = None,
@@ -137,7 +148,6 @@ def create_web_app(
     display_translation_status_service = (
         display_translation_status_service or DisplayTranslationStatusService()
     )
-    _ = start_paper_automation_scheduler
 
     app = FastAPI(title="Icewine Prediction Console API")
     response_cache = WebResponseCache(ttl_seconds=60.0)
@@ -155,6 +165,35 @@ def create_web_app(
             display_name_service=display_name_service,
             clock=clock,
         )
+    if start_paper_automation_scheduler:
+        scheduler = PaperAutomationScheduler(
+            session_factory=session_factory,
+            executor=lambda task_id: _execute_paper_automation_scheduler_task(
+                session_factory,
+                task_id,
+                now=clock(),
+                odds_syncer=match_list_odds_syncer,
+                queue_builder=lambda queue_session, task: build_real_paper_queue_for_task(
+                    queue_session,
+                    task,
+                    now=clock(),
+                    scorer=paper_queue_scorer,
+                    display_name_service=display_name_service,
+                ),
+            ),
+            grace_minutes=_int_env("PAPER_AUTOMATION_GRACE_MINUTES", 20),
+            poll_seconds=_int_env("PAPER_AUTOMATION_POLL_SECONDS", 20),
+            clock=clock,
+        )
+        app.state.paper_automation_scheduler = scheduler
+
+        @app.on_event("startup")
+        def start_paper_automation_scheduler_event() -> None:
+            scheduler.start()
+
+        @app.on_event("shutdown")
+        def stop_paper_automation_scheduler_event() -> None:
+            scheduler.stop()
 
     def cached_response(cache_key: tuple[Any, ...], builder: Callable[[], Any]) -> Any:
         return response_cache.get_or_set(cache_key, builder)
@@ -1041,6 +1080,24 @@ def create_web_app(
         )
 
     return app
+
+
+def _execute_paper_automation_scheduler_task(
+    session_factory: Callable[[], Session],
+    task_id: int,
+    *,
+    now: datetime,
+    odds_syncer: Callable[[list[int]], Any],
+    queue_builder: Callable[[Session, PaperAutomationTask], Any],
+) -> Any:
+    with session_factory() as session:
+        return execute_paper_automation_task(
+            session,
+            task_id,
+            now=now,
+            odds_syncer=odds_syncer,
+            queue_builder=queue_builder,
+        )
 
 
 def build_dashboard_summary(session: Session) -> dict[str, int]:

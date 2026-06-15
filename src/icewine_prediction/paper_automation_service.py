@@ -13,6 +13,7 @@ from icewine_prediction.bark_notification_service import (
     BarkMessage,
     BarkPushResult,
     format_paper_automation_bark_messages,
+    load_bark_push_url,
     push_bark_message,
 )
 from icewine_prediction.config import BEIJING_TIMEZONE
@@ -41,6 +42,9 @@ class PaperAutomationExecutionResult:
     status: str
     notification_status: str
     result_payload: dict[str, Any]
+
+
+_DEFAULT_BARK_PUSH_URL = object()
 
 
 def as_beijing_datetime(value: datetime) -> datetime:
@@ -217,7 +221,7 @@ def execute_paper_automation_task(
     now: datetime,
     odds_syncer: Callable[[list[int]], Any],
     queue_builder: Callable[[Session, PaperAutomationTask], PaperRecommendationQueueReport],
-    bark_push_url: str | None = None,
+    bark_push_url: str | None | object = _DEFAULT_BARK_PUSH_URL,
     bark_sender: Callable[[str, BarkMessage], BarkPushResult] = push_bark_message,
 ) -> PaperAutomationExecutionResult:
     now = as_beijing_datetime(now)
@@ -249,7 +253,11 @@ def execute_paper_automation_task(
         )
         notification_status, notification_error = _send_bark_messages(
             messages,
-            bark_push_url=bark_push_url,
+            bark_push_url=(
+                load_bark_push_url()
+                if bark_push_url is _DEFAULT_BARK_PUSH_URL
+                else bark_push_url
+            ),
             bark_sender=bark_sender,
         )
         bark_payload = {

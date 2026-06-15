@@ -1,16 +1,45 @@
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+from icewine_prediction.bark_notification_service import (
+    BarkMessage,
+    BarkPushResult,
+    format_paper_automation_bark_messages,
+    push_bark_message,
+)
 from icewine_prediction.config import BEIJING_TIMEZONE
-from icewine_prediction.models import Match, PaperAutomationTask
+from icewine_prediction.display_service import DisplayNameService
+from icewine_prediction.models import Match, PaperAutomationTask, PaperRecommendationRecord
+from icewine_prediction.paper_confidence_service import (
+    PaperConfidenceGroup,
+    build_paper_confidence_workspace,
+)
+from icewine_prediction.paper_recommendation_queue_service import (
+    PaperRecommendationQueueReport,
+    PaperQueueScoreResult,
+    build_paper_recommendation_queue,
+)
+from icewine_prediction.paper_recommendation_tracking_service import (
+    create_paper_record_from_queue_row,
+)
 
 
 class PaperAutomationValidationError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class PaperAutomationExecutionResult:
+    status: str
+    notification_status: str
+    result_payload: dict[str, Any]
 
 
 def as_beijing_datetime(value: datetime) -> datetime:
@@ -136,3 +165,169 @@ def cancel_paper_automation_task(
     task.updated_at = now
     session.commit()
     return task
+
+
+def execute_paper_automation_task(
+    session: Session,
+    task_id: int,
+    *,
+    now: datetime,
+    odds_syncer: Callable[[list[int]], Any],
+    queue_builder: Callable[[Session, PaperAutomationTask], PaperRecommendationQueueReport],
+    bark_push_url: str | None = None,
+    bark_sender: Callable[[str, BarkMessage], BarkPushResult] = push_bark_message,
+) -> PaperAutomationExecutionResult:
+    now = as_beijing_datetime(now)
+    task = session.get(PaperAutomationTask, task_id)
+    if task is None:
+        raise PaperAutomationValidationError(f"自动任务不存在: {task_id}")
+    if task.status != "running":
+        raise PaperAutomationValidationError("只能执行运行中的自动任务")
+
+    try:
+        target_match_ids = _target_match_ids(session, task)
+        odds_sync_result = odds_syncer(target_match_ids)
+        queue_report = queue_builder(session, task)
+        created_record_ids = _record_queue_candidates(session, queue_report, recorded_at=now)
+        groups = _confidence_groups_for_records(session, created_record_ids)
+        messages = format_paper_automation_bark_messages(
+            groups=groups,
+            recorded_count=len(groups),
+        )
+        notification_status, notification_error = _send_bark_messages(
+            messages,
+            bark_push_url=bark_push_url,
+            bark_sender=bark_sender,
+        )
+        result_payload = {
+            "target_match_ids": target_match_ids,
+            "odds_sync_result": odds_sync_result,
+            "queue": {
+                "total_matches": queue_report.total_matches,
+                "candidate_count": queue_report.candidate_count,
+                "status_counts": queue_report.status_counts,
+            },
+            "created_record_ids": created_record_ids,
+            "confidence_group_keys": [group.group_key for group in groups],
+            "bark_message_count": len(messages),
+        }
+        task.status = "success"
+        task.notification_status = notification_status
+        task.notification_error = notification_error
+        task.error_message = None
+        task.result_payload = json.dumps(result_payload, ensure_ascii=False, default=str)
+        task.finished_at = now
+        task.updated_at = now
+        session.commit()
+        return PaperAutomationExecutionResult(
+            status=task.status,
+            notification_status=task.notification_status,
+            result_payload=result_payload,
+        )
+    except Exception as exc:
+        task.status = "failed"
+        task.error_message = f"{type(exc).__name__}: {exc}"
+        task.finished_at = now
+        task.updated_at = now
+        session.commit()
+        raise
+
+
+def build_real_paper_queue_for_task(
+    session: Session,
+    task: PaperAutomationTask,
+    *,
+    now: datetime,
+    scorer: Callable[[dict[str, str]], PaperQueueScoreResult] | None = None,
+    display_name_service: DisplayNameService | None = None,
+) -> PaperRecommendationQueueReport:
+    return build_paper_recommendation_queue(
+        session,
+        now=as_beijing_datetime(now),
+        start_time=as_beijing_datetime(task.match_window_start),
+        end_time=as_beijing_datetime(task.match_window_end),
+        scorer=scorer,
+        display_name_service=display_name_service,
+    )
+
+
+def _target_match_ids(session: Session, task: PaperAutomationTask) -> list[int]:
+    rows = (
+        session.query(Match.id)
+        .filter(Match.kickoff_time >= as_beijing_datetime(task.match_window_start))
+        .filter(Match.kickoff_time <= as_beijing_datetime(task.match_window_end))
+        .order_by(Match.kickoff_time.asc(), Match.id.asc())
+        .all()
+    )
+    return [match_id for (match_id,) in rows]
+
+
+def _record_queue_candidates(
+    session: Session,
+    queue_report: PaperRecommendationQueueReport,
+    *,
+    recorded_at: datetime,
+) -> list[int]:
+    created_record_ids: list[int] = []
+    for row in queue_report.rows:
+        if row.status != "candidate":
+            continue
+        record = create_paper_record_from_queue_row(session, row, recorded_at=recorded_at)
+        created_record_ids.append(record.id)
+    return created_record_ids
+
+
+def _confidence_groups_for_records(
+    session: Session,
+    record_ids: list[int],
+) -> list[PaperConfidenceGroup]:
+    if not record_ids:
+        return []
+    records = (
+        session.query(PaperRecommendationRecord)
+        .order_by(PaperRecommendationRecord.created_at.asc(), PaperRecommendationRecord.id.asc())
+        .all()
+    )
+    workspace = build_paper_confidence_workspace(records)
+    record_id_set = set(record_ids)
+    return [
+        group
+        for group in workspace.groups
+        if record_id_set.intersection(group.signal_record_ids)
+    ]
+
+
+def _send_bark_messages(
+    messages: list[BarkMessage],
+    *,
+    bark_push_url: str | None,
+    bark_sender: Callable[[str, BarkMessage], BarkPushResult],
+) -> tuple[str, str | None]:
+    if not bark_push_url:
+        return "not_configured", None
+
+    failures = []
+    for message in messages:
+        result = bark_sender(bark_push_url, message)
+        if not result.success:
+            failures.append(_summarize_bark_failure(result))
+    if failures:
+        return "failed", "; ".join(failures)
+    return "sent", None
+
+
+def _summarize_bark_failure(result: BarkPushResult) -> str:
+    parts = []
+    if result.status_code is not None:
+        parts.append(f"status={result.status_code}")
+    if result.response_text:
+        parts.append(f"response={_truncate(result.response_text, 200)}")
+    if result.error:
+        parts.append(f"error={_truncate(result.error, 200)}")
+    return ", ".join(parts) or "Bark push failed"
+
+
+def _truncate(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    return value[: max_chars - 3] + "..."

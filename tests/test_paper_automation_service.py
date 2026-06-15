@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -17,12 +18,18 @@ from icewine_prediction.bark_notification_service import (
     push_bark_message,
 )
 from icewine_prediction.paper_confidence_service import PaperConfidenceGroup
+from icewine_prediction.paper_recommendation_queue_service import (
+    PaperQueueRow,
+    PaperRecommendationQueueReport,
+)
 from icewine_prediction.paper_automation_service import (
     PaperAutomationValidationError,
     cancel_paper_automation_task,
     claim_due_paper_automation_task,
     create_paper_automation_task,
+    execute_paper_automation_task,
 )
+from icewine_prediction.paper_strategy_registry import DEFAULT_STRATEGY
 
 
 BEIJING = ZoneInfo("Asia/Shanghai")
@@ -57,6 +64,80 @@ def _seed_match(session, kickoff: datetime) -> Match:
     session.add_all([league, home, away, match])
     session.commit()
     return match
+
+
+def _seed_running_task(
+    session,
+    *,
+    match_window_start: datetime,
+    match_window_end: datetime,
+    now: datetime,
+) -> PaperAutomationTask:
+    task = PaperAutomationTask(
+        created_at=now - timedelta(minutes=5),
+        updated_at=now,
+        created_by="test",
+        trigger_at=now,
+        match_window_start=match_window_start,
+        match_window_end=match_window_end,
+        status="running",
+        notification_status="pending",
+        started_at=now,
+    )
+    session.add(task)
+    session.commit()
+    return task
+
+
+def _queue_row(match: Match, *, status: str = "candidate") -> PaperQueueRow:
+    return PaperQueueRow(
+        match_id=match.id,
+        source_match_id=match.source_match_id,
+        kickoff_time=match.kickoff_time.isoformat(),
+        league_name=match.league.name,
+        league_display_name=match.league.name,
+        home_team_name=match.home_team.canonical_name,
+        home_team_display_name=match.home_team.canonical_name,
+        away_team_name=match.away_team.canonical_name,
+        away_team_display_name=match.away_team.canonical_name,
+        status=status,
+        market_type=DEFAULT_STRATEGY.market_type,
+        line=Decimal("-0.50"),
+        side=DEFAULT_STRATEGY.side,
+        recommended_handicap="Away +0.50",
+        odds=Decimal("1.900"),
+        model_probability=Decimal("0.8300"),
+        market_probability=Decimal("0.5300"),
+        edge=Decimal("0.3000"),
+        line_bucket="away_underdog",
+        risk_tags=("line_bucket:away_underdog",),
+        scoring_edge=Decimal("0.3000"),
+        strategy_key=DEFAULT_STRATEGY.strategy_key,
+        strategy_display_name=DEFAULT_STRATEGY.display_name,
+        signal_version=DEFAULT_STRATEGY.signal_version,
+    )
+
+
+def _queue_report(rows: list[PaperQueueRow]) -> PaperRecommendationQueueReport:
+    return PaperRecommendationQueueReport(
+        generated_at="2026-06-15T18:21:00+08:00",
+        window_start="2026-06-15T18:30:00+08:00",
+        window_end="2026-06-15T18:30:00+08:00",
+        hours=0,
+        near_start_hours=0,
+        edge_threshold=Decimal("0.1000"),
+        model_name="raw_hgb_team_form_plus_all_markets",
+        total_matches=len({row.match_id for row in rows}),
+        candidate_count=len([row for row in rows if row.status == "candidate"]),
+        status_counts={
+            status: len([row for row in rows if row.status == status])
+            for status in {row.status for row in rows}
+        },
+        prefetch_requested=False,
+        near_start_fixture_ids=[],
+        prefetch_result=None,
+        rows=rows,
+    )
 
 
 def _confidence_group(
@@ -201,6 +282,132 @@ def test_format_bark_messages_returns_empty_candidate_notice():
     messages = format_paper_automation_bark_messages(groups=[], recorded_count=0)
 
     assert messages == [BarkMessage(title="纸面自动任务：已记录 0 条", body="没有记录到候选")]
+
+
+def test_execute_task_records_candidates_and_sends_bark_from_confidence_groups():
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    sent_messages = []
+    odds_calls = []
+
+    with _session() as session:
+        match = _seed_match(session, kickoff)
+        task = _seed_running_task(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now,
+        )
+
+        def odds_syncer(match_ids):
+            odds_calls.append(match_ids)
+            return {"ok": match_ids}
+
+        def queue_builder(session_arg, task_arg):
+            assert session_arg is session
+            assert task_arg.id == task.id
+            return _queue_report([_queue_row(match)])
+
+        def bark_sender(push_url, message):
+            sent_messages.append((push_url, message))
+            return BarkPushResult(success=True, status_code=200, response_text="ok")
+
+        result = execute_paper_automation_task(
+            session,
+            task.id,
+            now=now,
+            odds_syncer=odds_syncer,
+            queue_builder=queue_builder,
+            bark_push_url="https://example.com/bark/secret-token",
+            bark_sender=bark_sender,
+        )
+
+        loaded = session.get(PaperAutomationTask, task.id)
+        payload = json.loads(loaded.result_payload)
+
+    assert odds_calls == [[match.id]]
+    assert result.status == "success"
+    assert result.notification_status == "sent"
+    assert loaded.status == "success"
+    assert loaded.notification_status == "sent"
+    assert loaded.finished_at == now
+    assert payload["created_record_ids"]
+    assert sent_messages[0][0] == "https://example.com/bark/secret-token"
+    assert "\u63a8\u83501.50\u624b" in sent_messages[0][1].body
+
+
+def test_execute_task_continues_after_partial_odds_failure_and_sends_empty_notice():
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    sent_messages = []
+
+    with _session() as session:
+        match = _seed_match(session, kickoff)
+        task = _seed_running_task(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now,
+        )
+
+        result = execute_paper_automation_task(
+            session,
+            task.id,
+            now=now,
+            odds_syncer=lambda match_ids: {"failed": [{"match_id": match_ids[0], "error": "timeout"}]},
+            queue_builder=lambda session_arg, task_arg: _queue_report([]),
+            bark_push_url="https://example.com/bark/secret-token",
+            bark_sender=lambda push_url, message: sent_messages.append(message)
+            or BarkPushResult(success=True),
+        )
+
+        loaded = session.get(PaperAutomationTask, task.id)
+        payload = json.loads(loaded.result_payload)
+
+    assert result.status == "success"
+    assert loaded.status == "success"
+    assert loaded.notification_status == "sent"
+    assert payload["target_match_ids"] == [match.id]
+    assert payload["created_record_ids"] == []
+    assert "\u6ca1\u6709\u8bb0\u5f55\u5230\u5019\u9009" in sent_messages[0].body
+
+
+def test_execute_task_marks_bark_failure_without_failing_task():
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+
+    with _session() as session:
+        match = _seed_match(session, kickoff)
+        task = _seed_running_task(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now,
+        )
+
+        result = execute_paper_automation_task(
+            session,
+            task.id,
+            now=now,
+            odds_syncer=lambda match_ids: {"ok": match_ids},
+            queue_builder=lambda session_arg, task_arg: _queue_report([_queue_row(match)]),
+            bark_push_url="https://example.com/bark/secret-token",
+            bark_sender=lambda push_url, message: BarkPushResult(
+                success=False,
+                status_code=500,
+                response_text="server error",
+            ),
+        )
+
+        loaded = session.get(PaperAutomationTask, task.id)
+
+    assert result.status == "success"
+    assert loaded.status == "success"
+    assert loaded.notification_status == "failed"
+    assert "500" in loaded.notification_error
+    assert "server error" in loaded.notification_error
+    assert "example.com" not in loaded.notification_error
+    assert "secret-token" not in loaded.notification_error
 
 
 def test_load_bark_push_url_reads_environment(monkeypatch):

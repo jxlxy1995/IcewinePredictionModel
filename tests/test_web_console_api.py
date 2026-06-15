@@ -65,8 +65,8 @@ def test_web_app_starts_and_stops_paper_automation_scheduler_with_env_config(
             self.stopped = True
 
     monkeypatch.setattr(web_api, "PaperAutomationScheduler", FakeScheduler, raising=False)
-    monkeypatch.setenv("PAPER_AUTOMATION_GRACE_MINUTES", "9")
-    monkeypatch.setenv("PAPER_AUTOMATION_POLL_SECONDS", "invalid")
+    monkeypatch.setenv("PAPER_AUTOMATION_GRACE_MINUTES", "-9")
+    monkeypatch.setenv("PAPER_AUTOMATION_POLL_SECONDS", "0")
 
     app = create_web_app(
         session_factory=session_factory,
@@ -75,7 +75,7 @@ def test_web_app_starts_and_stops_paper_automation_scheduler_with_env_config(
     )
 
     assert len(schedulers) == 1
-    assert schedulers[0].kwargs["grace_minutes"] == 9
+    assert schedulers[0].kwargs["grace_minutes"] == 20
     assert schedulers[0].kwargs["poll_seconds"] == 20
 
     with TestClient(app) as client:

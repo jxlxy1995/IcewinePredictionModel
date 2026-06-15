@@ -108,9 +108,10 @@ from icewine_prediction.training_orchestration_service import (
 
 def _int_env(name: str, default: int) -> int:
     try:
-        return int(os.getenv(name, ""))
+        value = int(os.getenv(name, ""))
     except (TypeError, ValueError):
         return default
+    return value if value > 0 else default
 
 
 def create_web_app(

@@ -2,10 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createManualExecutionTimepointOdds,
+  createPaperAutomationTask,
+  cancelPaperAutomationTask,
   loadDashboardData,
   loadLatestTrainingRun,
   loadMatchListWorkspace,
   loadMatchSyncRunDetail,
+  loadPaperAutomationTask,
+  loadPaperAutomationTasks,
   loadPaperRecommendationWorkspace,
   recordPaperCandidates,
   startTrainingFullRefresh,
@@ -475,6 +479,96 @@ describe("apiClient", () => {
       }
     );
     expect(result.status).toBe("created");
+  });
+
+  it("loads paper automation tasks", async () => {
+    const fetchMock = vi.fn(async () => Response.json([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tasks = await loadPaperAutomationTasks();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/paper-automation/tasks");
+    expect(tasks).toEqual([]);
+  });
+
+  it("creates paper automation task with scheduling payload", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        id: 12,
+        created_by: "web",
+        created_at: "2026-05-20T20:00:00+08:00",
+        updated_at: "2026-05-20T20:00:00+08:00",
+        trigger_at: "2026-05-20T21:00:00+08:00",
+        match_window_start: "2026-05-20T21:30:00+08:00",
+        match_window_end: "2026-05-20T22:30:00+08:00",
+        started_at: null,
+        finished_at: null,
+        missed_at: null,
+        cancelled_at: null,
+        status: "pending",
+        notification_status: "pending",
+        notification_error: null,
+        error_message: null,
+        target_match_count: 1,
+        result_payload: null
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const task = await createPaperAutomationTask({
+      trigger_at: "2026-05-20T21:00:00+08:00",
+      match_window_start: "2026-05-20T21:30:00+08:00",
+      match_window_end: "2026-05-20T22:30:00+08:00"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/paper-automation/tasks", {
+      body: JSON.stringify({
+        trigger_at: "2026-05-20T21:00:00+08:00",
+        match_window_start: "2026-05-20T21:30:00+08:00",
+        match_window_end: "2026-05-20T22:30:00+08:00"
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    expect(task.id).toBe(12);
+    expect(task.status).toBe("pending");
+  });
+
+  it("loads and cancels paper automation task by id", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        id: 12,
+        created_by: "web",
+        created_at: "2026-05-20T20:00:00+08:00",
+        updated_at: "2026-05-20T20:05:00+08:00",
+        trigger_at: "2026-05-20T21:00:00+08:00",
+        match_window_start: "2026-05-20T21:30:00+08:00",
+        match_window_end: "2026-05-20T22:30:00+08:00",
+        started_at: null,
+        finished_at: null,
+        missed_at: null,
+        cancelled_at: "2026-05-20T20:05:00+08:00",
+        status: "cancelled",
+        notification_status: "pending",
+        notification_error: null,
+        error_message: null,
+        target_match_count: 1,
+        result_payload: null
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const task = await loadPaperAutomationTask(12);
+    const cancelled = await cancelPaperAutomationTask(12);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/paper-automation/tasks/12");
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/paper-automation/tasks/12/cancel", {
+      body: "{}",
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    expect(task.id).toBe(12);
+    expect(cancelled.status).toBe("cancelled");
   });
 
   it("includes API error detail when match odds sync fails", async () => {

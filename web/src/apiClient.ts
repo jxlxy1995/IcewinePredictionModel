@@ -307,7 +307,7 @@ export async function loadMatchSyncRunDetail(runId: number): Promise<MatchSyncRu
 }
 
 export async function loadPaperAutomationTasks(): Promise<PaperAutomationTask[]> {
-  return await getJson<PaperAutomationTask[]>("/api/paper-automation/tasks");
+  return await getJsonOrFallback<PaperAutomationTask[]>("/api/paper-automation/tasks", []);
 }
 
 export async function createPaperAutomationTask(

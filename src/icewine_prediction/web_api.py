@@ -45,6 +45,7 @@ from icewine_prediction.models import (
     Match,
     OddsSourceMatch,
     OddsSnapshot,
+    PaperAutomationTask,
     RecommendationRecord,
     Team,
     TrainingRun,
@@ -54,6 +55,13 @@ from icewine_prediction.oddspapi_backfill_audit_service import (
     build_oddspapi_backfill_audit_for_session,
 )
 from icewine_prediction.oddspapi_worker_process_service import _is_process_running
+from icewine_prediction.paper_automation_service import (
+    PaperAutomationValidationError,
+    build_paper_automation_task_payload,
+    cancel_paper_automation_task,
+    create_paper_automation_task,
+    list_paper_automation_tasks,
+)
 from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScore,
     PaperQueueScoreResult,
@@ -117,6 +125,7 @@ def create_web_app(
     match_list_fixture_range_syncer: Callable[[datetime, datetime, str | None], dict[str, Any] | str] | None = None,
     match_list_odds_syncer: Callable[[list[int]], dict[str, Any] | str] | None = None,
     training_full_refresh_runner: Callable[[int], None] | None = None,
+    start_paper_automation_scheduler: bool = True,
     clock: Callable[[], datetime] = now_beijing,
 ) -> FastAPI:
     if session_factory is None:
@@ -128,6 +137,7 @@ def create_web_app(
     display_translation_status_service = (
         display_translation_status_service or DisplayTranslationStatusService()
     )
+    _ = start_paper_automation_scheduler
 
     app = FastAPI(title="Icewine Prediction Console API")
     response_cache = WebResponseCache(ttl_seconds=60.0)
@@ -676,6 +686,53 @@ def create_web_app(
                 report,
                 display_name_service=display_name_service,
             )
+
+    @app.get("/api/paper-automation/tasks")
+    def paper_automation_tasks(limit: int = 100) -> list[dict[str, Any]]:
+        with session_factory() as session:
+            return [
+                build_paper_automation_task_payload(session, task)
+                for task in list_paper_automation_tasks(session, limit=limit)
+            ]
+
+    @app.post("/api/paper-automation/tasks")
+    def create_paper_automation_task_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            trigger_at = _parse_required_datetime(payload, "trigger_at")
+            match_window_start = _parse_required_datetime(payload, "match_window_start")
+            match_window_end = _parse_required_datetime(payload, "match_window_end")
+        except (KeyError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=f"自动任务参数错误: {error}") from error
+        with session_factory() as session:
+            try:
+                task = create_paper_automation_task(
+                    session,
+                    trigger_at=trigger_at,
+                    match_window_start=match_window_start,
+                    match_window_end=match_window_end,
+                    now=clock(),
+                )
+            except PaperAutomationValidationError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
+            return build_paper_automation_task_payload(session, task)
+
+    @app.get("/api/paper-automation/tasks/{task_id}")
+    def paper_automation_task_detail(task_id: int) -> dict[str, Any]:
+        with session_factory() as session:
+            task = session.get(PaperAutomationTask, task_id)
+            if task is None:
+                raise HTTPException(status_code=404, detail="自动任务不存在")
+            return build_paper_automation_task_payload(session, task)
+
+    @app.post("/api/paper-automation/tasks/{task_id}/cancel")
+    def cancel_paper_automation_task_endpoint(task_id: int) -> dict[str, Any]:
+        with session_factory() as session:
+            try:
+                task = cancel_paper_automation_task(session, task_id, now=clock())
+            except PaperAutomationValidationError as error:
+                status_code = 404 if "不存在" in str(error) else 400
+                raise HTTPException(status_code=status_code, detail=str(error)) from error
+            return build_paper_automation_task_payload(session, task)
 
     @app.get("/api/paper-recommendations/workspace")
     def paper_recommendation_workspace(
@@ -2764,6 +2821,16 @@ def _parse_optional_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value
     return datetime.fromisoformat(str(value))
+
+
+def _parse_required_datetime(payload: dict[str, Any], field_name: str) -> datetime:
+    value = payload.get(field_name)
+    if not value:
+        raise ValueError(f"缺少 {field_name}")
+    try:
+        return _parse_optional_datetime(value)  # type: ignore[return-value]
+    except ValueError as error:
+        raise ValueError(f"{field_name} 时间格式无效") from error
 
 
 def _as_beijing_datetime(value: datetime) -> datetime:

@@ -115,6 +115,47 @@ def count_matches_in_window(
     )
 
 
+def list_paper_automation_tasks(
+    session: Session,
+    *,
+    limit: int = 100,
+) -> list[PaperAutomationTask]:
+    return (
+        session.query(PaperAutomationTask)
+        .order_by(PaperAutomationTask.trigger_at.desc(), PaperAutomationTask.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def build_paper_automation_task_payload(
+    session: Session,
+    task: PaperAutomationTask,
+) -> dict[str, Any]:
+    return {
+        "id": task.id,
+        "created_at": _format_beijing_datetime(task.created_at),
+        "updated_at": _format_beijing_datetime(task.updated_at),
+        "trigger_at": _format_beijing_datetime(task.trigger_at),
+        "match_window_start": _format_beijing_datetime(task.match_window_start),
+        "match_window_end": _format_beijing_datetime(task.match_window_end),
+        "started_at": _format_beijing_datetime(task.started_at),
+        "finished_at": _format_beijing_datetime(task.finished_at),
+        "missed_at": _format_beijing_datetime(task.missed_at),
+        "cancelled_at": _format_beijing_datetime(task.cancelled_at),
+        "status": task.status,
+        "notification_status": task.notification_status,
+        "notification_error": task.notification_error,
+        "error_message": task.error_message,
+        "target_match_count": count_matches_in_window(
+            session,
+            match_window_start=as_beijing_datetime(task.match_window_start),
+            match_window_end=as_beijing_datetime(task.match_window_end),
+        ),
+        "result_payload": _parse_result_payload(task.result_payload),
+    }
+
+
 def claim_due_paper_automation_task(
     session: Session,
     *,
@@ -310,6 +351,21 @@ def _count_result_items(payload: dict[str, Any], key: str) -> int:
     if value is None:
         return 0
     return 1
+
+
+def _format_beijing_datetime(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return as_beijing_datetime(value).isoformat()
+
+
+def _parse_result_payload(value: str | None) -> Any:
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return None
 
 
 def build_real_paper_queue_for_task(

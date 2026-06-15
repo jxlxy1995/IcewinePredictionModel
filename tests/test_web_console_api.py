@@ -2411,6 +2411,129 @@ def test_web_console_api_match_list_sync_invalidates_cached_workspace(tmp_path):
     assert second_response.json()["matches"][0]["home_team_name"] == "Sanfrecce Hiroshima"
 
 
+def test_web_console_api_creates_paper_automation_task(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    _seed_console_data(session_factory)
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            start_paper_automation_scheduler=False,
+            clock=lambda: datetime(2026, 5, 20, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    response = client.post(
+        "/api/paper-automation/tasks",
+        json={
+            "trigger_at": "2026-05-20T21:00:00+08:00",
+            "match_window_start": "2026-05-20T21:30:00+08:00",
+            "match_window_end": "2026-05-20T22:30:00+08:00",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] > 0
+    assert payload["created_at"] == "2026-05-20T20:00:00+08:00"
+    assert payload["updated_at"] == "2026-05-20T20:00:00+08:00"
+    assert payload["trigger_at"] == "2026-05-20T21:00:00+08:00"
+    assert payload["match_window_start"] == "2026-05-20T21:30:00+08:00"
+    assert payload["match_window_end"] == "2026-05-20T22:30:00+08:00"
+    assert payload["status"] == "pending"
+    assert payload["notification_status"] == "pending"
+    assert payload["notification_error"] is None
+    assert payload["error_message"] is None
+    assert payload["target_match_count"] == 1
+    assert payload["result_payload"] is None
+
+
+def test_web_console_api_rejects_empty_paper_automation_window(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    _seed_console_data(session_factory)
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            start_paper_automation_scheduler=False,
+            clock=lambda: datetime(2026, 5, 20, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    response = client.post(
+        "/api/paper-automation/tasks",
+        json={
+            "trigger_at": "2026-05-20T21:00:00+08:00",
+            "match_window_start": "2026-05-22T21:30:00+08:00",
+            "match_window_end": "2026-05-22T22:30:00+08:00",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "没有本地赛程" in response.json()["detail"]
+
+
+def test_web_console_api_lists_details_and_cancels_paper_automation_task(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    _seed_console_data(session_factory)
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            start_paper_automation_scheduler=False,
+            clock=lambda: datetime(2026, 5, 20, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+
+    older_response = client.post(
+        "/api/paper-automation/tasks",
+        json={
+            "trigger_at": "2026-05-20T21:00:00+08:00",
+            "match_window_start": "2026-05-20T21:30:00+08:00",
+            "match_window_end": "2026-05-20T22:30:00+08:00",
+        },
+    )
+    newer_response = client.post(
+        "/api/paper-automation/tasks",
+        json={
+            "trigger_at": "2026-05-20T21:30:00+08:00",
+            "match_window_start": "2026-05-21T21:30:00+08:00",
+            "match_window_end": "2026-05-21T22:30:00+08:00",
+        },
+    )
+
+    assert older_response.status_code == 200
+    assert newer_response.status_code == 200
+    older = older_response.json()
+    newer = newer_response.json()
+
+    list_response = client.get("/api/paper-automation/tasks")
+    detail_response = client.get(f"/api/paper-automation/tasks/{older['id']}")
+    missing_response = client.get("/api/paper-automation/tasks/999")
+    cancel_response = client.post(f"/api/paper-automation/tasks/{older['id']}/cancel")
+    duplicate_cancel_response = client.post(f"/api/paper-automation/tasks/{older['id']}/cancel")
+
+    assert list_response.status_code == 200
+    tasks = list_response.json()
+    assert [task["id"] for task in tasks] == [newer["id"], older["id"]]
+    assert detail_response.status_code == 200
+    assert detail_response.json()["id"] == older["id"]
+    assert missing_response.status_code == 404
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["status"] == "cancelled"
+    assert duplicate_cancel_response.status_code == 400
+    assert "只能取消待执行自动任务" in duplicate_cancel_response.json()["detail"]
+
+
 def test_web_console_api_returns_training_workspace(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

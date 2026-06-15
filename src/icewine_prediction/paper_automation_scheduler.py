@@ -37,6 +37,7 @@ class PaperAutomationScheduler:
     executor: Callable[[int], object]
     grace_minutes: int = 20
     poll_seconds: float = 20
+    stop_timeout_seconds: float = 5
     clock: Callable[[], datetime] = now_beijing
     _stop_event: Event = field(default_factory=Event, init=False)
     _thread: Thread | None = field(default=None, init=False)
@@ -51,11 +52,13 @@ class PaperAutomationScheduler:
     def stop(self) -> None:
         self._stop_event.set()
         if self._thread is not None:
-            self._thread.join()
+            self._thread.join(timeout=self.stop_timeout_seconds)
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
             try:
+                # The executor must finalize claimed task state on failure. The
+                # real web executor uses execute_paper_automation_task for that.
                 poll_paper_automation_once(
                     self.session_factory,
                     now=self.clock(),

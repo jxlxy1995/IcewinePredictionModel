@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta
+from threading import Event
 from zoneinfo import ZoneInfo
 
 from icewine_prediction.database import create_memory_database, create_session_factory, initialize_database
@@ -240,3 +241,34 @@ def test_scheduler_start_is_idempotent_and_stop_returns(monkeypatch):
     assert scheduler._thread is first_thread
     assert not first_thread.is_alive()
     assert len(calls) >= 2
+
+
+def test_scheduler_stop_returns_when_poll_is_blocked(monkeypatch):
+    entered = Event()
+    release = Event()
+
+    def blocking_poll(session_factory, *, now, grace_minutes, executor):
+        entered.set()
+        release.wait(timeout=1)
+
+    scheduler = PaperAutomationScheduler(
+        session_factory=lambda: None,
+        executor=lambda task_id: None,
+        poll_seconds=0.01,
+        stop_timeout_seconds=0.01,
+        clock=lambda: datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING),
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.paper_automation_scheduler.poll_paper_automation_once",
+        blocking_poll,
+    )
+
+    scheduler.start()
+    assert entered.wait(timeout=1)
+    started = time.monotonic()
+    scheduler.stop()
+    elapsed = time.monotonic() - started
+    release.set()
+    scheduler.stop()
+
+    assert elapsed < 0.5

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -39,20 +40,29 @@ def push_bark_message(
     push_url: str,
     message: BarkMessage,
     timeout_seconds: float = 8.0,
+    max_attempts: int = 5,
+    retry_delay_seconds: float = 10.0,
 ) -> BarkPushResult:
-    try:
-        response = requests.post(
-            push_url,
-            json={"title": message.title, "body": message.body},
-            timeout=timeout_seconds,
-        )
-    except requests.RequestException as exc:
-        return BarkPushResult(success=False, error=f"{type(exc).__name__}: Bark request failed")
-    return BarkPushResult(
-        success=200 <= response.status_code < 300,
-        status_code=response.status_code,
-        response_text=response.text,
-    )
+    last_result = BarkPushResult(success=False, error="Bark push failed")
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.post(
+                push_url,
+                json={"title": message.title, "body": message.body},
+                timeout=timeout_seconds,
+            )
+        except requests.RequestException as exc:
+            last_result = BarkPushResult(success=False, error=f"{type(exc).__name__}: Bark request failed")
+        else:
+            last_result = BarkPushResult(
+                success=200 <= response.status_code < 300,
+                status_code=response.status_code,
+                response_text=response.text,
+            )
+        if last_result.success or attempt >= max_attempts:
+            return last_result
+        time.sleep(retry_delay_seconds)
+    return last_result
 
 
 def format_paper_automation_bark_messages(
@@ -103,8 +113,8 @@ def _format_group_line(index: int, group: PaperConfidenceGroup) -> str:
     recommendation = group.recommendation_text or _fallback_recommendation_text(group)
     stake_units = _format_stake_units(group.suggested_stake_units)
     return (
-        f"{index}. {league} {home_team} vs {away_team}\n"
-        f"   {kickoff_time} {recommendation}  评分{group.confidence_score} 推荐{stake_units}手"
+        f"{index}. {kickoff_time} {league} {home_team} vs {away_team}\n"
+        f"   {recommendation}  评分{group.confidence_score} 推荐{stake_units}手"
     )
 
 

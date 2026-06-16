@@ -235,12 +235,12 @@ def test_format_bark_messages_includes_all_confidence_groups():
     assert len(messages) == 1
     assert messages[0].title == "纸面自动任务：已记录 3 条"
     body = messages[0].body
-    assert "1. 日职联 横滨水手1 vs 神户胜利船1" in body
-    assert "18:30 客队 +0.50  评分80 推荐1.50手" in body
-    assert "2. 日职联 横滨水手2 vs 神户胜利船2" in body
-    assert "18:30 客队 +0.50  评分92 推荐2.50手" in body
-    assert "3. 日职联 横滨水手3 vs 神户胜利船3" in body
-    assert "20:00 客队 +0.50  评分61 推荐0.75手" in body
+    assert "1. 18:30 日职联 横滨水手1 vs 神户胜利船1" in body
+    assert "   客队 +0.50  评分80 推荐1.50手" in body
+    assert "2. 18:30 日职联 横滨水手2 vs 神户胜利船2" in body
+    assert "   客队 +0.50  评分92 推荐2.50手" in body
+    assert "3. 20:00 日职联 横滨水手3 vs 神户胜利船3" in body
+    assert "   客队 +0.50  评分61 推荐0.75手" in body
 
 
 def test_format_bark_messages_splits_without_dropping_groups():
@@ -259,7 +259,7 @@ def test_format_bark_messages_splits_without_dropping_groups():
     ]
     combined_body = "\n".join(message.body for message in messages)
     for index in range(1, 8):
-        assert combined_body.count(f"{index}. 日职联 横滨水手{index} vs 神户胜利船{index}") == 1
+        assert combined_body.count(f"{index}. 18:30 日职联 横滨水手{index} vs 神户胜利船{index}") == 1
 
 
 def test_format_bark_messages_splits_after_summary_without_exceeding_limit():
@@ -277,7 +277,7 @@ def test_format_bark_messages_splits_after_summary_without_exceeding_limit():
     assert all(message.body.startswith("赔率回填：成功4 失败0 跳过0\n候选4 记录4 跳过0") for message in messages)
     combined_body = "\n".join(message.body for message in messages)
     for index in range(1, 5):
-        assert combined_body.count(f"{index}. 日职联 横滨水手{index} vs 神户胜利船{index}") == 1
+        assert combined_body.count(f"{index}. 18:30 日职联 横滨水手{index} vs 神户胜利船{index}") == 1
 
 
 def test_format_bark_messages_splits_oversized_summary_without_exceeding_limit():
@@ -295,7 +295,7 @@ def test_format_bark_messages_splits_oversized_summary_without_exceeding_limit()
     combined_body = "\n".join(message.body for message in messages)
     normalized_body = combined_body.replace("\n", "")
     assert "摘要摘要摘要" in combined_body
-    assert "1. 日职联 横滨水手1 vs 神户胜利船1" in normalized_body
+    assert "1. 18:30 日职联 横滨水手1 vs 神户胜利船1" in normalized_body
 
 
 def test_format_bark_messages_splits_oversized_group_without_dropping_text():
@@ -577,8 +577,43 @@ def test_load_bark_push_url_reads_environment(monkeypatch):
     assert load_bark_push_url() == "https://example.com/bark"
 
 
+def test_push_bark_message_retries_until_success(monkeypatch):
+    calls = []
+    sleeps = []
+
+    class Response:
+        status_code = 500
+        text = "server error"
+
+    class SuccessResponse:
+        status_code = 200
+        text = "ok"
+
+    def fake_post(push_url, *, json, timeout):
+        calls.append((push_url, json, timeout))
+        return SuccessResponse() if len(calls) == 3 else Response()
+
+    monkeypatch.setattr(bark_notification_service.requests, "post", fake_post)
+    monkeypatch.setattr(bark_notification_service.time, "sleep", sleeps.append)
+
+    result = push_bark_message(
+        "https://example.com/bark",
+        BarkMessage(title="标题", body="正文"),
+        timeout_seconds=3,
+    )
+
+    assert result == BarkPushResult(success=True, status_code=200, response_text="ok")
+    assert calls == [
+        ("https://example.com/bark", {"title": "标题", "body": "正文"}, 3),
+        ("https://example.com/bark", {"title": "标题", "body": "正文"}, 3),
+        ("https://example.com/bark", {"title": "标题", "body": "正文"}, 3),
+    ]
+    assert sleeps == [10.0, 10.0]
+
+
 def test_push_bark_message_posts_json_and_preserves_failure_text(monkeypatch):
     calls = []
+    sleeps = []
 
     class Response:
         status_code = 500
@@ -589,6 +624,7 @@ def test_push_bark_message_posts_json_and_preserves_failure_text(monkeypatch):
         return Response()
 
     monkeypatch.setattr(bark_notification_service.requests, "post", fake_post)
+    monkeypatch.setattr(bark_notification_service.time, "sleep", sleeps.append)
 
     result = push_bark_message(
         "https://example.com/bark",
@@ -596,17 +632,21 @@ def test_push_bark_message_posts_json_and_preserves_failure_text(monkeypatch):
         timeout_seconds=3,
     )
 
-    assert calls == [("https://example.com/bark", {"title": "标题", "body": "正文"}, 3)]
+    assert calls == [("https://example.com/bark", {"title": "标题", "body": "正文"}, 3)] * 5
+    assert sleeps == [10.0, 10.0, 10.0, 10.0]
     assert result == BarkPushResult(success=False, status_code=500, response_text="server error")
 
 
 def test_push_bark_message_redacts_secret_url_from_exception(monkeypatch):
+    sleeps = []
+
     def fake_post(push_url, *, json, timeout):
         raise bark_notification_service.requests.RequestException(
             f"request failed for {push_url}"
         )
 
     monkeypatch.setattr(bark_notification_service.requests, "post", fake_post)
+    monkeypatch.setattr(bark_notification_service.time, "sleep", sleeps.append)
 
     result = push_bark_message(
         "https://api.day.app/secret-token/纸面自动任务",
@@ -617,6 +657,7 @@ def test_push_bark_message_redacts_secret_url_from_exception(monkeypatch):
     assert result.error is not None
     assert "api.day.app" not in result.error
     assert "secret-token" not in result.error
+    assert sleeps == [10.0, 10.0, 10.0, 10.0]
 
 
 def test_create_task_rejects_empty_match_window():

@@ -122,6 +122,60 @@ def test_initialize_database_adds_paper_scoring_edge_to_existing_sqlite_database
     assert "scoring_edge" in paper_columns
 
 
+def test_initialize_database_creates_paper_group_snapshots_for_existing_sqlite_database(tmp_path: Path):
+    database_path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(database_path)
+    connection.execute(
+        """
+        create table paper_recommendation_records (
+            id integer primary key,
+            match_id integer not null,
+            source_match_id varchar(120),
+            created_at datetime not null,
+            updated_at datetime not null,
+            league_name varchar(120) not null,
+            home_team_name varchar(120) not null,
+            away_team_name varchar(120) not null,
+            kickoff_time datetime not null,
+            strategy_key varchar(80) not null,
+            strategy_display_name varchar(120) not null,
+            model_name varchar(120) not null,
+            market_type varchar(40) not null,
+            side varchar(20) not null,
+            original_market_line numeric(5, 2) not null,
+            original_odds numeric(6, 3) not null,
+            current_market_line numeric(5, 2) not null,
+            current_odds numeric(6, 3) not null,
+            edge numeric(8, 4) not null,
+            stake_units numeric(6, 2) not null,
+            status varchar(20) not null
+        )
+        """
+    )
+    connection.close()
+
+    engine = create_database_engine(database_path)
+    initialize_database(engine)
+
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    snapshot_columns = {
+        column["name"]
+        for column in inspector.get_columns("paper_recommendation_group_snapshots")
+    }
+    assert "paper_recommendation_group_snapshots" in table_names
+    assert {
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+        "confidence_score",
+        "suggested_stake_units",
+        "line_bucket",
+        "is_backfilled",
+    }.issubset(snapshot_columns)
+
+
 def test_initialize_database_rebuilds_historical_odds_unique_index_with_market_line(tmp_path: Path):
     database_path = tmp_path / "legacy.sqlite3"
     connection = sqlite3.connect(database_path)

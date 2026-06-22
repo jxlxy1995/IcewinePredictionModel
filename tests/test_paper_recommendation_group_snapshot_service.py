@@ -267,6 +267,42 @@ def test_backfill_group_snapshots_dry_run_does_not_write(session):
     assert session.query(PaperRecommendationGroupSnapshot).count() == 0
 
 
+def test_backfill_group_snapshots_reports_existing_snapshots_as_skipped(session):
+    match = _seed_match(session)
+    _paper_record(session, match)
+    first = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+    )
+
+    dry_run = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+        dry_run=True,
+    )
+    rerun = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+    )
+
+    assert first.candidate_group_count == 1
+    assert first.created_count == 1
+    assert first.skipped_count == 0
+    assert dry_run.candidate_group_count == 1
+    assert dry_run.created_count == 0
+    assert dry_run.skipped_count == 1
+    assert rerun.candidate_group_count == 1
+    assert rerun.created_count == 0
+    assert rerun.skipped_count == 1
+    assert session.query(PaperRecommendationGroupSnapshot).count() == 1
+
+
 def test_snapshot_report_uses_frozen_stake_and_market_aware_line_bucket(session):
     match = _seed_match(session, home_score=1, away_score=1, status="finished")
     asian = _paper_record(session, match, current_odds=Decimal("1.930"))

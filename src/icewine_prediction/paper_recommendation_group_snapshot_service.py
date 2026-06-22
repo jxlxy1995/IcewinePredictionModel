@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from icewine_prediction.models import (
     PaperRecommendationGroupSnapshot,
@@ -34,9 +34,17 @@ class CreatedPaperGroupSnapshot:
 @dataclass(frozen=True)
 class SnapshotBackfillResult:
     record_count: int
+    candidate_group_count: int
     created_count: int
     skipped_count: int
     dry_run: bool
+
+
+@dataclass(frozen=True)
+class _SnapshotBackfillCounts:
+    candidate_group_count: int
+    creatable_group_count: int
+    existing_group_count: int
 
 
 @dataclass(frozen=True)
@@ -175,14 +183,14 @@ def backfill_group_snapshots(
         .all()
     )
     record_ids = [record.id for record in records]
-    candidate_count = _count_backfillable_groups(
+    counts = _count_backfill_groups(
         session,
         record_ids,
         snapshot_source=HISTORICAL_BACKFILL_SOURCE,
         snapshot_version=snapshot_version,
     )
     if dry_run:
-        created_count = candidate_count
+        created_count = counts.creatable_group_count
     else:
         created_count = len(
             create_group_snapshots_for_record_ids(
@@ -196,8 +204,9 @@ def backfill_group_snapshots(
         )
     return SnapshotBackfillResult(
         record_count=len(records),
+        candidate_group_count=counts.candidate_group_count,
         created_count=created_count,
-        skipped_count=max(0, candidate_count - created_count),
+        skipped_count=max(0, counts.candidate_group_count - created_count),
         dry_run=dry_run,
     )
 
@@ -205,6 +214,7 @@ def backfill_group_snapshots(
 def build_snapshot_report(session: Session) -> SnapshotReport:
     snapshots = (
         session.query(PaperRecommendationGroupSnapshot)
+        .options(joinedload(PaperRecommendationGroupSnapshot.representative_record))
         .order_by(PaperRecommendationGroupSnapshot.created_at.asc(), PaperRecommendationGroupSnapshot.id.asc())
         .all()
     )
@@ -270,15 +280,19 @@ def _line_bucket_for_group(
     return records[0].line_bucket if records else None
 
 
-def _count_backfillable_groups(
+def _count_backfill_groups(
     session: Session,
     record_ids: list[int],
     *,
     snapshot_source: str,
     snapshot_version: str,
-) -> int:
+) -> _SnapshotBackfillCounts:
     if not record_ids:
-        return 0
+        return _SnapshotBackfillCounts(
+            candidate_group_count=0,
+            creatable_group_count=0,
+            existing_group_count=0,
+        )
     record_id_set = set(record_ids)
     all_records = (
         session.query(PaperRecommendationRecord)
@@ -286,10 +300,12 @@ def _count_backfillable_groups(
         .all()
     )
     workspace = build_paper_confidence_workspace(all_records)
-    count = 0
+    candidate_count = 0
+    existing_count = 0
     for group in workspace.groups:
         if not record_id_set.intersection(group.signal_record_ids):
             continue
+        candidate_count += 1
         signal_record_ids_json = _json_list(tuple(sorted(group.signal_record_ids)))
         if _snapshot_exists(
             session,
@@ -298,9 +314,13 @@ def _count_backfillable_groups(
             group_key=group.group_key,
             signal_record_ids_json=signal_record_ids_json,
         ):
+            existing_count += 1
             continue
-        count += 1
-    return count
+    return _SnapshotBackfillCounts(
+        candidate_group_count=candidate_count,
+        creatable_group_count=candidate_count - existing_count,
+        existing_group_count=existing_count,
+    )
 
 
 def _group_snapshot_report(

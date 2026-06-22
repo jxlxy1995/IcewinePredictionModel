@@ -2,7 +2,7 @@
 
 ## 背景
 
-纸面推荐链路已经从人工记录推进到自动化任务，并且用户已经连续约一个月按纸面推荐记录做小额实盘参与。当前 `paper_recommendation_records` 虽然仍叫“纸面记录”，但它已经承担了当前真实运行跟踪的主要职责。
+纸面推荐链路已经从人工记录推进到自动化任务，并且用户已经连续约两个月按纸面推荐记录做小额实盘参与。当前 `paper_recommendation_records` 虽然仍叫“纸面记录”，但它已经承担了当前真实运行跟踪的主要职责。
 
 现有 Web 纸面推荐页和自动化 Bark 推送会基于 `paper_recommendation_records` 动态调用 `build_paper_confidence_workspace(...)`，把同一场比赛、同一盘口类型、同一方向的多条策略记录聚合成一个推荐组，再计算 `confidence_score` 和 `suggested_stake_units`。这些聚合结果目前不是稳定落库事实，而是当前代码版本生成的视图。
 
@@ -26,7 +26,7 @@
 - 本轮不重建统一正式推荐记录体系。
 - 本轮不做纸面推荐页的本周、上周、本月、上月收益与 ROI 看板。
 - 本轮不强制把纸面推荐页历史推荐组展示改成只读快照。
-- 本轮不直接根据一个月样本调整策略准入、confidence score 或 stake cap。
+- 本轮不直接根据两个月样本调整策略准入、confidence score 或 stake cap。
 - 本轮不保存用户真实资金流水、真实下注金额或外部平台订单信息。
 
 ## 方案选择
@@ -70,6 +70,7 @@
 - `recommendation_text`
 - `representative_market_line`
 - `representative_odds`
+- `line_bucket`
 - `status`
 - `settlement_result`
 - `flat_profit_units`
@@ -86,6 +87,7 @@
 - `signal_record_ids_json` 保存组成该推荐组的纸面记录 ID 列表。
 - `representative_record_id` 保存当时 workspace 选择的代表记录。
 - `confidence_score` 和 `suggested_stake_units` 是本表最重要的冻结字段。
+- `line_bucket` 保存代表推荐组当时使用的盘口桶，后续复盘必须优先结合 `market_type` 解读。
 - `is_backfilled` 标记该快照是否由历史回填生成。
 - `source_record_created_at_min/max` 用于回填时说明这组信号原始形成时间范围。
 
@@ -201,13 +203,15 @@ python -m icewine_prediction.cli paper snapshot-report `
 - 按 stake bucket：`0.50`、`0.75`、`1.00`、`1.25`、`1.50`、`1.75`、`2.00`、`2.50`、`3.00`。
 - 按 market type：亚盘、大小球。
 - 按 side：home cover、away cover、over、under。
+- 按 market type + stake bucket，避免把不同市场下同一建议手数的表现混在一起解释。
+- 按 market type + line bucket，避免把大小球 2.5 这类常见盘口和亚盘 2.5 这类深盘混在同一盘口桶里解释。
 - 按 strategy family combo。
 - 按 snapshot source，区分真实生成与历史回填。
 
 可选输出：
 
 - 按联赛。
-- 按盘口桶。
+- 按单独盘口桶。
 - 按具体 strategy key。
 
 这些统计用于判断数据结构和复盘口径是否可靠，不直接作为本轮策略调参依据。
@@ -249,6 +253,7 @@ python -m icewine_prediction.cli paper snapshot-report `
 - 自动化任务批量记录后会生成快照，并在 `result_payload` 中包含 snapshot ids。
 - 历史 backfill 快照带 `is_backfilled = true` 和 `snapshot_source = historical_backfill`。
 - 复盘报告使用快照手数计算 weighted profit，不动态重算手数。
+- 复盘报告包含 `market_type + stake bucket` 和 `market_type + line bucket` 组合统计。
 - Bark 格式化可以使用快照对应 group 数据，且内容与当前实时计算保持一致。
 
 CLI 测试：
@@ -273,10 +278,10 @@ C:\ProgramData\anaconda3\python.exe -m pytest tests/test_web_console_api.py -q
 
 ## 交接说明
 
-- 用户已经约一个月按纸面推荐记录做小额实盘参与。
+- 用户已经约两个月按纸面推荐记录做小额实盘参与。
 - 当前工作区不包含用户真实资金流水或完整实盘数据。
 - 本轮只建设“当时推荐组可追溯”和“后续复盘可分析”的基础设施。
-- 一个月样本可能不足以直接调整策略准入、扩大使用范围或提高 stake cap。
+- 两个月样本可能不足以直接调整策略准入、扩大使用范围或提高 stake cap。
 - 后续是否根据真实运行数据调整策略，应由主导开发者结合真实数据、样本量、联赛分布、时间窗口和风险偏好判断。
 
 ## 实施顺序

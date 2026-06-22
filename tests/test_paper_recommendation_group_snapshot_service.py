@@ -5,6 +5,9 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from icewine_prediction.models import (
     League,
     Match,
@@ -57,6 +60,18 @@ def test_snapshot_model_can_be_inserted(session):
     assert loaded.group_key == f"{match.id}:asian_handicap:away_cover"
     assert loaded.suggested_stake_units == Decimal("0.75")
     assert loaded.line_bucket == "away_underdog"
+
+
+def test_snapshot_identity_is_unique(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    session.add(_snapshot(match, record))
+    session.commit()
+
+    session.add(_snapshot(match, record))
+
+    with pytest.raises(IntegrityError):
+        session.commit()
 
 
 def _now() -> datetime:
@@ -130,3 +145,34 @@ def _paper_record(session, match: Match, **overrides) -> PaperRecommendationReco
     session.add(record)
     session.commit()
     return record
+
+
+def _snapshot(match: Match, record: PaperRecommendationRecord) -> PaperRecommendationGroupSnapshot:
+    return PaperRecommendationGroupSnapshot(
+        created_at=_now(),
+        snapshot_source="manual_record",
+        snapshot_version="paper_confidence_v1",
+        group_key=f"{match.id}:asian_handicap:away_cover",
+        match_id=match.id,
+        market_type="asian_handicap",
+        side="away_cover",
+        representative_record_id=record.id,
+        signal_record_ids_json=json.dumps([record.id]),
+        triggered_strategy_keys_json=json.dumps([record.strategy_key]),
+        triggered_strategy_display_names_json=json.dumps([record.strategy_display_name]),
+        signal_families_json=json.dumps(["asian_away_hgb"]),
+        confidence_score=60,
+        suggested_stake_units=Decimal("0.75"),
+        stake_cap_reason="single_family_limited_history",
+        recommendation_text="瀹㈤槦 +0.50",
+        representative_market_line=Decimal("-0.50"),
+        representative_odds=Decimal("1.930"),
+        line_bucket="away_underdog",
+        status="pending",
+        settlement_result=None,
+        flat_profit_units=Decimal("0.000"),
+        weighted_profit_units=Decimal("0.000"),
+        is_backfilled=False,
+        source_record_created_at_min=record.created_at,
+        source_record_created_at_max=record.created_at,
+    )

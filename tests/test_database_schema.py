@@ -187,14 +187,33 @@ def test_initialize_database_adds_paper_group_snapshot_identity_index_to_existin
 ):
     database_path = tmp_path / "legacy.sqlite3"
     connection = sqlite3.connect(database_path)
+    _create_paper_group_snapshot_table_without_identity_index(connection)
+    connection.close()
+
+    engine = create_database_engine(database_path)
+    initialize_database(engine)
+
+    assert [
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+    ] in _sqlite_unique_index_columns(database_path, "paper_recommendation_group_snapshots")
+
+
+def test_initialize_database_replaces_wrong_paper_group_snapshot_identity_index(
+    tmp_path: Path,
+):
+    database_path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(database_path)
+    _create_paper_group_snapshot_table_without_identity_index(connection)
     connection.execute(
         """
-        create table paper_recommendation_group_snapshots (
-            id integer primary key,
-            snapshot_source varchar(40) not null,
-            snapshot_version varchar(40) not null,
-            group_key varchar(160) not null,
-            signal_record_ids_json text not null
+        create unique index uq_paper_group_snapshot_identity
+        on paper_recommendation_group_snapshots (
+            snapshot_source,
+            snapshot_version,
+            group_key
         )
         """
     )
@@ -209,6 +228,42 @@ def test_initialize_database_adds_paper_group_snapshot_identity_index_to_existin
         "group_key",
         "signal_record_ids_json",
     ] in _sqlite_unique_index_columns(database_path, "paper_recommendation_group_snapshots")
+
+
+def _create_paper_group_snapshot_table_without_identity_index(connection) -> None:
+    connection.execute(
+        """
+        create table paper_recommendation_group_snapshots (
+            id integer primary key,
+            created_at datetime not null,
+            snapshot_source varchar(40) not null,
+            snapshot_version varchar(40) not null,
+            group_key varchar(160) not null,
+            match_id integer not null,
+            market_type varchar(40) not null,
+            side varchar(20) not null,
+            representative_record_id integer not null,
+            signal_record_ids_json text not null,
+            triggered_strategy_keys_json text not null,
+            triggered_strategy_display_names_json text not null,
+            signal_families_json text not null,
+            confidence_score integer not null,
+            suggested_stake_units numeric(6, 2) not null,
+            stake_cap_reason varchar(80) not null,
+            recommendation_text varchar(80),
+            representative_market_line numeric(5, 2) not null,
+            representative_odds numeric(6, 3) not null,
+            line_bucket varchar(40),
+            status varchar(20) not null,
+            settlement_result varchar(20),
+            flat_profit_units numeric(8, 3) not null,
+            weighted_profit_units numeric(8, 3) not null,
+            is_backfilled boolean not null,
+            source_record_created_at_min datetime not null,
+            source_record_created_at_max datetime not null
+        )
+        """
+    )
 
 
 def _sqlite_unique_index_columns(database_path: Path, table_name: str) -> list[list[str]]:

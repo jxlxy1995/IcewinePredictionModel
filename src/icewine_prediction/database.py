@@ -126,6 +126,7 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
 
 
 def _ensure_paper_group_snapshot_unique_index(connection) -> None:
+    index_name = "uq_paper_group_snapshot_identity"
     expected_columns = [
         "snapshot_source",
         "snapshot_version",
@@ -138,9 +139,14 @@ def _ensure_paper_group_snapshot_unique_index(connection) -> None:
     )
     if expected_columns in unique_indexes.values():
         return
+    index_rows = connection.execute(
+        text("PRAGMA index_list('paper_recommendation_group_snapshots')")
+    ).all()
+    if any(row[1] == index_name for row in index_rows):
+        connection.execute(text(f"DROP INDEX {index_name}"))
     connection.execute(
         text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_paper_group_snapshot_identity "
+            f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} "
             "ON paper_recommendation_group_snapshots ("
             "snapshot_source, snapshot_version, group_key, signal_record_ids_json)"
         )

@@ -127,20 +127,26 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
 
 def _ensure_paper_group_snapshot_unique_index(connection) -> None:
     index_name = "uq_paper_group_snapshot_identity"
+    table_name = "paper_recommendation_group_snapshots"
     expected_columns = [
         "snapshot_source",
         "snapshot_version",
         "group_key",
         "signal_record_ids_json",
     ]
-    unique_indexes = _sqlite_unique_indexes(
-        connection,
-        "paper_recommendation_group_snapshots",
-    )
+    unique_indexes = _sqlite_unique_indexes(connection, table_name)
+    wrong_autoindex_names = [
+        name
+        for name, columns in unique_indexes.items()
+        if name.startswith(f"sqlite_autoindex_{table_name}") and columns != expected_columns
+    ]
+    if wrong_autoindex_names:
+        _rebuild_paper_group_snapshot_table(connection)
+        return
     if expected_columns in unique_indexes.values():
         return
     index_rows = connection.execute(
-        text("PRAGMA index_list('paper_recommendation_group_snapshots')")
+        text(f"PRAGMA index_list('{table_name}')")
     ).all()
     if any(row[1] == index_name for row in index_rows):
         connection.execute(text(f"DROP INDEX {index_name}"))
@@ -151,6 +157,35 @@ def _ensure_paper_group_snapshot_unique_index(connection) -> None:
             "snapshot_source, snapshot_version, group_key, signal_record_ids_json)"
         )
     )
+
+
+def _rebuild_paper_group_snapshot_table(connection) -> None:
+    from icewine_prediction import models  # noqa: F401
+
+    table_name = "paper_recommendation_group_snapshots"
+    legacy_table_name = "paper_recommendation_group_snapshots_legacy_unique"
+    connection.execute(text(f"DROP TABLE IF EXISTS {legacy_table_name}"))
+    connection.execute(
+        text(
+            f"ALTER TABLE {table_name} "
+            f"RENAME TO {legacy_table_name}"
+        )
+    )
+    table = Base.metadata.tables[table_name]
+    table.create(connection)
+    legacy_columns = {
+        row[1]
+        for row in connection.execute(text(f"PRAGMA table_info('{legacy_table_name}')")).all()
+    }
+    columns = [column.name for column in table.columns if column.name in legacy_columns]
+    column_list = ", ".join(columns)
+    connection.execute(
+        text(
+            f"INSERT INTO {table_name} ({column_list}) "
+            f"SELECT {column_list} FROM {legacy_table_name}"
+        )
+    )
+    connection.execute(text(f"DROP TABLE {legacy_table_name}"))
 
 
 def _ensure_historical_odds_snapshot_unique_constraint(connection) -> None:

@@ -1,6 +1,7 @@
 from pathlib import Path
 import sqlite3
 
+import pytest
 from sqlalchemy import inspect
 
 from icewine_prediction.database import create_database_engine, initialize_database
@@ -230,9 +231,48 @@ def test_initialize_database_replaces_wrong_paper_group_snapshot_identity_index(
     ] in _sqlite_unique_index_columns(database_path, "paper_recommendation_group_snapshots")
 
 
-def _create_paper_group_snapshot_table_without_identity_index(connection) -> None:
+def test_initialize_database_rebuilds_wrong_paper_group_snapshot_table_unique_constraint(
+    tmp_path: Path,
+):
+    database_path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(database_path)
+    _create_paper_group_snapshot_table_without_identity_index(
+        connection,
+        unique_columns=(
+            "snapshot_source",
+            "snapshot_version",
+            "group_key",
+        ),
+    )
+    connection.close()
+
+    engine = create_database_engine(database_path)
+    initialize_database(engine)
+
+    assert [
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+    ] in _sqlite_unique_index_columns(database_path, "paper_recommendation_group_snapshots")
+    connection = sqlite3.connect(database_path)
+    _insert_paper_group_snapshot_row(connection, "[1]")
+    _insert_paper_group_snapshot_row(connection, "[2]")
+    with pytest.raises(sqlite3.IntegrityError):
+        _insert_paper_group_snapshot_row(connection, "[1]")
+    connection.close()
+
+
+def _create_paper_group_snapshot_table_without_identity_index(
+    connection,
+    *,
+    unique_columns: tuple[str, ...] | None = None,
+) -> None:
+    unique_clause = ""
+    if unique_columns is not None:
+        unique_clause = f", unique ({', '.join(unique_columns)})"
     connection.execute(
-        """
+        f"""
         create table paper_recommendation_group_snapshots (
             id integer primary key,
             created_at datetime not null,
@@ -261,8 +301,73 @@ def _create_paper_group_snapshot_table_without_identity_index(connection) -> Non
             is_backfilled boolean not null,
             source_record_created_at_min datetime not null,
             source_record_created_at_max datetime not null
+            {unique_clause}
         )
         """
+    )
+
+
+def _insert_paper_group_snapshot_row(connection, signal_record_ids_json: str) -> None:
+    connection.execute(
+        """
+        insert into paper_recommendation_group_snapshots (
+            created_at,
+            snapshot_source,
+            snapshot_version,
+            group_key,
+            match_id,
+            market_type,
+            side,
+            representative_record_id,
+            signal_record_ids_json,
+            triggered_strategy_keys_json,
+            triggered_strategy_display_names_json,
+            signal_families_json,
+            confidence_score,
+            suggested_stake_units,
+            stake_cap_reason,
+            recommendation_text,
+            representative_market_line,
+            representative_odds,
+            line_bucket,
+            status,
+            settlement_result,
+            flat_profit_units,
+            weighted_profit_units,
+            is_backfilled,
+            source_record_created_at_min,
+            source_record_created_at_max
+        )
+        values (
+            '2026-06-22 18:00:00',
+            'manual_record',
+            'paper_confidence_v1',
+            '1:asian_handicap:away_cover',
+            1,
+            'asian_handicap',
+            'away_cover',
+            1,
+            ?,
+            '["asian_away_cover_hgb_edge_v1"]',
+            '["亚盘客队方向 HGB edge v1"]',
+            '["asian_away_hgb"]',
+            60,
+            0.75,
+            'single_family_limited_history',
+            '客队 +0.50',
+            -0.50,
+            1.930,
+            'away_underdog',
+            'pending',
+            null,
+            0.000,
+            0.000,
+            0,
+            '2026-06-22 18:00:00',
+            '2026-06-22 18:00:00'
+        )
+        """,
+        (signal_record_ids_json,),
     )
 
 

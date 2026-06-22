@@ -164,7 +164,7 @@ def _snapshot(match: Match, record: PaperRecommendationRecord) -> PaperRecommend
         confidence_score=60,
         suggested_stake_units=Decimal("0.75"),
         stake_cap_reason="single_family_limited_history",
-        recommendation_text="瀹㈤槦 +0.50",
+        recommendation_text="客队 +0.50",
         representative_market_line=Decimal("-0.50"),
         representative_odds=Decimal("1.930"),
         line_bucket="away_underdog",

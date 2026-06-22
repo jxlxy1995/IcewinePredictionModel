@@ -15,6 +15,10 @@ from icewine_prediction.models import (
     PaperRecommendationRecord,
     Team,
 )
+from icewine_prediction.paper_recommendation_group_snapshot_service import (
+    PAPER_CONFIDENCE_SNAPSHOT_VERSION,
+    create_group_snapshots_for_record_ids,
+)
 
 
 BEIJING = ZoneInfo("Asia/Shanghai")
@@ -72,6 +76,109 @@ def test_snapshot_identity_is_unique(session):
 
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def test_create_group_snapshots_groups_same_match_market_and_side(session):
+    match = _seed_match(session)
+    first = _paper_record(session, match, edge=Decimal("0.1200"), scoring_edge=Decimal("0.1200"))
+    second = _paper_record(
+        session,
+        match,
+        strategy_key="asian_away_cover_hgb_bucket_v2",
+        strategy_display_name="亚盘客队方向 HGB bucket v2",
+        signal_version="v2",
+        risk_tags="line_bucket:away_underdog,strategy:bucket_v2",
+        edge=Decimal("0.2200"),
+        scoring_edge=Decimal("0.2200"),
+    )
+
+    results = create_group_snapshots_for_record_ids(
+        session,
+        [first.id, second.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+
+    assert len(results) == 1
+    snapshot = results[0].snapshot
+    assert snapshot.snapshot_version == PAPER_CONFIDENCE_SNAPSHOT_VERSION
+    assert snapshot.snapshot_source == "manual_record"
+    assert snapshot.group_key == f"{match.id}:asian_handicap:away_cover"
+    assert json.loads(snapshot.signal_record_ids_json) == [first.id, second.id]
+    assert json.loads(snapshot.triggered_strategy_keys_json) == [
+        "asian_away_cover_hgb_edge_v1",
+        "asian_away_cover_hgb_bucket_v2",
+    ]
+    assert snapshot.confidence_score >= 70
+    assert snapshot.suggested_stake_units >= Decimal("1.00")
+    assert snapshot.line_bucket == "away_underdog"
+
+
+def test_create_group_snapshots_keeps_different_markets_separate(session):
+    match = _seed_match(session)
+    asian = _paper_record(session, match)
+    total = _paper_record(
+        session,
+        match,
+        strategy_key="total_goals_hgb_bucket_v2",
+        strategy_display_name="大小球 HGB bucket v2",
+        model_name="hgb_total_goals",
+        market_type="total_goals",
+        side="under",
+        recommended_handicap="小 2.50",
+        original_recommended_handicap="小 2.50",
+        line_bucket="mid_2.50",
+        risk_tags="line_bucket:mid_2.50,strategy:total_goals_bucket_v2",
+        original_market_line=Decimal("2.50"),
+        current_market_line=Decimal("2.50"),
+        edge=Decimal("0.1300"),
+        scoring_edge=Decimal("0.1300"),
+    )
+
+    results = create_group_snapshots_for_record_ids(
+        session,
+        [asian.id, total.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+
+    assert sorted(result.snapshot.market_type for result in results) == [
+        "asian_handicap",
+        "total_goals",
+    ]
+    assert sorted(result.snapshot.line_bucket for result in results) == [
+        "away_underdog",
+        "mid_2.50",
+    ]
+
+
+def test_create_group_snapshots_is_idempotent_per_source_version_group_and_signal_set(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+
+    first = create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+    second = create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+    third = create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        snapshot_version="paper_confidence_v2",
+        created_at=_now(),
+    )
+
+    assert len(first) == 1
+    assert second == []
+    assert len(third) == 1
 
 
 def _now() -> datetime:

@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from icewine_prediction.cli import _parse_cli_datetime_end, _parse_cli_datetime_start
 from icewine_prediction.models import (
     League,
     Match,
@@ -320,6 +321,44 @@ def test_backfill_group_snapshots_uses_requested_snapshot_source(session):
     assert snapshot.snapshot_source == "cli_backfill"
 
 
+def test_backfill_group_snapshots_counts_existing_snapshots_by_source(session):
+    match = _seed_match(session)
+    _paper_record(session, match)
+    historical = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+    )
+
+    custom_dry_run = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+        snapshot_source="custom_backfill",
+        dry_run=True,
+    )
+    custom = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+        snapshot_source="custom_backfill",
+    )
+
+    assert historical.created_count == 1
+    assert custom_dry_run.candidate_group_count == 1
+    assert custom_dry_run.created_count == 1
+    assert custom_dry_run.skipped_count == 0
+    assert custom.created_count == 1
+    assert custom.skipped_count == 0
+    assert sorted(
+        snapshot.snapshot_source
+        for snapshot in session.query(PaperRecommendationGroupSnapshot).all()
+    ) == ["custom_backfill", "historical_backfill"]
+
+
 def test_snapshot_report_uses_frozen_stake_and_market_aware_line_bucket(session):
     match = _seed_match(session, home_score=1, away_score=1, status="finished")
     asian = _paper_record(session, match, current_odds=Decimal("1.930"))
@@ -399,7 +438,7 @@ def test_build_snapshot_report_filters_by_snapshot_created_at(session):
     assert list(report.by_snapshot_source) == ["new_snapshot"]
 
 
-def test_build_snapshot_report_filters_by_snapshot_version(session):
+def test_build_snapshot_report_defaults_to_all_versions_and_can_filter_version(session):
     match = _seed_match(session)
     record = _paper_record(session, match)
     create_group_snapshots_for_record_ids(
@@ -417,13 +456,22 @@ def test_build_snapshot_report_filters_by_snapshot_version(session):
         created_at=datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING),
     )
 
-    report = build_snapshot_report(
+    default_report = build_snapshot_report(session)
+    filtered_report = build_snapshot_report(
         session,
         snapshot_version="paper_confidence_v2",
     )
 
-    assert report.summary.group_count == 1
-    assert list(report.by_snapshot_source) == ["manual_record"]
+    assert default_report.summary.group_count == 2
+    assert filtered_report.summary.group_count == 1
+    assert list(filtered_report.by_snapshot_source) == ["manual_record"]
+
+
+def test_parse_cli_snapshot_dates_use_start_and_end_of_day():
+    assert _parse_cli_datetime_start("2026-06-22") == datetime(2026, 6, 22, 0, 0)
+    assert _parse_cli_datetime_end("2026-06-22") == datetime(2026, 6, 22, 23, 59, 59, 999999)
+    assert _parse_cli_datetime_start("2026-06-22 18:30:00") == datetime(2026, 6, 22, 18, 30)
+    assert _parse_cli_datetime_end("2026-06-22T18:30:00") == datetime(2026, 6, 22, 18, 30)
 
 
 def test_format_snapshot_report_includes_market_aware_buckets(session):

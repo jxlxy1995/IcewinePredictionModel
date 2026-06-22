@@ -217,7 +217,7 @@ def build_snapshot_report(
     *,
     from_date: datetime | None = None,
     to_date: datetime | None = None,
-    snapshot_version: str | None = PAPER_CONFIDENCE_SNAPSHOT_VERSION,
+    snapshot_version: str | None = None,
 ) -> SnapshotReport:
     query = session.query(PaperRecommendationGroupSnapshot).options(
         joinedload(PaperRecommendationGroupSnapshot.representative_record)

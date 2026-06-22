@@ -1658,12 +1658,22 @@ def records_performance(
         typer.echo(format_historical_performance_report(report))
 
 
-def _parse_cli_datetime(value: str | None) -> datetime | None:
+def _parse_cli_datetime(value: str | None, *, end_of_day: bool = False) -> datetime | None:
     if value is None:
         return None
-    if "T" in value:
+    if "T" in value or " " in value:
         return datetime.fromisoformat(value)
+    if end_of_day:
+        return datetime.fromisoformat(f"{value}T23:59:59.999999")
     return datetime.fromisoformat(f"{value}T00:00:00")
+
+
+def _parse_cli_datetime_start(value: str | None) -> datetime | None:
+    return _parse_cli_datetime(value, end_of_day=False)
+
+
+def _parse_cli_datetime_end(value: str | None) -> datetime | None:
+    return _parse_cli_datetime(value, end_of_day=True)
 
 
 @records_app.command("snapshots-backfill")
@@ -1688,8 +1698,8 @@ def records_snapshots_backfill(
     with session_factory() as session:
         result = backfill_group_snapshots(
             session,
-            from_date=_parse_cli_datetime(from_date),
-            to_date=_parse_cli_datetime(to_date),
+            from_date=_parse_cli_datetime_start(from_date),
+            to_date=_parse_cli_datetime_end(to_date),
             created_at=datetime.now(tz=ZoneInfo("Asia/Shanghai")),
             snapshot_source=source,
             snapshot_version=version,
@@ -1724,8 +1734,8 @@ def records_snapshot_report(
     with session_factory() as session:
         report = build_snapshot_report(
             session,
-            from_date=_parse_cli_datetime(from_date),
-            to_date=_parse_cli_datetime(to_date),
+            from_date=_parse_cli_datetime_start(from_date),
+            to_date=_parse_cli_datetime_end(to_date),
             snapshot_version=version,
         )
     typer.echo(format_snapshot_report(report))

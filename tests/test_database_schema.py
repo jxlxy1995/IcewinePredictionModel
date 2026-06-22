@@ -174,10 +174,46 @@ def test_initialize_database_creates_paper_group_snapshots_for_existing_sqlite_d
         "line_bucket",
         "is_backfilled",
     }.issubset(snapshot_columns)
+    assert [
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+    ] in _sqlite_unique_index_columns(database_path, "paper_recommendation_group_snapshots")
+
+
+def test_initialize_database_adds_paper_group_snapshot_identity_index_to_existing_sqlite_table(
+    tmp_path: Path,
+):
+    database_path = tmp_path / "legacy.sqlite3"
     connection = sqlite3.connect(database_path)
-    unique_indexes = connection.execute(
-        "pragma index_list('paper_recommendation_group_snapshots')"
-    ).fetchall()
+    connection.execute(
+        """
+        create table paper_recommendation_group_snapshots (
+            id integer primary key,
+            snapshot_source varchar(40) not null,
+            snapshot_version varchar(40) not null,
+            group_key varchar(160) not null,
+            signal_record_ids_json text not null
+        )
+        """
+    )
+    connection.close()
+
+    engine = create_database_engine(database_path)
+    initialize_database(engine)
+
+    assert [
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+    ] in _sqlite_unique_index_columns(database_path, "paper_recommendation_group_snapshots")
+
+
+def _sqlite_unique_index_columns(database_path: Path, table_name: str) -> list[list[str]]:
+    connection = sqlite3.connect(database_path)
+    unique_indexes = connection.execute(f"pragma index_list('{table_name}')").fetchall()
     unique_index_columns = []
     for index_row in unique_indexes:
         if not index_row[2]:
@@ -185,12 +221,7 @@ def test_initialize_database_creates_paper_group_snapshots_for_existing_sqlite_d
         column_rows = connection.execute(f"pragma index_info('{index_row[1]}')").fetchall()
         unique_index_columns.append([column_row[2] for column_row in column_rows])
     connection.close()
-    assert [
-        "snapshot_source",
-        "snapshot_version",
-        "group_key",
-        "signal_record_ids_json",
-    ] in unique_index_columns
+    return unique_index_columns
 
 
 def test_initialize_database_rebuilds_historical_odds_unique_index_with_market_line(tmp_path: Path):

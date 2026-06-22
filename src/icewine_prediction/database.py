@@ -105,6 +105,7 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
                 connection,
                 checkfirst=True,
             )
+        _ensure_paper_group_snapshot_unique_index(connection)
         for table_name, columns in missing_columns_by_table.items():
             if table_name not in table_names:
                 continue
@@ -122,6 +123,28 @@ def _ensure_sqlite_schema(engine: Engine) -> None:
             )
         if "historical_odds_snapshots" in table_names:
             _ensure_historical_odds_snapshot_unique_constraint(connection)
+
+
+def _ensure_paper_group_snapshot_unique_index(connection) -> None:
+    expected_columns = [
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+    ]
+    unique_indexes = _sqlite_unique_indexes(
+        connection,
+        "paper_recommendation_group_snapshots",
+    )
+    if expected_columns in unique_indexes.values():
+        return
+    connection.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_paper_group_snapshot_identity "
+            "ON paper_recommendation_group_snapshots ("
+            "snapshot_source, snapshot_version, group_key, signal_record_ids_json)"
+        )
+    )
 
 
 def _ensure_historical_odds_snapshot_unique_constraint(connection) -> None:

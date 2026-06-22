@@ -13,6 +13,7 @@ from icewine_prediction.models import (
     Match,
     PaperAutomationTask,
     PaperRecommendationGroupSnapshot,
+    PaperRecommendationRecord,
     Team,
 )
 import icewine_prediction.bark_notification_service as bark_notification_service
@@ -488,9 +489,75 @@ def test_execute_task_creates_group_snapshots_and_payload_ids():
         )
 
         snapshot_ids = result.result_payload["snapshot_ids"]
+        persisted_payload = json.loads(session.get(PaperAutomationTask, task.id).result_payload)
         assert snapshot_ids
+        assert persisted_payload["snapshot_ids"] == snapshot_ids
         assert session.query(PaperRecommendationGroupSnapshot).count() == len(snapshot_ids)
         assert result.result_payload["confidence_group_keys"]
+
+
+def test_execute_task_recovers_snapshots_for_duplicate_records_after_snapshot_failure(monkeypatch):
+    now = datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING)
+    retry_now = now + timedelta(minutes=1)
+    sent_messages = []
+
+    with _session() as session:
+        first_task = _seed_automation_snapshot_task(session, now=now)
+        first_queue_report = _automation_snapshot_queue_report(session, first_task)
+
+        def fail_snapshots(*args, **kwargs):
+            raise RuntimeError("snapshot boom")
+
+        monkeypatch.setattr(
+            "icewine_prediction.paper_automation_service.create_group_snapshots_for_record_ids",
+            fail_snapshots,
+        )
+
+        with pytest.raises(RuntimeError, match="snapshot boom"):
+            execute_paper_automation_task(
+                session,
+                first_task.id,
+                now=now,
+                odds_syncer=lambda match_ids: {"success": match_ids, "failed": []},
+                queue_builder=lambda session, task: first_queue_report,
+                bark_push_url=None,
+            )
+
+        first_record_id = session.query(PaperRecommendationRecord).one().id
+        assert session.get(PaperAutomationTask, first_task.id).status == "failed"
+        assert session.query(PaperRecommendationGroupSnapshot).count() == 0
+
+        monkeypatch.undo()
+        retry_task = _seed_running_task(
+            session,
+            match_window_start=first_task.match_window_start,
+            match_window_end=first_task.match_window_end,
+            now=retry_now,
+        )
+        retry_queue_report = _automation_snapshot_queue_report(session, retry_task)
+
+        result = execute_paper_automation_task(
+            session,
+            retry_task.id,
+            now=retry_now,
+            odds_syncer=lambda match_ids: {"success": match_ids, "failed": []},
+            queue_builder=lambda session, task: retry_queue_report,
+            bark_push_url="https://example.com/bark/secret-token",
+            bark_sender=lambda push_url, message: sent_messages.append(message)
+            or BarkPushResult(success=True),
+        )
+
+        persisted_payload = json.loads(session.get(PaperAutomationTask, retry_task.id).result_payload)
+        snapshot_count = session.query(PaperRecommendationGroupSnapshot).count()
+
+    assert result.result_payload["created_record_ids"] == []
+    assert result.result_payload["batch_record"]["created_count"] == 0
+    assert result.result_payload["batch_record"]["skipped_count"] == 1
+    assert result.result_payload["snapshot_record_ids"] == [first_record_id]
+    assert result.result_payload["snapshot_ids"]
+    assert persisted_payload["snapshot_ids"] == result.result_payload["snapshot_ids"]
+    assert snapshot_count == len(result.result_payload["snapshot_ids"])
+    assert sent_messages[0].title == "\u7eb8\u9762\u81ea\u52a8\u4efb\u52a1\uff1a\u5df2\u8bb0\u5f55 0 \u6761"
 
 
 def test_execute_task_bark_title_uses_created_record_count():

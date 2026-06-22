@@ -17,8 +17,12 @@ from icewine_prediction.models import (
 )
 from icewine_prediction.paper_recommendation_group_snapshot_service import (
     PAPER_CONFIDENCE_SNAPSHOT_VERSION,
+    backfill_group_snapshots,
+    build_snapshot_report,
     create_group_snapshots_for_record_ids,
+    format_snapshot_report,
 )
+from icewine_prediction.paper_recommendation_tracking_service import settle_paper_records
 
 
 BEIJING = ZoneInfo("Asia/Shanghai")
@@ -227,6 +231,91 @@ def test_create_group_snapshots_treats_unique_constraint_race_as_duplicate(sessi
     assert len(first) == 1
     assert second == []
     assert original_query(PaperRecommendationGroupSnapshot).count() == 1
+
+
+def test_backfill_group_snapshots_marks_historical_backfill(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+
+    result = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+    )
+
+    assert result.created_count == 1
+    snapshot = session.query(PaperRecommendationGroupSnapshot).one()
+    assert snapshot.is_backfilled is True
+    assert snapshot.snapshot_source == "historical_backfill"
+    assert snapshot.source_record_created_at_min == record.created_at.replace(tzinfo=None)
+
+
+def test_backfill_group_snapshots_dry_run_does_not_write(session):
+    match = _seed_match(session)
+    _paper_record(session, match)
+
+    result = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+        dry_run=True,
+    )
+
+    assert result.created_count == 1
+    assert session.query(PaperRecommendationGroupSnapshot).count() == 0
+
+
+def test_snapshot_report_uses_frozen_stake_and_market_aware_line_bucket(session):
+    match = _seed_match(session, home_score=1, away_score=1, status="finished")
+    asian = _paper_record(session, match, current_odds=Decimal("1.930"))
+    total = _paper_record(
+        session,
+        match,
+        strategy_key="total_goals_hgb_bucket_v2",
+        strategy_display_name="total goals HGB bucket v2",
+        model_name="hgb_total_goals",
+        market_type="total_goals",
+        side="under",
+        recommended_handicap="under 2.50",
+        original_recommended_handicap="under 2.50",
+        line_bucket="mid_2.50",
+        risk_tags="line_bucket:mid_2.50,strategy:total_goals_bucket_v2",
+        original_market_line=Decimal("2.50"),
+        current_market_line=Decimal("2.50"),
+        original_odds=Decimal("1.900"),
+        current_odds=Decimal("1.900"),
+        edge=Decimal("0.1300"),
+        scoring_edge=Decimal("0.1300"),
+    )
+    create_group_snapshots_for_record_ids(
+        session,
+        [asian.id, total.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+    settle_paper_records(session, settled_at=_now())
+
+    report = build_snapshot_report(session)
+
+    snapshots = session.query(PaperRecommendationGroupSnapshot).all()
+    expected_weighted_profit = sum(
+        (snapshot.suggested_stake_units * snapshot.representative_record.profit_units).quantize(Decimal("0.001"))
+        for snapshot in snapshots
+    )
+    expected_weighted_stake = sum(snapshot.suggested_stake_units for snapshot in snapshots)
+    expected_weighted_roi = (expected_weighted_profit / expected_weighted_stake).quantize(Decimal("0.0000"))
+    assert report.summary.group_count == 2
+    assert report.summary.weighted_profit_units == expected_weighted_profit
+    assert report.summary.weighted_roi == expected_weighted_roi
+    assert "asian_handicap:away_underdog" in report.by_market_line_bucket
+    assert "total_goals:mid_2.50" in report.by_market_line_bucket
+    assert report.by_market_stake_bucket
+    text = format_snapshot_report(report)
+    assert "market_type + line_bucket" in text
+    assert "asian_handicap:away_underdog" in text
+    assert "total_goals:mid_2.50" in text
 
 
 def _now() -> datetime:

@@ -172,6 +172,7 @@ def backfill_group_snapshots(
     from_date: datetime,
     to_date: datetime,
     created_at: datetime,
+    snapshot_source: str = HISTORICAL_BACKFILL_SOURCE,
     snapshot_version: str = PAPER_CONFIDENCE_SNAPSHOT_VERSION,
     dry_run: bool = False,
 ) -> SnapshotBackfillResult:
@@ -186,7 +187,7 @@ def backfill_group_snapshots(
     counts = _count_backfill_groups(
         session,
         record_ids,
-        snapshot_source=HISTORICAL_BACKFILL_SOURCE,
+        snapshot_source=snapshot_source,
         snapshot_version=snapshot_version,
     )
     if dry_run:
@@ -196,7 +197,7 @@ def backfill_group_snapshots(
             create_group_snapshots_for_record_ids(
                 session,
                 record_ids,
-                snapshot_source=HISTORICAL_BACKFILL_SOURCE,
+                snapshot_source=snapshot_source,
                 snapshot_version=snapshot_version,
                 created_at=created_at,
                 is_backfilled=True,
@@ -211,13 +212,26 @@ def backfill_group_snapshots(
     )
 
 
-def build_snapshot_report(session: Session) -> SnapshotReport:
-    snapshots = (
-        session.query(PaperRecommendationGroupSnapshot)
-        .options(joinedload(PaperRecommendationGroupSnapshot.representative_record))
-        .order_by(PaperRecommendationGroupSnapshot.created_at.asc(), PaperRecommendationGroupSnapshot.id.asc())
-        .all()
+def build_snapshot_report(
+    session: Session,
+    *,
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
+    snapshot_version: str | None = PAPER_CONFIDENCE_SNAPSHOT_VERSION,
+) -> SnapshotReport:
+    query = session.query(PaperRecommendationGroupSnapshot).options(
+        joinedload(PaperRecommendationGroupSnapshot.representative_record)
     )
+    if from_date is not None:
+        query = query.filter(PaperRecommendationGroupSnapshot.created_at >= from_date)
+    if to_date is not None:
+        query = query.filter(PaperRecommendationGroupSnapshot.created_at <= to_date)
+    if snapshot_version is not None:
+        query = query.filter(PaperRecommendationGroupSnapshot.snapshot_version == snapshot_version)
+    snapshots = query.order_by(
+        PaperRecommendationGroupSnapshot.created_at.asc(),
+        PaperRecommendationGroupSnapshot.id.asc(),
+    ).all()
     return SnapshotReport(
         summary=_summarize_snapshots(snapshots),
         by_market_line_bucket=_group_snapshot_report(

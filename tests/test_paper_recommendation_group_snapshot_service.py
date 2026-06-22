@@ -303,6 +303,23 @@ def test_backfill_group_snapshots_reports_existing_snapshots_as_skipped(session)
     assert session.query(PaperRecommendationGroupSnapshot).count() == 1
 
 
+def test_backfill_group_snapshots_uses_requested_snapshot_source(session):
+    match = _seed_match(session)
+    _paper_record(session, match)
+
+    result = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+        snapshot_source="cli_backfill",
+    )
+
+    snapshot = session.query(PaperRecommendationGroupSnapshot).one()
+    assert result.created_count == 1
+    assert snapshot.snapshot_source == "cli_backfill"
+
+
 def test_snapshot_report_uses_frozen_stake_and_market_aware_line_bucket(session):
     match = _seed_match(session, home_score=1, away_score=1, status="finished")
     asian = _paper_record(session, match, current_odds=Decimal("1.930"))
@@ -352,6 +369,61 @@ def test_snapshot_report_uses_frozen_stake_and_market_aware_line_bucket(session)
     assert "market_type + line_bucket" in text
     assert "asian_handicap:away_underdog" in text
     assert "total_goals:mid_2.50" in text
+
+
+def test_build_snapshot_report_filters_by_snapshot_created_at(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="old_snapshot",
+        snapshot_version="paper_confidence_v1",
+        created_at=datetime(2026, 6, 1, 12, 0, tzinfo=BEIJING),
+    )
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="new_snapshot",
+        snapshot_version="paper_confidence_v1",
+        created_at=datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING),
+    )
+
+    report = build_snapshot_report(
+        session,
+        from_date=datetime(2026, 6, 10, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+    )
+
+    assert report.summary.group_count == 1
+    assert list(report.by_snapshot_source) == ["new_snapshot"]
+
+
+def test_build_snapshot_report_filters_by_snapshot_version(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        snapshot_version="paper_confidence_v1",
+        created_at=datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING),
+    )
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        snapshot_version="paper_confidence_v2",
+        created_at=datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING),
+    )
+
+    report = build_snapshot_report(
+        session,
+        snapshot_version="paper_confidence_v2",
+    )
+
+    assert report.summary.group_count == 1
+    assert list(report.by_snapshot_source) == ["manual_record"]
 
 
 def test_format_snapshot_report_includes_market_aware_buckets(session):

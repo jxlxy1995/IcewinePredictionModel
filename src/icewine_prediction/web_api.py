@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import csv
 import json
+import logging
 import os
 from pathlib import Path
 from threading import Thread
@@ -109,12 +110,41 @@ from icewine_prediction.training_orchestration_service import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 def _int_env(name: str, default: int) -> int:
     try:
         value = int(os.getenv(name, ""))
     except (TypeError, ValueError):
         return default
     return value if value > 0 else default
+
+
+def _create_manual_group_snapshots_best_effort(
+    session: Session,
+    record_ids: list[int],
+    *,
+    created_at: datetime,
+) -> list[int]:
+    if not record_ids:
+        return []
+    try:
+        session.expire_all()
+        snapshot_results = create_group_snapshots_for_record_ids(
+            session,
+            record_ids,
+            snapshot_source="manual_record",
+            created_at=created_at,
+        )
+    except Exception:
+        session.rollback()
+        logger.exception(
+            "manual paper group snapshot creation failed",
+            extra={"record_ids": record_ids},
+        )
+        return []
+    return [result.snapshot.id for result in snapshot_results]
 
 
 def create_web_app(
@@ -845,16 +875,13 @@ def create_web_app(
                     row,
                     recorded_at=clock(),
                 )
-                record_id = record.id
-                session.expire_all()
-                create_group_snapshots_for_record_ids(
-                    session,
-                    [record_id],
-                    snapshot_source="manual_record",
-                    created_at=clock(),
-                )
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
+            _create_manual_group_snapshots_best_effort(
+                session,
+                [record.id],
+                created_at=clock(),
+            )
             clear_cache_prefix("paper-recommendation-workspace")
             return build_paper_record_payload(record)
 
@@ -937,14 +964,11 @@ def create_web_app(
                 created_count += 1
             snapshot_ids: list[int] = []
             if created_record_ids:
-                session.expire_all()
-                snapshot_results = create_group_snapshots_for_record_ids(
+                snapshot_ids = _create_manual_group_snapshots_best_effort(
                     session,
                     created_record_ids,
-                    snapshot_source="manual_record",
                     created_at=clock(),
                 )
-                snapshot_ids = [result.snapshot.id for result in snapshot_results]
             if created_count > 0:
                 clear_cache_prefix("paper-recommendation-workspace")
             workspace_payload = _build_paper_tracking_workspace_payload_from_queue_report(

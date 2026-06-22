@@ -354,6 +354,24 @@ def test_snapshot_report_uses_frozen_stake_and_market_aware_line_bucket(session)
     assert "total_goals:mid_2.50" in text
 
 
+def test_format_snapshot_report_includes_market_aware_buckets(session):
+    match = _seed_match(session, home_score=1, away_score=1, status="finished")
+    record = _paper_record(session, match)
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+    settle_paper_records(session, settled_at=_now())
+
+    text = format_snapshot_report(build_snapshot_report(session))
+
+    assert "market_type + stake_bucket" in text
+    assert "market_type + line_bucket" in text
+    assert "asian_handicap:away_underdog" in text
+
+
 def _now() -> datetime:
     return datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING)
 

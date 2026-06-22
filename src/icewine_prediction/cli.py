@@ -1,3 +1,4 @@
+import inspect
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -5,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import typer
 from sqlalchemy import text
+from sqlalchemy.orm import joinedload
 
 from icewine_prediction.alias_service import add_external_alias, list_external_aliases
 from icewine_prediction.baseline_training_dataset_service import (
@@ -237,6 +239,20 @@ from icewine_prediction.paper_recommendation_replay_service import (
     build_walk_forward_replay_scorer_factory,
     replay_finished_matches_as_paper_recommendations,
 )
+from icewine_prediction.paper_recommendation_group_snapshot_service import (
+    HISTORICAL_BACKFILL_SOURCE,
+    STAKE_QUANT,
+    SnapshotBackfillResult,
+    SnapshotReport,
+    _count_backfill_groups,
+    _format_decimal as _format_snapshot_decimal,
+    _group_snapshot_report,
+    _summarize_snapshots,
+    backfill_group_snapshots,
+    build_snapshot_report,
+    create_group_snapshots_for_record_ids,
+    format_snapshot_report,
+)
 from icewine_prediction.recommendation_service import (
     Recommendation,
     build_model_recommendations_from_features,
@@ -256,7 +272,11 @@ from icewine_prediction.sample_report_service import (
     build_training_sample_report,
 )
 from icewine_prediction.config import BEIJING_TIMEZONE
-from icewine_prediction.models import TrainingRun
+from icewine_prediction.models import (
+    PaperRecommendationGroupSnapshot,
+    PaperRecommendationRecord,
+    TrainingRun,
+)
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.skellam_model_service import SkellamMarginModel
 from icewine_prediction.sync_runner import (
@@ -1651,6 +1671,195 @@ def records_performance(
     with session_factory() as session:
         report = build_historical_performance_report(session, filters)
         typer.echo(format_historical_performance_report(report))
+
+
+def _parse_cli_datetime(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    if "T" in value:
+        return datetime.fromisoformat(value)
+    return datetime.fromisoformat(f"{value}T00:00:00")
+
+
+def _backfill_group_snapshots_for_cli(
+    session,
+    *,
+    from_date: datetime,
+    to_date: datetime,
+    created_at: datetime,
+    snapshot_source: str,
+    snapshot_version: str,
+    dry_run: bool,
+) -> SnapshotBackfillResult:
+    parameters = inspect.signature(backfill_group_snapshots).parameters
+    if "snapshot_source" in parameters:
+        return backfill_group_snapshots(
+            session,
+            from_date=from_date,
+            to_date=to_date,
+            created_at=created_at,
+            snapshot_source=snapshot_source,
+            snapshot_version=snapshot_version,
+            dry_run=dry_run,
+        )
+    if snapshot_source == HISTORICAL_BACKFILL_SOURCE:
+        return backfill_group_snapshots(
+            session,
+            from_date=from_date,
+            to_date=to_date,
+            created_at=created_at,
+            snapshot_version=snapshot_version,
+            dry_run=dry_run,
+        )
+
+    records = (
+        session.query(PaperRecommendationRecord)
+        .filter(PaperRecommendationRecord.created_at >= from_date)
+        .filter(PaperRecommendationRecord.created_at <= to_date)
+        .order_by(PaperRecommendationRecord.created_at.asc(), PaperRecommendationRecord.id.asc())
+        .all()
+    )
+    record_ids = [record.id for record in records]
+    counts = _count_backfill_groups(
+        session,
+        record_ids,
+        snapshot_source=snapshot_source,
+        snapshot_version=snapshot_version,
+    )
+    if dry_run:
+        created_count = counts.creatable_group_count
+    else:
+        created_count = len(
+            create_group_snapshots_for_record_ids(
+                session,
+                record_ids,
+                snapshot_source=snapshot_source,
+                snapshot_version=snapshot_version,
+                created_at=created_at,
+                is_backfilled=True,
+            )
+        )
+    return SnapshotBackfillResult(
+        record_count=len(records),
+        candidate_group_count=counts.candidate_group_count,
+        created_count=created_count,
+        skipped_count=max(0, counts.candidate_group_count - created_count),
+        dry_run=dry_run,
+    )
+
+
+def _build_snapshot_report_for_cli(
+    session,
+    *,
+    from_date: datetime | None,
+    to_date: datetime | None,
+    snapshot_version: str,
+) -> SnapshotReport:
+    parameters = inspect.signature(build_snapshot_report).parameters
+    if {"from_date", "to_date", "snapshot_version"}.issubset(parameters):
+        return build_snapshot_report(
+            session,
+            from_date=from_date,
+            to_date=to_date,
+            snapshot_version=snapshot_version,
+        )
+
+    query = (
+        session.query(PaperRecommendationGroupSnapshot)
+        .options(joinedload(PaperRecommendationGroupSnapshot.representative_record))
+        .filter(PaperRecommendationGroupSnapshot.snapshot_version == snapshot_version)
+    )
+    if from_date is not None:
+        query = query.filter(PaperRecommendationGroupSnapshot.created_at >= from_date)
+    if to_date is not None:
+        query = query.filter(PaperRecommendationGroupSnapshot.created_at <= to_date)
+    snapshots = (
+        query.order_by(
+            PaperRecommendationGroupSnapshot.created_at.asc(),
+            PaperRecommendationGroupSnapshot.id.asc(),
+        )
+        .all()
+    )
+    return SnapshotReport(
+        summary=_summarize_snapshots(snapshots),
+        by_market_line_bucket=_group_snapshot_report(
+            snapshots,
+            lambda snapshot: f"{snapshot.market_type}:{snapshot.line_bucket or 'unknown'}",
+        ),
+        by_market_stake_bucket=_group_snapshot_report(
+            snapshots,
+            lambda snapshot: (
+                f"{snapshot.market_type}:"
+                f"{_format_snapshot_decimal(snapshot.suggested_stake_units, STAKE_QUANT)}"
+            ),
+        ),
+        by_snapshot_source=_group_snapshot_report(snapshots, lambda snapshot: snapshot.snapshot_source),
+    )
+
+
+@records_app.command("snapshots-backfill")
+def records_snapshots_backfill(
+    from_date: str = typer.Option(
+        ...,
+        "--from-date",
+        help="Inclusive PaperRecommendationRecord.created_at start date or datetime.",
+    ),
+    to_date: str = typer.Option(
+        ...,
+        "--to-date",
+        help="Inclusive PaperRecommendationRecord.created_at end date or datetime.",
+    ),
+    source: str = typer.Option(HISTORICAL_BACKFILL_SOURCE, "--source"),
+    version: str = typer.Option("paper_confidence_v1", "--version"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        result = _backfill_group_snapshots_for_cli(
+            session,
+            from_date=_parse_cli_datetime(from_date),
+            to_date=_parse_cli_datetime(to_date),
+            created_at=datetime.now(tz=ZoneInfo("Asia/Shanghai")),
+            snapshot_source=source,
+            snapshot_version=version,
+            dry_run=dry_run,
+        )
+    typer.echo(
+        "snapshot backfill "
+        f"created={result.created_count} "
+        f"candidate_groups={result.candidate_group_count} "
+        f"skipped={result.skipped_count} "
+        f"dry_run={result.dry_run}"
+    )
+
+
+@records_app.command("snapshot-report")
+def records_snapshot_report(
+    from_date: str | None = typer.Option(
+        None,
+        "--from-date",
+        help="Inclusive snapshot created_at start date or datetime.",
+    ),
+    to_date: str | None = typer.Option(
+        None,
+        "--to-date",
+        help="Inclusive snapshot created_at end date or datetime.",
+    ),
+    version: str = typer.Option("paper_confidence_v1", "--version"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = _build_snapshot_report_for_cli(
+            session,
+            from_date=_parse_cli_datetime(from_date),
+            to_date=_parse_cli_datetime(to_date),
+            snapshot_version=version,
+        )
+    typer.echo(format_snapshot_report(report))
 
 
 @odds_source_app.command("oddspapi-plan")

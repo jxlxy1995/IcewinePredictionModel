@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from icewine_prediction.models import (
@@ -50,21 +51,20 @@ def create_group_snapshots_for_record_ids(
         if not record_id_set.intersection(group.signal_record_ids):
             continue
         signal_record_ids = tuple(sorted(group.signal_record_ids))
+        signal_record_id_set = set(signal_record_ids)
         signal_record_ids_json = _json_list(signal_record_ids)
-        duplicate = (
-            session.query(PaperRecommendationGroupSnapshot)
-            .filter(PaperRecommendationGroupSnapshot.snapshot_source == snapshot_source)
-            .filter(PaperRecommendationGroupSnapshot.snapshot_version == snapshot_version)
-            .filter(PaperRecommendationGroupSnapshot.group_key == group.group_key)
-            .filter(PaperRecommendationGroupSnapshot.signal_record_ids_json == signal_record_ids_json)
-            .first()
-        )
-        if duplicate is not None:
+        if _snapshot_exists(
+            session,
+            snapshot_source=snapshot_source,
+            snapshot_version=snapshot_version,
+            group_key=group.group_key,
+            signal_record_ids_json=signal_record_ids_json,
+        ):
             continue
         group_records = [
             record
             for record in all_records
-            if record.id in set(signal_record_ids)
+            if record.id in signal_record_id_set
         ]
         source_times = [record.created_at for record in group_records]
         snapshot = PaperRecommendationGroupSnapshot(
@@ -95,11 +95,42 @@ def create_group_snapshots_for_record_ids(
             source_record_created_at_min=min(source_times),
             source_record_created_at_max=max(source_times),
         )
-        session.add(snapshot)
-        session.flush()
+        try:
+            with session.begin_nested():
+                session.add(snapshot)
+                session.flush()
+        except IntegrityError:
+            if _snapshot_exists(
+                session,
+                snapshot_source=snapshot_source,
+                snapshot_version=snapshot_version,
+                group_key=group.group_key,
+                signal_record_ids_json=signal_record_ids_json,
+            ):
+                continue
+            raise
         created.append(CreatedPaperGroupSnapshot(snapshot=snapshot, group=group))
     session.commit()
     return created
+
+
+def _snapshot_exists(
+    session: Session,
+    *,
+    snapshot_source: str,
+    snapshot_version: str,
+    group_key: str,
+    signal_record_ids_json: str,
+) -> bool:
+    return (
+        session.query(PaperRecommendationGroupSnapshot)
+        .filter(PaperRecommendationGroupSnapshot.snapshot_source == snapshot_source)
+        .filter(PaperRecommendationGroupSnapshot.snapshot_version == snapshot_version)
+        .filter(PaperRecommendationGroupSnapshot.group_key == group_key)
+        .filter(PaperRecommendationGroupSnapshot.signal_record_ids_json == signal_record_ids_json)
+        .first()
+        is not None
+    )
 
 
 def _json_list(values) -> str:

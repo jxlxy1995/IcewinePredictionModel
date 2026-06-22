@@ -181,6 +181,54 @@ def test_create_group_snapshots_is_idempotent_per_source_version_group_and_signa
     assert len(third) == 1
 
 
+def test_create_group_snapshots_treats_unique_constraint_race_as_duplicate(session, monkeypatch):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    first = create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+    original_query = session.query
+    snapshot_query_misses_remaining = 1
+
+    class SnapshotQueryMiss:
+        def __init__(self, query):
+            self._query = query
+
+        def __getattr__(self, name):
+            return getattr(self._query, name)
+
+        def filter(self, *criteria):
+            self._query = self._query.filter(*criteria)
+            return self
+
+        def first(self):
+            return None
+
+    def query_with_stale_snapshot_read(*entities, **kwargs):
+        nonlocal snapshot_query_misses_remaining
+        query = original_query(*entities, **kwargs)
+        if entities and entities[0] is PaperRecommendationGroupSnapshot and snapshot_query_misses_remaining:
+            snapshot_query_misses_remaining -= 1
+            return SnapshotQueryMiss(query)
+        return query
+
+    monkeypatch.setattr(session, "query", query_with_stale_snapshot_read)
+
+    second = create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+
+    assert len(first) == 1
+    assert second == []
+    assert original_query(PaperRecommendationGroupSnapshot).count() == 1
+
+
 def _now() -> datetime:
     return datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING)
 

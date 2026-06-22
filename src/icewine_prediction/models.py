@@ -286,6 +286,15 @@ class PaperRecommendationRecord(Base):
 
 class PaperRecommendationGroupSnapshot(Base):
     __tablename__ = "paper_recommendation_group_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_source",
+            "snapshot_version",
+            "group_key",
+            "signal_record_ids_json",
+            name="uq_paper_group_snapshot_identity",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

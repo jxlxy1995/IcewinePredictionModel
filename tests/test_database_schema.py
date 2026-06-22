@@ -174,6 +174,23 @@ def test_initialize_database_creates_paper_group_snapshots_for_existing_sqlite_d
         "line_bucket",
         "is_backfilled",
     }.issubset(snapshot_columns)
+    connection = sqlite3.connect(database_path)
+    unique_indexes = connection.execute(
+        "pragma index_list('paper_recommendation_group_snapshots')"
+    ).fetchall()
+    unique_index_columns = []
+    for index_row in unique_indexes:
+        if not index_row[2]:
+            continue
+        column_rows = connection.execute(f"pragma index_info('{index_row[1]}')").fetchall()
+        unique_index_columns.append([column_row[2] for column_row in column_rows])
+    connection.close()
+    assert [
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+    ] in unique_index_columns
 
 
 def test_initialize_database_rebuilds_historical_odds_unique_index_with_market_line(tmp_path: Path):

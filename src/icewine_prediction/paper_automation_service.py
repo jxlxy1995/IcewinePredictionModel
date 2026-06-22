@@ -23,6 +23,9 @@ from icewine_prediction.paper_confidence_service import (
     PaperConfidenceGroup,
     build_paper_confidence_workspace,
 )
+from icewine_prediction.paper_recommendation_group_snapshot_service import (
+    create_group_snapshots_for_record_ids,
+)
 from icewine_prediction.paper_recommendation_queue_service import (
     PaperRecommendationQueueReport,
     PaperQueueScoreResult,
@@ -240,7 +243,14 @@ def execute_paper_automation_task(
             queue_report,
             recorded_at=now,
         )
-        groups = _confidence_groups_for_records(session, created_record_ids)
+        snapshot_results = create_group_snapshots_for_record_ids(
+            session,
+            created_record_ids,
+            snapshot_source="automation",
+            created_at=now,
+        )
+        groups = [result.group for result in snapshot_results]
+        snapshot_ids = [result.snapshot.id for result in snapshot_results]
         messages = format_paper_automation_bark_messages(
             groups=groups,
             recorded_count=len(created_record_ids),
@@ -287,6 +297,7 @@ def execute_paper_automation_task(
             },
             "batch_record": batch_record_payload,
             "created_record_ids": created_record_ids,
+            "snapshot_ids": snapshot_ids,
             "confidence_group_keys": [group.group_key for group in groups],
             "bark": bark_payload,
             "bark_message_count": len(messages),

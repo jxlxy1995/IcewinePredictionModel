@@ -71,6 +71,9 @@ from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueScoreResult,
     build_paper_recommendation_queue,
 )
+from icewine_prediction.paper_recommendation_group_snapshot_service import (
+    create_group_snapshots_for_record_ids,
+)
 from icewine_prediction.paper_confidence_service import build_paper_confidence_workspace
 from icewine_prediction.match_list_workspace_service import (
     build_match_detail,
@@ -842,6 +845,14 @@ def create_web_app(
                     row,
                     recorded_at=clock(),
                 )
+                record_id = record.id
+                session.expire_all()
+                create_group_snapshots_for_record_ids(
+                    session,
+                    [record_id],
+                    snapshot_source="manual_record",
+                    created_at=clock(),
+                )
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
             clear_cache_prefix("paper-recommendation-workspace")
@@ -853,6 +864,7 @@ def create_web_app(
         if not isinstance(requested_candidates, list) or not requested_candidates:
             raise HTTPException(status_code=400, detail="paper batch requires candidates")
         skipped_candidates: list[dict[str, Any]] = []
+        created_record_ids: list[int] = []
         created_count = 0
         with session_factory() as session:
             queue_report = build_paper_recommendation_queue(
@@ -907,7 +919,7 @@ def create_web_app(
                     )
                     continue
                 try:
-                    create_paper_record_from_queue_row(
+                    record = create_paper_record_from_queue_row(
                         session,
                         row,
                         recorded_at=clock(),
@@ -921,7 +933,18 @@ def create_web_app(
                         }
                     )
                     continue
+                created_record_ids.append(record.id)
                 created_count += 1
+            snapshot_ids: list[int] = []
+            if created_record_ids:
+                session.expire_all()
+                snapshot_results = create_group_snapshots_for_record_ids(
+                    session,
+                    created_record_ids,
+                    snapshot_source="manual_record",
+                    created_at=clock(),
+                )
+                snapshot_ids = [result.snapshot.id for result in snapshot_results]
             if created_count > 0:
                 clear_cache_prefix("paper-recommendation-workspace")
             workspace_payload = _build_paper_tracking_workspace_payload_from_queue_report(
@@ -933,6 +956,7 @@ def create_web_app(
                 "created_count": created_count,
                 "skipped_count": len(skipped_candidates),
                 "skipped": skipped_candidates,
+                "snapshot_ids": snapshot_ids,
             }
             return workspace_payload
 

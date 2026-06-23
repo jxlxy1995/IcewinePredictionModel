@@ -8,7 +8,14 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from icewine_prediction.database import create_memory_database, create_session_factory, initialize_database
-from icewine_prediction.models import League, Match, PaperAutomationTask, Team
+from icewine_prediction.models import (
+    League,
+    Match,
+    PaperAutomationTask,
+    PaperRecommendationGroupSnapshot,
+    PaperRecommendationRecord,
+    Team,
+)
 import icewine_prediction.bark_notification_service as bark_notification_service
 from icewine_prediction.bark_notification_service import (
     BarkMessage,
@@ -140,6 +147,92 @@ def _queue_report(rows: list[PaperQueueRow]) -> PaperRecommendationQueueReport:
         near_start_fixture_ids=[],
         prefetch_result=None,
         rows=rows,
+    )
+
+
+def _seed_automation_snapshot_task(session, *, now: datetime) -> PaperAutomationTask:
+    league = League(
+        source_name="api-football",
+        source_league_id="98",
+        name="J1 League",
+        country_or_region="Japan",
+        is_enabled=True,
+    )
+    home = Team(source_name="api-football", source_team_id="1", canonical_name="Yokohama F. Marinos")
+    away = Team(source_name="api-football", source_team_id="2", canonical_name="Vissel Kobe")
+    match = Match(
+        source_name="api-football",
+        source_match_id="fixture-automation-snapshot-1",
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 6, 22, 19, 0, tzinfo=BEIJING),
+        status="scheduled",
+        season=2026,
+    )
+    task = PaperAutomationTask(
+        created_at=now,
+        updated_at=now,
+        created_by="web",
+        trigger_at=now,
+        match_window_start=match.kickoff_time,
+        match_window_end=match.kickoff_time,
+        status="running",
+        notification_status="pending",
+        started_at=now,
+    )
+    session.add_all([league, home, away, match, task])
+    session.commit()
+    return task
+
+
+def _automation_snapshot_queue_report(session, task: PaperAutomationTask) -> PaperRecommendationQueueReport:
+    match = (
+        session.query(Match)
+        .filter(Match.kickoff_time == task.match_window_start)
+        .one()
+    )
+    row = PaperQueueRow(
+        match_id=match.id,
+        source_match_id=match.source_match_id,
+        kickoff_time=match.kickoff_time.isoformat(),
+        league_name=match.league.name,
+        league_display_name="日职联",
+        home_team_name=match.home_team.canonical_name,
+        home_team_display_name="横滨水手",
+        away_team_name=match.away_team.canonical_name,
+        away_team_display_name="神户胜利船",
+        status="candidate",
+        market_type="asian_handicap",
+        line=Decimal("-0.50"),
+        side="away_cover",
+        recommended_handicap="客队 +0.50",
+        odds=Decimal("1.930"),
+        model_probability=Decimal("0.5600"),
+        market_probability=Decimal("0.5100"),
+        edge=Decimal("0.1200"),
+        line_bucket="away_underdog",
+        risk_tags=("line_bucket:away_underdog",),
+        scoring_edge=Decimal("0.1200"),
+        strategy_key="asian_away_cover_hgb_edge_v1",
+        strategy_display_name="亚盘客队方向 HGB edge v1",
+        signal_version="v1",
+    )
+    return PaperRecommendationQueueReport(
+        generated_at=task.started_at.isoformat(),
+        window_start=task.match_window_start.isoformat(),
+        window_end=task.match_window_end.isoformat(),
+        hours=72,
+        near_start_hours=6,
+        edge_threshold=Decimal("0.10"),
+        model_name="hgb",
+        total_matches=1,
+        candidate_count=1,
+        status_counts={"candidate": 1},
+        prefetch_requested=False,
+        near_start_fixture_ids=[],
+        prefetch_result=None,
+        rows=[row],
     )
 
 
@@ -379,7 +472,95 @@ def test_execute_task_records_candidates_and_sends_bark_from_confidence_groups()
     assert "\u63a8\u83501.50\u624b" in sent_messages[0][1].body
 
 
-def test_execute_task_bark_title_uses_created_record_count(monkeypatch):
+def test_execute_task_creates_group_snapshots_and_payload_ids():
+    now = datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING)
+
+    with _session() as session:
+        task = _seed_automation_snapshot_task(session, now=now)
+        queue_report = _automation_snapshot_queue_report(session, task)
+
+        result = execute_paper_automation_task(
+            session,
+            task.id,
+            now=now,
+            odds_syncer=lambda match_ids: {"success": match_ids, "failed": []},
+            queue_builder=lambda session, task: queue_report,
+            bark_push_url=None,
+        )
+
+        snapshot_ids = result.result_payload["snapshot_ids"]
+        persisted_payload = json.loads(session.get(PaperAutomationTask, task.id).result_payload)
+        assert snapshot_ids
+        assert persisted_payload["snapshot_ids"] == snapshot_ids
+        assert session.query(PaperRecommendationGroupSnapshot).count() == len(snapshot_ids)
+        assert result.result_payload["confidence_group_keys"]
+
+
+def test_execute_task_recovers_snapshots_for_duplicate_records_after_snapshot_failure(monkeypatch):
+    now = datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING)
+    retry_now = now + timedelta(minutes=1)
+    sent_messages = []
+
+    with _session() as session:
+        first_task = _seed_automation_snapshot_task(session, now=now)
+        first_queue_report = _automation_snapshot_queue_report(session, first_task)
+
+        def fail_snapshots(*args, **kwargs):
+            raise RuntimeError("snapshot boom")
+
+        monkeypatch.setattr(
+            "icewine_prediction.paper_automation_service.create_group_snapshots_for_record_ids",
+            fail_snapshots,
+        )
+
+        with pytest.raises(RuntimeError, match="snapshot boom"):
+            execute_paper_automation_task(
+                session,
+                first_task.id,
+                now=now,
+                odds_syncer=lambda match_ids: {"success": match_ids, "failed": []},
+                queue_builder=lambda session, task: first_queue_report,
+                bark_push_url=None,
+            )
+
+        first_record_id = session.query(PaperRecommendationRecord).one().id
+        assert session.get(PaperAutomationTask, first_task.id).status == "failed"
+        assert session.query(PaperRecommendationGroupSnapshot).count() == 0
+
+        monkeypatch.undo()
+        retry_task = _seed_running_task(
+            session,
+            match_window_start=first_task.match_window_start,
+            match_window_end=first_task.match_window_end,
+            now=retry_now,
+        )
+        retry_queue_report = _automation_snapshot_queue_report(session, retry_task)
+
+        result = execute_paper_automation_task(
+            session,
+            retry_task.id,
+            now=retry_now,
+            odds_syncer=lambda match_ids: {"success": match_ids, "failed": []},
+            queue_builder=lambda session, task: retry_queue_report,
+            bark_push_url="https://example.com/bark/secret-token",
+            bark_sender=lambda push_url, message: sent_messages.append(message)
+            or BarkPushResult(success=True),
+        )
+
+        persisted_payload = json.loads(session.get(PaperAutomationTask, retry_task.id).result_payload)
+        snapshot_count = session.query(PaperRecommendationGroupSnapshot).count()
+
+    assert result.result_payload["created_record_ids"] == []
+    assert result.result_payload["batch_record"]["created_count"] == 0
+    assert result.result_payload["batch_record"]["skipped_count"] == 1
+    assert result.result_payload["snapshot_record_ids"] == [first_record_id]
+    assert result.result_payload["snapshot_ids"]
+    assert persisted_payload["snapshot_ids"] == result.result_payload["snapshot_ids"]
+    assert snapshot_count == len(result.result_payload["snapshot_ids"])
+    assert sent_messages[0].title == "\u7eb8\u9762\u81ea\u52a8\u4efb\u52a1\uff1a\u5df2\u8bb0\u5f55 0 \u6761"
+
+
+def test_execute_task_bark_title_uses_created_record_count():
     now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
     kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
     sent_messages = []
@@ -403,11 +584,6 @@ def test_execute_task_bark_title_uses_created_record_count(monkeypatch):
             match_window_start=kickoff,
             match_window_end=kickoff + timedelta(minutes=30),
             now=now,
-        )
-
-        monkeypatch.setattr(
-            "icewine_prediction.paper_automation_service._confidence_groups_for_records",
-            lambda session_arg, record_ids: [_confidence_group(1)],
         )
 
         execute_paper_automation_task(

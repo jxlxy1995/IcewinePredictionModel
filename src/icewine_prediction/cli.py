@@ -237,6 +237,11 @@ from icewine_prediction.paper_recommendation_replay_service import (
     build_walk_forward_replay_scorer_factory,
     replay_finished_matches_as_paper_recommendations,
 )
+from icewine_prediction.paper_recommendation_group_snapshot_service import (
+    backfill_group_snapshots,
+    build_snapshot_report,
+    format_snapshot_report,
+)
 from icewine_prediction.recommendation_service import (
     Recommendation,
     build_model_recommendations_from_features,
@@ -1651,6 +1656,89 @@ def records_performance(
     with session_factory() as session:
         report = build_historical_performance_report(session, filters)
         typer.echo(format_historical_performance_report(report))
+
+
+def _parse_cli_datetime(value: str | None, *, end_of_day: bool = False) -> datetime | None:
+    if value is None:
+        return None
+    if "T" in value or " " in value:
+        return datetime.fromisoformat(value)
+    if end_of_day:
+        return datetime.fromisoformat(f"{value}T23:59:59.999999")
+    return datetime.fromisoformat(f"{value}T00:00:00")
+
+
+def _parse_cli_datetime_start(value: str | None) -> datetime | None:
+    return _parse_cli_datetime(value, end_of_day=False)
+
+
+def _parse_cli_datetime_end(value: str | None) -> datetime | None:
+    return _parse_cli_datetime(value, end_of_day=True)
+
+
+@records_app.command("snapshots-backfill")
+def records_snapshots_backfill(
+    from_date: str = typer.Option(
+        ...,
+        "--from-date",
+        help="Inclusive PaperRecommendationRecord.created_at start date or datetime; not kickoff_time.",
+    ),
+    to_date: str = typer.Option(
+        ...,
+        "--to-date",
+        help="Inclusive PaperRecommendationRecord.created_at end date or datetime; not kickoff_time.",
+    ),
+    source: str = typer.Option("historical_backfill", "--source"),
+    version: str = typer.Option("paper_confidence_v1", "--version"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        result = backfill_group_snapshots(
+            session,
+            from_date=_parse_cli_datetime_start(from_date),
+            to_date=_parse_cli_datetime_end(to_date),
+            created_at=datetime.now(tz=ZoneInfo("Asia/Shanghai")),
+            snapshot_source=source,
+            snapshot_version=version,
+            dry_run=dry_run,
+        )
+    typer.echo(
+        "snapshot backfill "
+        f"created={result.created_count} "
+        f"candidate_groups={result.candidate_group_count} "
+        f"skipped={result.skipped_count} "
+        f"dry_run={result.dry_run}"
+    )
+
+
+@records_app.command("snapshot-report")
+def records_snapshot_report(
+    from_date: str | None = typer.Option(
+        None,
+        "--from-date",
+        help="Inclusive snapshot created_at start date or datetime; not kickoff_time.",
+    ),
+    to_date: str | None = typer.Option(
+        None,
+        "--to-date",
+        help="Inclusive snapshot created_at end date or datetime; not kickoff_time.",
+    ),
+    version: str = typer.Option("paper_confidence_v1", "--version"),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_snapshot_report(
+            session,
+            from_date=_parse_cli_datetime_start(from_date),
+            to_date=_parse_cli_datetime_end(to_date),
+            snapshot_version=version,
+        )
+    typer.echo(format_snapshot_report(report))
 
 
 @odds_source_app.command("oddspapi-plan")

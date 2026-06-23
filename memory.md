@@ -19,6 +19,7 @@
 - Use `start_web.ps1` as the unified Web control script for start/stop/restart/status. Backend runs without `uvicorn --reload`; restart the script after backend code changes.
 - Paper/formal recommendation strategies should have a memorable Chinese display name, with English keys/model names allowed as secondary technical identifiers.
 - Paper recommendation records are independent tracking records. Missed queue candidates can be backfilled from historical paper queue reports, but should be marked as manual/backfill rather than pretending they were automatic clicks.
+- Paper recommendation group snapshots preserve the execution-advice layer for the current paper chain: `paper_recommendation_records` remain the signal facts, while `paper_recommendation_group_snapshots` freeze the grouped confidence score, suggested stake, signal set, source, and version used for later replay. Historical snapshot backfills must be marked as backfilled and not treated as original Web/Bark scores.
 - Web console navigation is intentionally focused on active workflows: match list, Chinese names, model training, paper tracking, and recommendation records.
 - Formal `recommendation_records` local demo data was cleared on 2026-05-30; keep `paper_recommendation_records` separate and do not clear it when only cleaning the recommendation-record page.
 - Result sync should not request API-Football fixture updates for truly live/in-play matches; skip them and retry after they are no longer live.

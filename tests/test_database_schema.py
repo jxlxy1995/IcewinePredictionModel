@@ -1,6 +1,7 @@
 from pathlib import Path
 import sqlite3
 
+import pytest
 from sqlalchemy import inspect
 
 from icewine_prediction.database import create_database_engine, initialize_database
@@ -120,6 +121,267 @@ def test_initialize_database_adds_paper_scoring_edge_to_existing_sqlite_database
     inspector = inspect(engine)
     paper_columns = {column["name"] for column in inspector.get_columns("paper_recommendation_records")}
     assert "scoring_edge" in paper_columns
+
+
+def test_initialize_database_creates_paper_group_snapshots_for_existing_sqlite_database(tmp_path: Path):
+    database_path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(database_path)
+    connection.execute(
+        """
+        create table paper_recommendation_records (
+            id integer primary key,
+            match_id integer not null,
+            source_match_id varchar(120),
+            created_at datetime not null,
+            updated_at datetime not null,
+            league_name varchar(120) not null,
+            home_team_name varchar(120) not null,
+            away_team_name varchar(120) not null,
+            kickoff_time datetime not null,
+            strategy_key varchar(80) not null,
+            strategy_display_name varchar(120) not null,
+            model_name varchar(120) not null,
+            market_type varchar(40) not null,
+            side varchar(20) not null,
+            original_market_line numeric(5, 2) not null,
+            original_odds numeric(6, 3) not null,
+            current_market_line numeric(5, 2) not null,
+            current_odds numeric(6, 3) not null,
+            edge numeric(8, 4) not null,
+            stake_units numeric(6, 2) not null,
+            status varchar(20) not null
+        )
+        """
+    )
+    connection.close()
+
+    engine = create_database_engine(database_path)
+    initialize_database(engine)
+
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    snapshot_columns = {
+        column["name"]
+        for column in inspector.get_columns("paper_recommendation_group_snapshots")
+    }
+    assert "paper_recommendation_group_snapshots" in table_names
+    assert {
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+        "confidence_score",
+        "suggested_stake_units",
+        "line_bucket",
+        "is_backfilled",
+    }.issubset(snapshot_columns)
+    assert [
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+    ] in _sqlite_unique_index_columns(database_path, "paper_recommendation_group_snapshots")
+
+
+def test_initialize_database_adds_paper_group_snapshot_identity_index_to_existing_sqlite_table(
+    tmp_path: Path,
+):
+    database_path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(database_path)
+    _create_paper_group_snapshot_table_without_identity_index(connection)
+    connection.close()
+
+    engine = create_database_engine(database_path)
+    initialize_database(engine)
+
+    assert [
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+    ] in _sqlite_unique_index_columns(database_path, "paper_recommendation_group_snapshots")
+
+
+def test_initialize_database_replaces_wrong_paper_group_snapshot_identity_index(
+    tmp_path: Path,
+):
+    database_path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(database_path)
+    _create_paper_group_snapshot_table_without_identity_index(connection)
+    connection.execute(
+        """
+        create unique index uq_paper_group_snapshot_identity
+        on paper_recommendation_group_snapshots (
+            snapshot_source,
+            snapshot_version,
+            group_key
+        )
+        """
+    )
+    connection.close()
+
+    engine = create_database_engine(database_path)
+    initialize_database(engine)
+
+    assert [
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+    ] in _sqlite_unique_index_columns(database_path, "paper_recommendation_group_snapshots")
+
+
+def test_initialize_database_rebuilds_wrong_paper_group_snapshot_table_unique_constraint(
+    tmp_path: Path,
+):
+    database_path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(database_path)
+    _create_paper_group_snapshot_table_without_identity_index(
+        connection,
+        unique_columns=(
+            "snapshot_source",
+            "snapshot_version",
+            "group_key",
+        ),
+    )
+    connection.close()
+
+    engine = create_database_engine(database_path)
+    initialize_database(engine)
+
+    assert [
+        "snapshot_source",
+        "snapshot_version",
+        "group_key",
+        "signal_record_ids_json",
+    ] in _sqlite_unique_index_columns(database_path, "paper_recommendation_group_snapshots")
+    connection = sqlite3.connect(database_path)
+    _insert_paper_group_snapshot_row(connection, "[1]")
+    _insert_paper_group_snapshot_row(connection, "[2]")
+    with pytest.raises(sqlite3.IntegrityError):
+        _insert_paper_group_snapshot_row(connection, "[1]")
+    connection.close()
+
+
+def _create_paper_group_snapshot_table_without_identity_index(
+    connection,
+    *,
+    unique_columns: tuple[str, ...] | None = None,
+) -> None:
+    unique_clause = ""
+    if unique_columns is not None:
+        unique_clause = f", unique ({', '.join(unique_columns)})"
+    connection.execute(
+        f"""
+        create table paper_recommendation_group_snapshots (
+            id integer primary key,
+            created_at datetime not null,
+            snapshot_source varchar(40) not null,
+            snapshot_version varchar(40) not null,
+            group_key varchar(160) not null,
+            match_id integer not null,
+            market_type varchar(40) not null,
+            side varchar(20) not null,
+            representative_record_id integer not null,
+            signal_record_ids_json text not null,
+            triggered_strategy_keys_json text not null,
+            triggered_strategy_display_names_json text not null,
+            signal_families_json text not null,
+            confidence_score integer not null,
+            suggested_stake_units numeric(6, 2) not null,
+            stake_cap_reason varchar(80) not null,
+            recommendation_text varchar(80),
+            representative_market_line numeric(5, 2) not null,
+            representative_odds numeric(6, 3) not null,
+            line_bucket varchar(40),
+            status varchar(20) not null,
+            settlement_result varchar(20),
+            flat_profit_units numeric(8, 3) not null,
+            weighted_profit_units numeric(8, 3) not null,
+            is_backfilled boolean not null,
+            source_record_created_at_min datetime not null,
+            source_record_created_at_max datetime not null
+            {unique_clause}
+        )
+        """
+    )
+
+
+def _insert_paper_group_snapshot_row(connection, signal_record_ids_json: str) -> None:
+    connection.execute(
+        """
+        insert into paper_recommendation_group_snapshots (
+            created_at,
+            snapshot_source,
+            snapshot_version,
+            group_key,
+            match_id,
+            market_type,
+            side,
+            representative_record_id,
+            signal_record_ids_json,
+            triggered_strategy_keys_json,
+            triggered_strategy_display_names_json,
+            signal_families_json,
+            confidence_score,
+            suggested_stake_units,
+            stake_cap_reason,
+            recommendation_text,
+            representative_market_line,
+            representative_odds,
+            line_bucket,
+            status,
+            settlement_result,
+            flat_profit_units,
+            weighted_profit_units,
+            is_backfilled,
+            source_record_created_at_min,
+            source_record_created_at_max
+        )
+        values (
+            '2026-06-22 18:00:00',
+            'manual_record',
+            'paper_confidence_v1',
+            '1:asian_handicap:away_cover',
+            1,
+            'asian_handicap',
+            'away_cover',
+            1,
+            ?,
+            '["asian_away_cover_hgb_edge_v1"]',
+            '["亚盘客队方向 HGB edge v1"]',
+            '["asian_away_hgb"]',
+            60,
+            0.75,
+            'single_family_limited_history',
+            '客队 +0.50',
+            -0.50,
+            1.930,
+            'away_underdog',
+            'pending',
+            null,
+            0.000,
+            0.000,
+            0,
+            '2026-06-22 18:00:00',
+            '2026-06-22 18:00:00'
+        )
+        """,
+        (signal_record_ids_json,),
+    )
+
+
+def _sqlite_unique_index_columns(database_path: Path, table_name: str) -> list[list[str]]:
+    connection = sqlite3.connect(database_path)
+    unique_indexes = connection.execute(f"pragma index_list('{table_name}')").fetchall()
+    unique_index_columns = []
+    for index_row in unique_indexes:
+        if not index_row[2]:
+            continue
+        column_rows = connection.execute(f"pragma index_info('{index_row[1]}')").fetchall()
+        unique_index_columns.append([column_row[2] for column_row in column_rows])
+    connection.close()
+    return unique_index_columns
 
 
 def test_initialize_database_rebuilds_historical_odds_unique_index_with_market_line(tmp_path: Path):

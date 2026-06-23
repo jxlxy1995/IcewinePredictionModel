@@ -1,10 +1,16 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
+import logging
 from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 
-from icewine_prediction.database import create_memory_database, create_session_factory, initialize_database
+from icewine_prediction.database import (
+    create_database_engine,
+    create_memory_database,
+    create_session_factory,
+    initialize_database,
+)
 from icewine_prediction.display_service import DisplayNameService, DisplayNames, load_display_names
 from icewine_prediction.display_translation_status_service import DisplayTranslationStatusService
 from icewine_prediction.models import (
@@ -14,13 +20,22 @@ from icewine_prediction.models import (
     Match,
     OddsSourceMatch,
     OddsSnapshot,
+    PaperRecommendationGroupSnapshot,
+    PaperRecommendationRecord,
     RecommendationRecord,
     Team,
     TrainingRun,
 )
+from icewine_prediction.paper_recommendation_queue_service import (
+    PaperQueueRow,
+    PaperRecommendationQueueReport,
+)
 from icewine_prediction.sources.api_football_mapper import ExternalOddsSnapshot
 from icewine_prediction import web_api
 from icewine_prediction.web_api import create_web_app
+
+
+BEIJING = ZoneInfo("Asia/Shanghai")
 
 
 def test_web_app_can_disable_paper_automation_scheduler(tmp_path, monkeypatch):
@@ -1110,6 +1125,157 @@ def test_web_console_api_records_v2_paper_candidate_by_strategy_key(tmp_path):
     assert payload["signal_version"] == "v2"
 
 
+def test_web_console_api_single_paper_record_creates_group_snapshot(tmp_path, monkeypatch):
+    engine = create_database_engine(tmp_path / "web.sqlite3")
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        match = _seed_web_snapshot_match(session)
+        queue_report = _web_snapshot_queue_report(match)
+    monkeypatch.setattr(
+        web_api,
+        "build_paper_recommendation_queue",
+        lambda *args, **kwargs: queue_report,
+    )
+    app = web_api.create_web_app(
+        session_factory=session_factory,
+        start_paper_automation_scheduler=False,
+        clock=lambda: datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/paper-recommendations/records",
+        json={"match_id": match.id, "strategy_key": "asian_away_cover_hgb_edge_v1"},
+    )
+
+    assert response.status_code == 200
+    assert "snapshot_ids" not in response.json()
+    with session_factory() as session:
+        assert session.query(PaperRecommendationGroupSnapshot).count() == 1
+
+
+def test_web_console_api_single_paper_record_keeps_record_when_snapshot_fails(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    engine = create_database_engine(tmp_path / "web.sqlite3")
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        match = _seed_web_snapshot_match(session)
+        queue_report = _web_snapshot_queue_report(match)
+    monkeypatch.setattr(
+        web_api,
+        "build_paper_recommendation_queue",
+        lambda *args, **kwargs: queue_report,
+    )
+
+    def fail_snapshot(*args, **kwargs):
+        raise RuntimeError("snapshot service unavailable")
+
+    monkeypatch.setattr(web_api, "create_group_snapshots_for_record_ids", fail_snapshot)
+    caplog.set_level(logging.ERROR, logger="icewine_prediction.web_api")
+    app = web_api.create_web_app(
+        session_factory=session_factory,
+        start_paper_automation_scheduler=False,
+        clock=lambda: datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING),
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/paper-recommendations/records",
+        json={"match_id": match.id, "strategy_key": "asian_away_cover_hgb_edge_v1"},
+    )
+
+    assert response.status_code == 200
+    with session_factory() as session:
+        assert session.query(PaperRecommendationRecord).count() == 1
+        assert session.query(PaperRecommendationGroupSnapshot).count() == 0
+    assert "manual paper group snapshot creation failed" in caplog.text
+
+
+def test_web_console_api_batch_paper_records_returns_snapshot_ids(tmp_path, monkeypatch):
+    engine = create_database_engine(tmp_path / "web.sqlite3")
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        match = _seed_web_snapshot_match(session)
+        queue_report = _web_snapshot_queue_report(match)
+    monkeypatch.setattr(
+        web_api,
+        "build_paper_recommendation_queue",
+        lambda *args, **kwargs: queue_report,
+    )
+    app = web_api.create_web_app(
+        session_factory=session_factory,
+        start_paper_automation_scheduler=False,
+        clock=lambda: datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/paper-recommendations/records/batch",
+        json={
+            "candidates": [
+                {"match_id": match.id, "strategy_key": "asian_away_cover_hgb_edge_v1"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["batch_result"]["snapshot_ids"]
+    with session_factory() as session:
+        assert session.query(PaperRecommendationGroupSnapshot).count() == 1
+
+
+def test_web_console_api_batch_paper_records_keeps_records_when_snapshot_fails(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_database_engine(tmp_path / "web.sqlite3")
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        match = _seed_web_snapshot_match(session)
+        queue_report = _web_snapshot_queue_report(match)
+    monkeypatch.setattr(
+        web_api,
+        "build_paper_recommendation_queue",
+        lambda *args, **kwargs: queue_report,
+    )
+
+    def fail_snapshot(*args, **kwargs):
+        raise RuntimeError("snapshot service unavailable")
+
+    monkeypatch.setattr(web_api, "create_group_snapshots_for_record_ids", fail_snapshot)
+    app = web_api.create_web_app(
+        session_factory=session_factory,
+        start_paper_automation_scheduler=False,
+        clock=lambda: datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING),
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/paper-recommendations/records/batch",
+        json={
+            "candidates": [
+                {"match_id": match.id, "strategy_key": "asian_away_cover_hgb_edge_v1"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["batch_result"]["created_count"] == 1
+    assert payload["batch_result"]["snapshot_ids"] == []
+    with session_factory() as session:
+        assert session.query(PaperRecommendationRecord).count() == 1
+        assert session.query(PaperRecommendationGroupSnapshot).count() == 0
+
+
 def test_web_console_api_batch_records_paper_candidates_with_single_queue_build(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)
@@ -1289,7 +1455,13 @@ def test_web_console_api_batch_records_skip_duplicate_paper_candidates(tmp_path)
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["batch_result"] == {
+    batch_result = payload["batch_result"]
+    assert batch_result["snapshot_ids"]
+    assert {
+        key: value
+        for key, value in batch_result.items()
+        if key != "snapshot_ids"
+    } == {
         "requested_count": 2,
         "created_count": 1,
         "skipped_count": 1,
@@ -2808,6 +2980,76 @@ def test_web_console_api_returns_latest_training_run(tmp_path):
     )
     assert payload["artifact_paths"]["model_consensus_signal_research_report_path"].endswith(
         "20260530-1300-baseline-model-consensus-signal-research.md"
+    )
+
+
+def _seed_web_snapshot_match(session) -> Match:
+    league = League(
+        source_name="api-football",
+        source_league_id="98",
+        name="J1 League",
+        country_or_region="Japan",
+        is_enabled=True,
+    )
+    home = Team(source_name="api-football", source_team_id="1", canonical_name="Yokohama F. Marinos")
+    away = Team(source_name="api-football", source_team_id="2", canonical_name="Vissel Kobe")
+    match = Match(
+        source_name="api-football",
+        source_match_id="fixture-snapshot-1",
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 6, 22, 19, 0, tzinfo=BEIJING),
+        status="scheduled",
+        season=2026,
+    )
+    session.add_all([league, home, away, match])
+    session.commit()
+    return match
+
+
+def _web_snapshot_queue_report(match: Match) -> PaperRecommendationQueueReport:
+    row = PaperQueueRow(
+        match_id=match.id,
+        source_match_id=match.source_match_id,
+        kickoff_time=match.kickoff_time.isoformat(),
+        league_name=match.league.name,
+        league_display_name="日职联",
+        home_team_name=match.home_team.canonical_name,
+        home_team_display_name="横滨水手",
+        away_team_name=match.away_team.canonical_name,
+        away_team_display_name="神户胜利船",
+        status="candidate",
+        market_type="asian_handicap",
+        line=Decimal("-0.50"),
+        side="away_cover",
+        recommended_handicap="客队 +0.50",
+        odds=Decimal("1.930"),
+        model_probability=Decimal("0.5600"),
+        market_probability=Decimal("0.5100"),
+        edge=Decimal("0.1200"),
+        line_bucket="away_underdog",
+        risk_tags=("line_bucket:away_underdog",),
+        scoring_edge=Decimal("0.1200"),
+        strategy_key="asian_away_cover_hgb_edge_v1",
+        strategy_display_name="亚盘客队方向 HGB edge v1",
+        signal_version="v1",
+    )
+    return PaperRecommendationQueueReport(
+        generated_at=datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING).isoformat(),
+        window_start=datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING).isoformat(),
+        window_end=datetime(2026, 6, 25, 18, 0, tzinfo=BEIJING).isoformat(),
+        hours=72,
+        near_start_hours=6,
+        edge_threshold=Decimal("0.10"),
+        model_name="hgb",
+        total_matches=1,
+        candidate_count=1,
+        status_counts={"candidate": 1},
+        prefetch_requested=False,
+        near_start_fixture_ids=[],
+        prefetch_result=None,
+        rows=[row],
     )
 
 

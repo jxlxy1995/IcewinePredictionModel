@@ -284,6 +284,59 @@ class PaperRecommendationRecord(Base):
     match: Mapped["Match"] = relationship()
 
 
+class PaperRecommendationGroupSnapshot(Base):
+    __tablename__ = "paper_recommendation_group_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_source",
+            "snapshot_version",
+            "group_key",
+            "signal_record_ids_json",
+            name="uq_paper_group_snapshot_identity",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    snapshot_source: Mapped[str] = mapped_column(String(40), nullable=False)
+    snapshot_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    group_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), nullable=False)
+    market_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    side: Mapped[str] = mapped_column(String(20), nullable=False)
+    representative_record_id: Mapped[int] = mapped_column(
+        ForeignKey("paper_recommendation_records.id"),
+        nullable=False,
+    )
+    signal_record_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    triggered_strategy_keys_json: Mapped[str] = mapped_column(Text, nullable=False)
+    triggered_strategy_display_names_json: Mapped[str] = mapped_column(Text, nullable=False)
+    signal_families_json: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    suggested_stake_units: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    stake_cap_reason: Mapped[str] = mapped_column(String(80), nullable=False)
+    recommendation_text: Mapped[str | None] = mapped_column(String(80))
+    representative_market_line: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    representative_odds: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False)
+    line_bucket: Mapped[str | None] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    settlement_result: Mapped[str | None] = mapped_column(String(20))
+    flat_profit_units: Mapped[Decimal] = mapped_column(Numeric(8, 3), nullable=False)
+    weighted_profit_units: Mapped[Decimal] = mapped_column(Numeric(8, 3), nullable=False)
+    is_backfilled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_record_created_at_min: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    source_record_created_at_max: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    match: Mapped["Match"] = relationship()
+    representative_record: Mapped["PaperRecommendationRecord"] = relationship()
+
+
 class PaperAutomationTask(Base):
     __tablename__ = "paper_automation_tasks"
 

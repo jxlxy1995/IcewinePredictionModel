@@ -23,7 +23,11 @@ from icewine_prediction.paper_confidence_service import (
     PaperConfidenceGroup,
     build_paper_confidence_workspace,
 )
+from icewine_prediction.paper_recommendation_group_snapshot_service import (
+    create_group_snapshots_for_record_ids,
+)
 from icewine_prediction.paper_recommendation_queue_service import (
+    PaperQueueRow,
     PaperRecommendationQueueReport,
     PaperQueueScoreResult,
     build_paper_recommendation_queue,
@@ -45,6 +49,7 @@ class PaperAutomationExecutionResult:
 
 
 _DEFAULT_BARK_PUSH_URL = object()
+_PAPER_RECORD_ACTIVE_STATUSES = ("pending", "settled", "unsettleable")
 
 
 def as_beijing_datetime(value: datetime) -> datetime:
@@ -235,12 +240,19 @@ def execute_paper_automation_task(
         target_match_ids = _target_match_ids(session, task)
         odds_sync_result = odds_syncer(target_match_ids)
         queue_report = queue_builder(session, task)
-        created_record_ids, skipped_records = _record_queue_candidates(
+        created_record_ids, snapshot_record_ids, skipped_records = _record_queue_candidates(
             session,
             queue_report,
             recorded_at=now,
         )
-        groups = _confidence_groups_for_records(session, created_record_ids)
+        snapshot_results = create_group_snapshots_for_record_ids(
+            session,
+            snapshot_record_ids,
+            snapshot_source="automation",
+            created_at=now,
+        )
+        groups = [result.group for result in snapshot_results]
+        snapshot_ids = [result.snapshot.id for result in snapshot_results]
         messages = format_paper_automation_bark_messages(
             groups=groups,
             recorded_count=len(created_record_ids),
@@ -287,6 +299,8 @@ def execute_paper_automation_task(
             },
             "batch_record": batch_record_payload,
             "created_record_ids": created_record_ids,
+            "snapshot_record_ids": snapshot_record_ids,
+            "snapshot_ids": snapshot_ids,
             "confidence_group_keys": [group.group_key for group in groups],
             "bark": bark_payload,
             "bark_message_count": len(messages),
@@ -401,8 +415,9 @@ def _record_queue_candidates(
     queue_report: PaperRecommendationQueueReport,
     *,
     recorded_at: datetime,
-) -> tuple[list[int], list[dict[str, Any]]]:
+) -> tuple[list[int], list[int], list[dict[str, Any]]]:
     created_record_ids: list[int] = []
+    snapshot_record_ids: list[int] = []
     skipped: list[dict[str, Any]] = []
     for row in queue_report.rows:
         if row.status != "candidate":
@@ -410,16 +425,42 @@ def _record_queue_candidates(
         try:
             record = create_paper_record_from_queue_row(session, row, recorded_at=recorded_at)
         except ValueError as exc:
+            reason = str(exc)
+            if reason == "duplicate active paper recommendation record":
+                existing_record = _find_duplicate_active_paper_record(session, row)
+                if existing_record is not None:
+                    snapshot_record_ids.append(existing_record.id)
             skipped.append(
                 {
                     "match_id": row.match_id,
                     "strategy_key": row.strategy_key,
-                    "reason": str(exc),
+                    "reason": reason,
                 }
             )
             continue
         created_record_ids.append(record.id)
-    return created_record_ids, skipped
+        snapshot_record_ids.append(record.id)
+    return created_record_ids, _dedupe_record_ids(snapshot_record_ids), skipped
+
+
+def _find_duplicate_active_paper_record(
+    session: Session,
+    row: PaperQueueRow,
+) -> PaperRecommendationRecord | None:
+    return (
+        session.query(PaperRecommendationRecord)
+        .filter(PaperRecommendationRecord.match_id == row.match_id)
+        .filter(PaperRecommendationRecord.strategy_key == row.strategy_key)
+        .filter(PaperRecommendationRecord.market_type == row.market_type)
+        .filter(PaperRecommendationRecord.side == row.side)
+        .filter(PaperRecommendationRecord.status.in_(_PAPER_RECORD_ACTIVE_STATUSES))
+        .order_by(PaperRecommendationRecord.created_at.asc(), PaperRecommendationRecord.id.asc())
+        .first()
+    )
+
+
+def _dedupe_record_ids(record_ids: list[int]) -> list[int]:
+    return list(dict.fromkeys(record_ids))
 
 
 def _confidence_groups_for_records(

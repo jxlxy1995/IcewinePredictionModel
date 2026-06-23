@@ -1,0 +1,596 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from decimal import Decimal
+from zoneinfo import ZoneInfo
+
+import pytest
+from sqlalchemy.exc import IntegrityError
+
+from icewine_prediction.cli import _parse_cli_datetime_end, _parse_cli_datetime_start
+from icewine_prediction.models import (
+    League,
+    Match,
+    PaperRecommendationGroupSnapshot,
+    PaperRecommendationRecord,
+    Team,
+)
+from icewine_prediction.paper_recommendation_group_snapshot_service import (
+    PAPER_CONFIDENCE_SNAPSHOT_VERSION,
+    backfill_group_snapshots,
+    build_snapshot_report,
+    create_group_snapshots_for_record_ids,
+    format_snapshot_report,
+)
+from icewine_prediction.paper_recommendation_tracking_service import settle_paper_records
+
+
+BEIJING = ZoneInfo("Asia/Shanghai")
+
+
+def test_snapshot_model_can_be_inserted(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    snapshot = PaperRecommendationGroupSnapshot(
+        created_at=_now(),
+        snapshot_source="manual_record",
+        snapshot_version="paper_confidence_v1",
+        group_key=f"{match.id}:asian_handicap:away_cover",
+        match_id=match.id,
+        market_type="asian_handicap",
+        side="away_cover",
+        representative_record_id=record.id,
+        signal_record_ids_json=json.dumps([record.id]),
+        triggered_strategy_keys_json=json.dumps([record.strategy_key]),
+        triggered_strategy_display_names_json=json.dumps([record.strategy_display_name]),
+        signal_families_json=json.dumps(["asian_away_hgb"]),
+        confidence_score=60,
+        suggested_stake_units=Decimal("0.75"),
+        stake_cap_reason="single_family_limited_history",
+        recommendation_text="客队 +0.50",
+        representative_market_line=Decimal("-0.50"),
+        representative_odds=Decimal("1.930"),
+        line_bucket="away_underdog",
+        status="pending",
+        settlement_result=None,
+        flat_profit_units=Decimal("0.000"),
+        weighted_profit_units=Decimal("0.000"),
+        is_backfilled=False,
+        source_record_created_at_min=record.created_at,
+        source_record_created_at_max=record.created_at,
+    )
+
+    session.add(snapshot)
+    session.commit()
+
+    loaded = session.get(PaperRecommendationGroupSnapshot, snapshot.id)
+    assert loaded is not None
+    assert loaded.group_key == f"{match.id}:asian_handicap:away_cover"
+    assert loaded.suggested_stake_units == Decimal("0.75")
+    assert loaded.line_bucket == "away_underdog"
+
+
+def test_snapshot_identity_is_unique(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    session.add(_snapshot(match, record))
+    session.commit()
+
+    session.add(_snapshot(match, record))
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_create_group_snapshots_groups_same_match_market_and_side(session):
+    match = _seed_match(session)
+    first = _paper_record(session, match, edge=Decimal("0.1200"), scoring_edge=Decimal("0.1200"))
+    second = _paper_record(
+        session,
+        match,
+        strategy_key="asian_away_cover_hgb_bucket_v2",
+        strategy_display_name="亚盘客队方向 HGB bucket v2",
+        signal_version="v2",
+        risk_tags="line_bucket:away_underdog,strategy:bucket_v2",
+        edge=Decimal("0.2200"),
+        scoring_edge=Decimal("0.2200"),
+    )
+
+    results = create_group_snapshots_for_record_ids(
+        session,
+        [first.id, second.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+
+    assert len(results) == 1
+    snapshot = results[0].snapshot
+    assert snapshot.snapshot_version == PAPER_CONFIDENCE_SNAPSHOT_VERSION
+    assert snapshot.snapshot_source == "manual_record"
+    assert snapshot.group_key == f"{match.id}:asian_handicap:away_cover"
+    assert json.loads(snapshot.signal_record_ids_json) == [first.id, second.id]
+    assert json.loads(snapshot.triggered_strategy_keys_json) == [
+        "asian_away_cover_hgb_edge_v1",
+        "asian_away_cover_hgb_bucket_v2",
+    ]
+    assert snapshot.confidence_score >= 70
+    assert snapshot.suggested_stake_units >= Decimal("1.00")
+    assert snapshot.line_bucket == "away_underdog"
+
+
+def test_create_group_snapshots_keeps_different_markets_separate(session):
+    match = _seed_match(session)
+    asian = _paper_record(session, match)
+    total = _paper_record(
+        session,
+        match,
+        strategy_key="total_goals_hgb_bucket_v2",
+        strategy_display_name="大小球 HGB bucket v2",
+        model_name="hgb_total_goals",
+        market_type="total_goals",
+        side="under",
+        recommended_handicap="小 2.50",
+        original_recommended_handicap="小 2.50",
+        line_bucket="mid_2.50",
+        risk_tags="line_bucket:mid_2.50,strategy:total_goals_bucket_v2",
+        original_market_line=Decimal("2.50"),
+        current_market_line=Decimal("2.50"),
+        edge=Decimal("0.1300"),
+        scoring_edge=Decimal("0.1300"),
+    )
+
+    results = create_group_snapshots_for_record_ids(
+        session,
+        [asian.id, total.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+
+    assert sorted(result.snapshot.market_type for result in results) == [
+        "asian_handicap",
+        "total_goals",
+    ]
+    assert sorted(result.snapshot.line_bucket for result in results) == [
+        "away_underdog",
+        "mid_2.50",
+    ]
+
+
+def test_create_group_snapshots_is_idempotent_per_source_version_group_and_signal_set(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+
+    first = create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+    second = create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+    third = create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        snapshot_version="paper_confidence_v2",
+        created_at=_now(),
+    )
+
+    assert len(first) == 1
+    assert second == []
+    assert len(third) == 1
+
+
+def test_create_group_snapshots_treats_unique_constraint_race_as_duplicate(session, monkeypatch):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    first = create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+    original_query = session.query
+    snapshot_query_misses_remaining = 1
+
+    class SnapshotQueryMiss:
+        def __init__(self, query):
+            self._query = query
+
+        def __getattr__(self, name):
+            return getattr(self._query, name)
+
+        def filter(self, *criteria):
+            self._query = self._query.filter(*criteria)
+            return self
+
+        def first(self):
+            return None
+
+    def query_with_stale_snapshot_read(*entities, **kwargs):
+        nonlocal snapshot_query_misses_remaining
+        query = original_query(*entities, **kwargs)
+        if entities and entities[0] is PaperRecommendationGroupSnapshot and snapshot_query_misses_remaining:
+            snapshot_query_misses_remaining -= 1
+            return SnapshotQueryMiss(query)
+        return query
+
+    monkeypatch.setattr(session, "query", query_with_stale_snapshot_read)
+
+    second = create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+
+    assert len(first) == 1
+    assert second == []
+    assert original_query(PaperRecommendationGroupSnapshot).count() == 1
+
+
+def test_backfill_group_snapshots_marks_historical_backfill(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+
+    result = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+    )
+
+    assert result.created_count == 1
+    snapshot = session.query(PaperRecommendationGroupSnapshot).one()
+    assert snapshot.is_backfilled is True
+    assert snapshot.snapshot_source == "historical_backfill"
+    assert snapshot.source_record_created_at_min == record.created_at.replace(tzinfo=None)
+
+
+def test_backfill_group_snapshots_dry_run_does_not_write(session):
+    match = _seed_match(session)
+    _paper_record(session, match)
+
+    result = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+        dry_run=True,
+    )
+
+    assert result.created_count == 1
+    assert session.query(PaperRecommendationGroupSnapshot).count() == 0
+
+
+def test_backfill_group_snapshots_reports_existing_snapshots_as_skipped(session):
+    match = _seed_match(session)
+    _paper_record(session, match)
+    first = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+    )
+
+    dry_run = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+        dry_run=True,
+    )
+    rerun = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+    )
+
+    assert first.candidate_group_count == 1
+    assert first.created_count == 1
+    assert first.skipped_count == 0
+    assert dry_run.candidate_group_count == 1
+    assert dry_run.created_count == 0
+    assert dry_run.skipped_count == 1
+    assert rerun.candidate_group_count == 1
+    assert rerun.created_count == 0
+    assert rerun.skipped_count == 1
+    assert session.query(PaperRecommendationGroupSnapshot).count() == 1
+
+
+def test_backfill_group_snapshots_uses_requested_snapshot_source(session):
+    match = _seed_match(session)
+    _paper_record(session, match)
+
+    result = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+        snapshot_source="cli_backfill",
+    )
+
+    snapshot = session.query(PaperRecommendationGroupSnapshot).one()
+    assert result.created_count == 1
+    assert snapshot.snapshot_source == "cli_backfill"
+
+
+def test_backfill_group_snapshots_counts_existing_snapshots_by_source(session):
+    match = _seed_match(session)
+    _paper_record(session, match)
+    historical = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+    )
+
+    custom_dry_run = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+        snapshot_source="custom_backfill",
+        dry_run=True,
+    )
+    custom = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 6, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+        snapshot_source="custom_backfill",
+    )
+
+    assert historical.created_count == 1
+    assert custom_dry_run.candidate_group_count == 1
+    assert custom_dry_run.created_count == 1
+    assert custom_dry_run.skipped_count == 0
+    assert custom.created_count == 1
+    assert custom.skipped_count == 0
+    assert sorted(
+        snapshot.snapshot_source
+        for snapshot in session.query(PaperRecommendationGroupSnapshot).all()
+    ) == ["custom_backfill", "historical_backfill"]
+
+
+def test_snapshot_report_uses_frozen_stake_and_market_aware_line_bucket(session):
+    match = _seed_match(session, home_score=1, away_score=1, status="finished")
+    asian = _paper_record(session, match, current_odds=Decimal("1.930"))
+    total = _paper_record(
+        session,
+        match,
+        strategy_key="total_goals_hgb_bucket_v2",
+        strategy_display_name="total goals HGB bucket v2",
+        model_name="hgb_total_goals",
+        market_type="total_goals",
+        side="under",
+        recommended_handicap="under 2.50",
+        original_recommended_handicap="under 2.50",
+        line_bucket="mid_2.50",
+        risk_tags="line_bucket:mid_2.50,strategy:total_goals_bucket_v2",
+        original_market_line=Decimal("2.50"),
+        current_market_line=Decimal("2.50"),
+        original_odds=Decimal("1.900"),
+        current_odds=Decimal("1.900"),
+        edge=Decimal("0.1300"),
+        scoring_edge=Decimal("0.1300"),
+    )
+    create_group_snapshots_for_record_ids(
+        session,
+        [asian.id, total.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+    settle_paper_records(session, settled_at=_now())
+
+    report = build_snapshot_report(session)
+
+    snapshots = session.query(PaperRecommendationGroupSnapshot).all()
+    expected_weighted_profit = sum(
+        (snapshot.suggested_stake_units * snapshot.representative_record.profit_units).quantize(Decimal("0.001"))
+        for snapshot in snapshots
+    )
+    expected_weighted_stake = sum(snapshot.suggested_stake_units for snapshot in snapshots)
+    expected_weighted_roi = (expected_weighted_profit / expected_weighted_stake).quantize(Decimal("0.0000"))
+    assert report.summary.group_count == 2
+    assert report.summary.weighted_profit_units == expected_weighted_profit
+    assert report.summary.weighted_roi == expected_weighted_roi
+    assert "asian_handicap:away_underdog" in report.by_market_line_bucket
+    assert "total_goals:mid_2.50" in report.by_market_line_bucket
+    assert report.by_market_stake_bucket
+    text = format_snapshot_report(report)
+    assert "market_type + line_bucket" in text
+    assert "asian_handicap:away_underdog" in text
+    assert "total_goals:mid_2.50" in text
+
+
+def test_build_snapshot_report_filters_by_snapshot_created_at(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="old_snapshot",
+        snapshot_version="paper_confidence_v1",
+        created_at=datetime(2026, 6, 1, 12, 0, tzinfo=BEIJING),
+    )
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="new_snapshot",
+        snapshot_version="paper_confidence_v1",
+        created_at=datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING),
+    )
+
+    report = build_snapshot_report(
+        session,
+        from_date=datetime(2026, 6, 10, tzinfo=BEIJING),
+        to_date=datetime(2026, 6, 30, 23, 59, tzinfo=BEIJING),
+    )
+
+    assert report.summary.group_count == 1
+    assert list(report.by_snapshot_source) == ["new_snapshot"]
+
+
+def test_build_snapshot_report_defaults_to_all_versions_and_can_filter_version(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        snapshot_version="paper_confidence_v1",
+        created_at=datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING),
+    )
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        snapshot_version="paper_confidence_v2",
+        created_at=datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING),
+    )
+
+    default_report = build_snapshot_report(session)
+    filtered_report = build_snapshot_report(
+        session,
+        snapshot_version="paper_confidence_v2",
+    )
+
+    assert default_report.summary.group_count == 2
+    assert filtered_report.summary.group_count == 1
+    assert list(filtered_report.by_snapshot_source) == ["manual_record"]
+
+
+def test_parse_cli_snapshot_dates_use_start_and_end_of_day():
+    assert _parse_cli_datetime_start("2026-06-22") == datetime(2026, 6, 22, 0, 0)
+    assert _parse_cli_datetime_end("2026-06-22") == datetime(2026, 6, 22, 23, 59, 59, 999999)
+    assert _parse_cli_datetime_start("2026-06-22 18:30:00") == datetime(2026, 6, 22, 18, 30)
+    assert _parse_cli_datetime_end("2026-06-22T18:30:00") == datetime(2026, 6, 22, 18, 30)
+
+
+def test_format_snapshot_report_includes_market_aware_buckets(session):
+    match = _seed_match(session, home_score=1, away_score=1, status="finished")
+    record = _paper_record(session, match)
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="manual_record",
+        created_at=_now(),
+    )
+    settle_paper_records(session, settled_at=_now())
+
+    text = format_snapshot_report(build_snapshot_report(session))
+
+    assert "market_type + stake_bucket" in text
+    assert "market_type + line_bucket" in text
+    assert "asian_handicap:away_underdog" in text
+
+
+def _now() -> datetime:
+    return datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING)
+
+
+def _seed_match(session, *, home_score=None, away_score=None, status="scheduled") -> Match:
+    league = League(
+        source_name="api-football",
+        source_league_id="98",
+        name="J1 League",
+        country_or_region="Japan",
+        is_enabled=True,
+    )
+    home = Team(source_name="api-football", source_team_id="1", canonical_name="Yokohama F. Marinos")
+    away = Team(source_name="api-football", source_team_id="2", canonical_name="Vissel Kobe")
+    match = Match(
+        source_name="api-football",
+        source_match_id="fixture-1",
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 6, 22, 19, 0, tzinfo=BEIJING),
+        status=status,
+        home_score=home_score,
+        away_score=away_score,
+        season=2026,
+    )
+    session.add_all([league, home, away, match])
+    session.commit()
+    return match
+
+
+def _paper_record(session, match: Match, **overrides) -> PaperRecommendationRecord:
+    values = {
+        "match_id": match.id,
+        "source_match_id": match.source_match_id,
+        "created_at": _now(),
+        "updated_at": _now(),
+        "league_name": match.league.name,
+        "league_display_name": "日职联",
+        "home_team_name": match.home_team.canonical_name,
+        "home_team_display_name": "横滨水手",
+        "away_team_name": match.away_team.canonical_name,
+        "away_team_display_name": "神户胜利船",
+        "kickoff_time": match.kickoff_time,
+        "strategy_key": "asian_away_cover_hgb_edge_v1",
+        "strategy_display_name": "亚盘客队方向 HGB edge v1",
+        "model_name": "hgb",
+        "signal_version": "v1",
+        "market_type": "asian_handicap",
+        "side": "away_cover",
+        "recommended_handicap": "客队 +0.50",
+        "original_recommended_handicap": "客队 +0.50",
+        "line_bucket": "away_underdog",
+        "risk_tags": "line_bucket:away_underdog",
+        "original_market_line": Decimal("-0.50"),
+        "original_odds": Decimal("1.930"),
+        "current_market_line": Decimal("-0.50"),
+        "current_odds": Decimal("1.930"),
+        "model_probability": Decimal("0.5600"),
+        "market_probability": Decimal("0.5100"),
+        "edge": Decimal("0.1000"),
+        "scoring_edge": Decimal("0.1000"),
+        "stake_units": Decimal("1.00"),
+        "status": "pending",
+        "is_manually_adjusted": False,
+    }
+    values.update(overrides)
+    record = PaperRecommendationRecord(**values)
+    session.add(record)
+    session.commit()
+    return record
+
+
+def _snapshot(match: Match, record: PaperRecommendationRecord) -> PaperRecommendationGroupSnapshot:
+    return PaperRecommendationGroupSnapshot(
+        created_at=_now(),
+        snapshot_source="manual_record",
+        snapshot_version="paper_confidence_v1",
+        group_key=f"{match.id}:asian_handicap:away_cover",
+        match_id=match.id,
+        market_type="asian_handicap",
+        side="away_cover",
+        representative_record_id=record.id,
+        signal_record_ids_json=json.dumps([record.id]),
+        triggered_strategy_keys_json=json.dumps([record.strategy_key]),
+        triggered_strategy_display_names_json=json.dumps([record.strategy_display_name]),
+        signal_families_json=json.dumps(["asian_away_hgb"]),
+        confidence_score=60,
+        suggested_stake_units=Decimal("0.75"),
+        stake_cap_reason="single_family_limited_history",
+        recommendation_text="客队 +0.50",
+        representative_market_line=Decimal("-0.50"),
+        representative_odds=Decimal("1.930"),
+        line_bucket="away_underdog",
+        status="pending",
+        settlement_result=None,
+        flat_profit_units=Decimal("0.000"),
+        weighted_profit_units=Decimal("0.000"),
+        is_backfilled=False,
+        source_record_created_at_min=record.created_at,
+        source_record_created_at_max=record.created_at,
+    )

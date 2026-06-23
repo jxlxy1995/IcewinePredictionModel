@@ -1155,6 +1155,138 @@ def test_web_console_api_single_paper_record_creates_group_snapshot(tmp_path, mo
         assert session.query(PaperRecommendationGroupSnapshot).count() == 1
 
 
+def test_web_console_api_workspace_confidence_simulation_prefers_snapshots(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="Premier Division", country_or_region="Ireland", level=1)
+        home = Team(canonical_name="Drogheda United")
+        away = Team(canonical_name="Waterford")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 2, 45, tzinfo=BEIJING),
+            status="finished",
+            source_name="api_football",
+            source_match_id="17446",
+            home_score=1,
+            away_score=1,
+        )
+        session.add_all([league, home, away, match])
+        session.flush()
+        first = _paper_snapshot_record(
+            match,
+            strategy_key="asian_away_cover_hgb_edge_v1",
+            strategy_display_name="Asian away edge",
+            edge=Decimal("0.2100"),
+        )
+        second = _paper_snapshot_record(
+            match,
+            strategy_key="asian_away_cover_hgb_bucket_v2",
+            strategy_display_name="Asian away bucket",
+            edge=Decimal("0.2200"),
+        )
+        session.add_all([first, second])
+        session.flush()
+        session.add(
+            PaperRecommendationGroupSnapshot(
+                created_at=datetime(2026, 6, 23, 12, 0, tzinfo=BEIJING),
+                snapshot_source="historical_backfill",
+                snapshot_version="paper_confidence_v1",
+                group_key=f"{match.id}:asian_handicap:away_cover",
+                match_id=match.id,
+                market_type="asian_handicap",
+                side="away_cover",
+                representative_record_id=first.id,
+                signal_record_ids_json=f"[{first.id}, {second.id}]",
+                triggered_strategy_keys_json='["asian_away_cover_hgb_edge_v1", "asian_away_cover_hgb_bucket_v2"]',
+                triggered_strategy_display_names_json='["Asian away edge", "Asian away bucket"]',
+                signal_families_json='["asian_away_hgb"]',
+                confidence_score=55,
+                suggested_stake_units=Decimal("0.50"),
+                stake_cap_reason="snapshot_frozen",
+                recommendation_text="客队 +0.50",
+                representative_market_line=Decimal("-0.50"),
+                representative_odds=Decimal("1.930"),
+                line_bucket="away_underdog",
+                status="settled",
+                settlement_result="win",
+                flat_profit_units=Decimal("0.930"),
+                weighted_profit_units=Decimal("0.465"),
+                is_backfilled=True,
+                source_record_created_at_min=first.created_at,
+                source_record_created_at_max=second.created_at,
+            )
+        )
+        session.commit()
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            start_paper_automation_scheduler=False,
+            clock=lambda: datetime(2026, 5, 31, 1, 0, tzinfo=BEIJING),
+        )
+    )
+
+    response = client.get("/api/paper-recommendations/workspace?hours=6")
+
+    assert response.status_code == 200
+    group = response.json()["confidence_simulation"]["groups"][0]
+    assert group["confidence_score"] == 55
+    assert group["suggested_stake_units"] == "0.50"
+    assert group["stake_cap_reason"] == "snapshot_frozen"
+    assert group["weighted_profit_units"] == "0.465"
+
+
+def _paper_snapshot_record(
+    match: Match,
+    *,
+    strategy_key: str,
+    strategy_display_name: str,
+    edge: Decimal,
+) -> PaperRecommendationRecord:
+    return PaperRecommendationRecord(
+        match_id=match.id,
+        source_match_id=match.source_match_id,
+        created_at=datetime(2026, 6, 5, 12, 0, tzinfo=BEIJING),
+        updated_at=datetime(2026, 6, 5, 12, 0, tzinfo=BEIJING),
+        league_name=match.league.name,
+        league_display_name=match.league.name,
+        home_team_name=match.home_team.canonical_name,
+        home_team_display_name=match.home_team.canonical_name,
+        away_team_name=match.away_team.canonical_name,
+        away_team_display_name=match.away_team.canonical_name,
+        kickoff_time=match.kickoff_time,
+        strategy_key=strategy_key,
+        strategy_display_name=strategy_display_name,
+        model_name="hgb",
+        signal_version="v1",
+        market_type="asian_handicap",
+        side="away_cover",
+        recommended_handicap="away +0.50",
+        original_recommended_handicap="away +0.50",
+        line_bucket="away_underdog",
+        risk_tags="line_bucket:away_underdog",
+        original_market_line=Decimal("-0.50"),
+        original_odds=Decimal("1.930"),
+        current_market_line=Decimal("-0.50"),
+        current_odds=Decimal("1.930"),
+        model_probability=Decimal("0.7100"),
+        market_probability=Decimal("0.5000"),
+        edge=edge,
+        scoring_edge=edge,
+        stake_units=Decimal("1.00"),
+        status="settled",
+        settlement_result="win",
+        profit_units=Decimal("0.930"),
+        settled_at=datetime(2026, 6, 5, 12, 0, tzinfo=BEIJING),
+        is_manually_adjusted=False,
+    )
+
+
 def test_web_console_api_single_paper_record_keeps_record_when_snapshot_fails(
     tmp_path,
     monkeypatch,

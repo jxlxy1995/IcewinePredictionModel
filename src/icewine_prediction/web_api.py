@@ -48,6 +48,7 @@ from icewine_prediction.models import (
     OddsSourceMatch,
     OddsSnapshot,
     PaperAutomationTask,
+    PaperRecommendationGroupSnapshot,
     RecommendationRecord,
     Team,
     TrainingRun,
@@ -73,9 +74,13 @@ from icewine_prediction.paper_recommendation_queue_service import (
     build_paper_recommendation_queue,
 )
 from icewine_prediction.paper_recommendation_group_snapshot_service import (
+    PAPER_CONFIDENCE_SNAPSHOT_VERSION,
     create_group_snapshots_for_record_ids,
 )
-from icewine_prediction.paper_confidence_service import build_paper_confidence_workspace
+from icewine_prediction.paper_confidence_service import (
+    build_paper_confidence_workspace,
+    build_paper_confidence_workspace_from_snapshots,
+)
 from icewine_prediction.match_list_workspace_service import (
     build_match_detail,
     build_match_list_workspace,
@@ -1242,7 +1247,7 @@ def _build_paper_tracking_workspace_payload_from_queue_report(
         session,
         candidates=[row for row in queue_report.rows if row.status == "candidate"],
     )
-    payload = build_paper_tracking_workspace_payload(workspace)
+    payload = build_paper_tracking_workspace_payload(workspace, session=session)
     payload["diagnostics"] = build_paper_recommendation_diagnostics_payload(queue_report)
     return payload
 
@@ -2210,7 +2215,11 @@ def _latest_successful_training_fingerprint(session_factory: Callable[[], Sessio
         return (run.id, run.dynamic_feature_path)
 
 
-def build_paper_tracking_workspace_payload(workspace) -> dict[str, Any]:
+def build_paper_tracking_workspace_payload(
+    workspace,
+    *,
+    session: Session | None = None,
+) -> dict[str, Any]:
     return {
         "strategies": [
             {
@@ -2273,10 +2282,47 @@ def build_paper_tracking_workspace_payload(workspace) -> dict[str, Any]:
                 build_paper_group_payload(group) for group in workspace.by_manual_adjustment
             ],
         },
-        "confidence_simulation": build_paper_confidence_workspace_payload(
-            build_paper_confidence_workspace(workspace.records)
-        ),
+        "confidence_simulation": _build_paper_tracking_confidence_payload(session, workspace.records),
     }
+
+
+def _build_paper_tracking_confidence_payload(
+    session: Session | None,
+    records: list[Any],
+) -> dict[str, Any]:
+    if session is None:
+        workspace = build_paper_confidence_workspace(records)
+    else:
+        workspace = build_paper_confidence_workspace_from_snapshots(
+            records,
+            _paper_group_snapshots_for_records(session, records),
+        )
+    return build_paper_confidence_workspace_payload(workspace)
+
+
+def _paper_group_snapshots_for_records(
+    session: Session,
+    records: list[Any],
+) -> list[PaperRecommendationGroupSnapshot]:
+    record_ids = [record.id for record in records if record.id is not None]
+    if not record_ids:
+        return []
+    return (
+        session.query(PaperRecommendationGroupSnapshot)
+        .options(
+            joinedload(PaperRecommendationGroupSnapshot.match).joinedload(Match.home_team),
+            joinedload(PaperRecommendationGroupSnapshot.match).joinedload(Match.away_team),
+            joinedload(PaperRecommendationGroupSnapshot.representative_record),
+        )
+        .filter(PaperRecommendationGroupSnapshot.representative_record_id.in_(record_ids))
+        .filter(PaperRecommendationGroupSnapshot.snapshot_version == PAPER_CONFIDENCE_SNAPSHOT_VERSION)
+        .order_by(
+            PaperRecommendationGroupSnapshot.group_key.asc(),
+            PaperRecommendationGroupSnapshot.created_at.desc(),
+            PaperRecommendationGroupSnapshot.id.desc(),
+        )
+        .all()
+    )
 
 
 def build_paper_confidence_workspace_payload(workspace) -> dict[str, Any]:

@@ -2,9 +2,16 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from icewine_prediction.models import League, Match, PaperRecommendationRecord, Team
+from icewine_prediction.models import (
+    League,
+    Match,
+    PaperRecommendationGroupSnapshot,
+    PaperRecommendationRecord,
+    Team,
+)
 from icewine_prediction.paper_confidence_service import (
     build_paper_confidence_workspace,
+    build_paper_confidence_workspace_from_snapshots,
     stake_for_score,
     strategy_family,
 )
@@ -373,6 +380,43 @@ def test_low_line_v3_does_not_cap_same_direction_group_when_stronger_signal_supp
     assert group.stake_cap_reason == "same_family_cap"
 
 
+def test_snapshot_workspace_prefers_historical_backfill_over_automation(session):
+    match = _seed_match(session, home_score=1, away_score=1, status="finished")
+    create_paper_record_from_queue_row(
+        session,
+        _queue_row(match, status="candidate", line=Decimal("-0.50")),
+        recorded_at=_now(),
+    )
+    settle_paper_records(session, settled_at=_settlement_time())
+    record = session.query(PaperRecommendationRecord).one()
+
+    automation_snapshot = _group_snapshot(
+        record,
+        snapshot_source="automation",
+        confidence_score=80,
+        suggested_stake_units=Decimal("1.75"),
+        stake_cap_reason="automation_snapshot",
+    )
+    historical_snapshot = _group_snapshot(
+        record,
+        snapshot_source="historical_backfill",
+        confidence_score=55,
+        suggested_stake_units=Decimal("0.50"),
+        stake_cap_reason="historical_snapshot",
+    )
+
+    workspace = build_paper_confidence_workspace_from_snapshots(
+        [record],
+        [automation_snapshot, historical_snapshot],
+    )
+
+    group = workspace.groups[0]
+    assert group.confidence_score == 55
+    assert group.suggested_stake_units == Decimal("0.50")
+    assert group.stake_cap_reason == "historical_snapshot"
+    assert group.weighted_profit_units == Decimal("0.465")
+
+
 def test_stake_for_score_uses_quarter_unit_steps():
     assert stake_for_score(54) == Decimal("0.00")
     assert stake_for_score(55) == Decimal("0.50")
@@ -476,6 +520,44 @@ def _queue_row(
         strategy_key=strategy_key,
         strategy_display_name=strategy_display_name,
         signal_version=signal_version,
+    )
+
+
+def _group_snapshot(
+    record: PaperRecommendationRecord,
+    *,
+    snapshot_source: str,
+    confidence_score: int,
+    suggested_stake_units: Decimal,
+    stake_cap_reason: str,
+) -> PaperRecommendationGroupSnapshot:
+    return PaperRecommendationGroupSnapshot(
+        created_at=datetime(2026, 6, 23, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        snapshot_source=snapshot_source,
+        snapshot_version="paper_confidence_v1",
+        group_key=f"{record.match_id}:{record.market_type}:{record.side}",
+        match_id=record.match_id,
+        market_type=record.market_type,
+        side=record.side,
+        representative_record_id=record.id,
+        signal_record_ids_json=f"[{record.id}]",
+        triggered_strategy_keys_json=f'["{record.strategy_key}"]',
+        triggered_strategy_display_names_json=f'["{record.strategy_display_name}"]',
+        signal_families_json='["asian_away_hgb"]',
+        confidence_score=confidence_score,
+        suggested_stake_units=suggested_stake_units,
+        stake_cap_reason=stake_cap_reason,
+        recommendation_text=record.recommended_handicap,
+        representative_market_line=record.current_market_line,
+        representative_odds=record.current_odds,
+        line_bucket=record.line_bucket,
+        status=record.status,
+        settlement_result=record.settlement_result,
+        flat_profit_units=record.profit_units or Decimal("0.000"),
+        weighted_profit_units=Decimal(record.profit_units or Decimal("0.000")) * suggested_stake_units,
+        is_backfilled=snapshot_source == "historical_backfill",
+        source_record_created_at_min=record.created_at,
+        source_record_created_at_max=record.created_at,
     )
 
 

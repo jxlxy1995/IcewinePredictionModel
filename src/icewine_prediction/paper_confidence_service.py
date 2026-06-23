@@ -2,14 +2,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
+import json
 
-from icewine_prediction.models import PaperRecommendationRecord
+from icewine_prediction.models import PaperRecommendationGroupSnapshot, PaperRecommendationRecord
 
 
 DECIMAL_ZERO = Decimal("0")
 MONEY_QUANT = Decimal("0.001")
 RATIO_QUANT = Decimal("0.0000")
 STAKE_QUANT = Decimal("0.00")
+SNAPSHOT_SOURCE_PRIORITY = {
+    "historical_backfill": 0,
+    "manual_record": 1,
+    "automation": 2,
+}
 
 
 @dataclass(frozen=True)
@@ -89,6 +95,37 @@ def build_paper_confidence_workspace(
         for group_records in _same_direction_groups(records).values()
         if group_records
     ]
+    return _workspace_from_groups(groups)
+
+
+def build_paper_confidence_workspace_from_snapshots(
+    records: list[PaperRecommendationRecord],
+    snapshots: list[PaperRecommendationGroupSnapshot],
+) -> PaperConfidenceWorkspace:
+    dynamic_workspace = build_paper_confidence_workspace(records)
+    if not snapshots:
+        return dynamic_workspace
+
+    record_by_id = {record.id: record for record in records if record.id is not None}
+    dynamic_signal_ids_by_group = {
+        group.group_key: set(group.signal_record_ids)
+        for group in dynamic_workspace.groups
+    }
+    selected_snapshots = _select_workspace_snapshots(
+        snapshots,
+        record_ids=set(record_by_id),
+        signal_ids_by_group=dynamic_signal_ids_by_group,
+    )
+    if not selected_snapshots:
+        return dynamic_workspace
+
+    groups_by_key = {group.group_key: group for group in dynamic_workspace.groups}
+    for snapshot in selected_snapshots:
+        groups_by_key[snapshot.group_key] = _build_snapshot_group(snapshot, record_by_id)
+    return _workspace_from_groups(list(groups_by_key.values()))
+
+
+def _workspace_from_groups(groups: list[PaperConfidenceGroup]) -> PaperConfidenceWorkspace:
     groups.sort(key=lambda group: (str(group.kickoff_time), group.match_id, group.market_type, group.logical_side))
     return PaperConfidenceWorkspace(
         summary=_summarize(groups),
@@ -96,6 +133,104 @@ def build_paper_confidence_workspace(
         by_score_bucket=_group_summaries(groups, _score_bucket),
         by_stake_bucket=_group_summaries(groups, lambda group: str(group.suggested_stake_units)),
         by_family_combo=_group_summaries(groups, lambda group: "+".join(group.signal_families) or "unknown"),
+    )
+
+
+def _select_workspace_snapshots(
+    snapshots: list[PaperRecommendationGroupSnapshot],
+    *,
+    record_ids: set[int],
+    signal_ids_by_group: dict[str, set[int]],
+) -> list[PaperRecommendationGroupSnapshot]:
+    selected: dict[str, PaperRecommendationGroupSnapshot] = {}
+    for snapshot in snapshots:
+        expected_signal_ids = signal_ids_by_group.get(snapshot.group_key)
+        if expected_signal_ids is None:
+            continue
+        signal_record_ids = _json_int_tuple(snapshot.signal_record_ids_json)
+        signal_record_id_set = set(signal_record_ids)
+        if (
+            not signal_record_ids
+            or not signal_record_id_set.issubset(record_ids)
+            or signal_record_id_set != expected_signal_ids
+        ):
+            continue
+        current = selected.get(snapshot.group_key)
+        if current is None or _snapshot_selection_key(snapshot) < _snapshot_selection_key(current):
+            selected[snapshot.group_key] = snapshot
+    return list(selected.values())
+
+
+def _snapshot_selection_key(snapshot: PaperRecommendationGroupSnapshot) -> tuple[int, int, object, int]:
+    signal_count = len(_json_int_tuple(snapshot.signal_record_ids_json))
+    return (
+        SNAPSHOT_SOURCE_PRIORITY.get(snapshot.snapshot_source, 99),
+        -signal_count,
+        -(snapshot.created_at.timestamp() if snapshot.created_at else 0),
+        -(snapshot.id or 0),
+    )
+
+
+def _build_snapshot_group(
+    snapshot: PaperRecommendationGroupSnapshot,
+    record_by_id: dict[int, PaperRecommendationRecord],
+) -> PaperConfidenceGroup:
+    representative = record_by_id.get(snapshot.representative_record_id) or snapshot.representative_record
+    signal_record_ids = _json_int_tuple(snapshot.signal_record_ids_json)
+    signal_records = [record_by_id[record_id] for record_id in signal_record_ids if record_id in record_by_id]
+    status = _group_status(signal_records) if signal_records else (
+        representative.status if representative is not None and representative.status else snapshot.status
+    )
+    settlement_result = (
+        representative.settlement_result
+        if representative is not None and representative.settlement_result
+        else snapshot.settlement_result
+    )
+    stake = Decimal(snapshot.suggested_stake_units or Decimal("0")).quantize(STAKE_QUANT)
+    flat_profit = (
+        _flat_profit(representative)
+        if representative is not None
+        else _quantize_money(Decimal(snapshot.flat_profit_units or Decimal("0")))
+    )
+    weighted_profit = _quantize_money(flat_profit * stake)
+    settlement_results = {record.settlement_result for record in signal_records if record.settlement_result}
+    warning = "settlement_result_mismatch" if len(settlement_results) > 1 else None
+    match = representative.match if representative is not None else snapshot.match
+
+    return PaperConfidenceGroup(
+        group_key=snapshot.group_key,
+        match_id=snapshot.match_id,
+        source_match_id=representative.source_match_id if representative is not None else None,
+        kickoff_time=representative.kickoff_time if representative is not None else snapshot.created_at,
+        league_name=representative.league_name if representative is not None else "",
+        league_display_name=representative.league_display_name if representative is not None else None,
+        home_team_name=representative.home_team_name if representative is not None else "",
+        home_team_display_name=representative.home_team_display_name if representative is not None else None,
+        home_team_logo_url=match.home_team.logo_url if match is not None else None,
+        home_score=match.home_score if match is not None else None,
+        away_team_name=representative.away_team_name if representative is not None else "",
+        away_team_display_name=representative.away_team_display_name if representative is not None else None,
+        away_team_logo_url=match.away_team.logo_url if match is not None else None,
+        away_score=match.away_score if match is not None else None,
+        market_type=snapshot.market_type,
+        logical_side=snapshot.side,
+        recommendation_text=snapshot.recommendation_text,
+        representative_record_id=snapshot.representative_record_id,
+        representative_strategy_key=representative.strategy_key if representative is not None else "",
+        representative_market_line=Decimal(snapshot.representative_market_line),
+        representative_odds=Decimal(snapshot.representative_odds),
+        signal_record_ids=signal_record_ids,
+        triggered_strategy_keys=_json_str_tuple(snapshot.triggered_strategy_keys_json),
+        triggered_strategy_display_names=_json_str_tuple(snapshot.triggered_strategy_display_names_json),
+        signal_families=_json_str_tuple(snapshot.signal_families_json),
+        confidence_score=snapshot.confidence_score,
+        suggested_stake_units=stake,
+        stake_cap_reason=snapshot.stake_cap_reason,
+        status=status,
+        settlement_result=settlement_result,
+        flat_profit_units=flat_profit,
+        weighted_profit_units=weighted_profit,
+        warning=warning,
     )
 
 
@@ -363,3 +498,15 @@ def _ratio(numerator: Decimal, denominator: Decimal) -> Decimal:
 
 def _quantize_money(value: Decimal) -> Decimal:
     return value.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+
+
+def _json_int_tuple(value: str | None) -> tuple[int, ...]:
+    if not value:
+        return ()
+    return tuple(int(item) for item in json.loads(value))
+
+
+def _json_str_tuple(value: str | None) -> tuple[str, ...]:
+    if not value:
+        return ()
+    return tuple(str(item) for item in json.loads(value))

@@ -241,6 +241,7 @@ from icewine_prediction.paper_recommendation_group_snapshot_service import (
     backfill_group_snapshots,
     build_snapshot_report,
     format_snapshot_report,
+    write_snapshot_report_csv,
 )
 from icewine_prediction.recommendation_service import (
     Recommendation,
@@ -1681,12 +1682,12 @@ def records_snapshots_backfill(
     from_date: str = typer.Option(
         ...,
         "--from-date",
-        help="Inclusive PaperRecommendationRecord.created_at start date or datetime; not kickoff_time.",
+        help="Inclusive match kickoff_time start date or datetime.",
     ),
     to_date: str = typer.Option(
         ...,
         "--to-date",
-        help="Inclusive PaperRecommendationRecord.created_at end date or datetime; not kickoff_time.",
+        help="Inclusive match kickoff_time end date or datetime.",
     ),
     source: str = typer.Option("historical_backfill", "--source"),
     version: str = typer.Option("paper_confidence_v1", "--version"),
@@ -1719,14 +1720,16 @@ def records_snapshot_report(
     from_date: str | None = typer.Option(
         None,
         "--from-date",
-        help="Inclusive snapshot created_at start date or datetime; not kickoff_time.",
+        help="Inclusive representative match kickoff_time start date or datetime.",
     ),
     to_date: str | None = typer.Option(
         None,
         "--to-date",
-        help="Inclusive snapshot created_at end date or datetime; not kickoff_time.",
+        help="Inclusive representative match kickoff_time end date or datetime.",
     ),
     version: str = typer.Option("paper_confidence_v1", "--version"),
+    source: str | None = typer.Option(None, "--source"),
+    csv_path: str | None = typer.Option(None, "--csv-path"),
 ):
     engine = create_database_engine()
     initialize_database(engine)
@@ -1737,8 +1740,13 @@ def records_snapshot_report(
             from_date=_parse_cli_datetime_start(from_date),
             to_date=_parse_cli_datetime_end(to_date),
             snapshot_version=version,
+            snapshot_source=source,
         )
+    if csv_path is not None:
+        write_snapshot_report_csv(report, Path(csv_path))
     typer.echo(format_snapshot_report(report))
+    if csv_path is not None:
+        typer.echo(f"CSV written: {csv_path}")
 
 
 @odds_source_app.command("oddspapi-plan")

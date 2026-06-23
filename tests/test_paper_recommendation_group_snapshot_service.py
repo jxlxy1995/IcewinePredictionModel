@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from datetime import datetime
 from decimal import Decimal
@@ -22,6 +23,7 @@ from icewine_prediction.paper_recommendation_group_snapshot_service import (
     build_snapshot_report,
     create_group_snapshots_for_record_ids,
     format_snapshot_report,
+    write_snapshot_report_csv,
 )
 from icewine_prediction.paper_recommendation_tracking_service import settle_paper_records
 
@@ -252,6 +254,30 @@ def test_backfill_group_snapshots_marks_historical_backfill(session):
     assert snapshot.source_record_created_at_min == record.created_at.replace(tzinfo=None)
 
 
+def test_backfill_group_snapshots_filters_by_match_kickoff_time(session):
+    may_match = _seed_match(session, kickoff_time=datetime(2026, 5, 1, 19, 0, tzinfo=BEIJING))
+    june_match = _seed_match(
+        session,
+        source_match_id="fixture-2",
+        kickoff_time=datetime(2026, 6, 22, 19, 0, tzinfo=BEIJING),
+    )
+    may_record = _paper_record(session, may_match, created_at=_now(), updated_at=_now())
+    _paper_record(session, june_match, created_at=datetime(2026, 5, 1, 12, 0, tzinfo=BEIJING), updated_at=_now())
+
+    result = backfill_group_snapshots(
+        session,
+        from_date=datetime(2026, 5, 1, tzinfo=BEIJING),
+        to_date=datetime(2026, 5, 31, 23, 59, tzinfo=BEIJING),
+        created_at=_now(),
+    )
+
+    snapshots = session.query(PaperRecommendationGroupSnapshot).all()
+    assert result.record_count == 1
+    assert result.created_count == 1
+    assert len(snapshots) == 1
+    assert snapshots[0].representative_record_id == may_record.id
+
+
 def test_backfill_group_snapshots_dry_run_does_not_write(session):
     match = _seed_match(session)
     _paper_record(session, match)
@@ -387,7 +413,7 @@ def test_snapshot_report_uses_frozen_stake_and_market_aware_line_bucket(session)
         snapshot_source="manual_record",
         created_at=_now(),
     )
-    settle_paper_records(session, settled_at=_now())
+    settle_paper_records(session, settled_at=datetime(2026, 6, 23, 1, 0, tzinfo=BEIJING))
 
     report = build_snapshot_report(session)
 
@@ -405,25 +431,64 @@ def test_snapshot_report_uses_frozen_stake_and_market_aware_line_bucket(session)
     assert "total_goals:mid_2.50" in report.by_market_line_bucket
     assert report.by_market_stake_bucket
     text = format_snapshot_report(report)
+    assert "flat_roi=" in text
     assert "market_type + line_bucket" in text
     assert "asian_handicap:away_underdog" in text
     assert "total_goals:mid_2.50" in text
 
 
-def test_build_snapshot_report_filters_by_snapshot_created_at(session):
-    match = _seed_match(session)
-    record = _paper_record(session, match)
+def test_write_snapshot_report_csv_exports_snapshot_details(session, tmp_path):
+    match = _seed_match(session, home_score=1, away_score=1, status="finished")
+    record = _paper_record(session, match, current_odds=Decimal("1.930"))
     create_group_snapshots_for_record_ids(
         session,
         [record.id],
-        snapshot_source="old_snapshot",
+        snapshot_source="historical_backfill",
+        created_at=_now(),
+        is_backfilled=True,
+    )
+    settle_paper_records(session, settled_at=datetime(2026, 6, 23, 1, 0, tzinfo=BEIJING))
+    report = build_snapshot_report(session, snapshot_source="historical_backfill")
+    output_path = tmp_path / "snapshot-report.csv"
+
+    write_snapshot_report_csv(report, output_path)
+
+    with output_path.open(encoding="utf-8", newline="") as file:
+        rows = list(csv.DictReader(file))
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["snapshot_source"] == "historical_backfill"
+    assert row["kickoff_time"].startswith("2026-06-22")
+    assert row["league_display_name"]
+    assert row["home_team_display_name"]
+    assert row["away_team_display_name"]
+    assert row["market_type"] == "asian_handicap"
+    assert row["line_bucket"] == "away_underdog"
+    assert row["suggested_stake_units"]
+    assert row["flat_profit_units"]
+    assert row["weighted_profit_units"]
+
+
+def test_build_snapshot_report_filters_by_match_kickoff_time(session):
+    may_match = _seed_match(session, kickoff_time=datetime(2026, 5, 1, 19, 0, tzinfo=BEIJING))
+    june_match = _seed_match(
+        session,
+        source_match_id="fixture-2",
+        kickoff_time=datetime(2026, 6, 22, 19, 0, tzinfo=BEIJING),
+    )
+    may_record = _paper_record(session, may_match)
+    june_record = _paper_record(session, june_match)
+    create_group_snapshots_for_record_ids(
+        session,
+        [may_record.id],
+        snapshot_source="may_snapshot",
         snapshot_version="paper_confidence_v1",
-        created_at=datetime(2026, 6, 1, 12, 0, tzinfo=BEIJING),
+        created_at=datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING),
     )
     create_group_snapshots_for_record_ids(
         session,
-        [record.id],
-        snapshot_source="new_snapshot",
+        [june_record.id],
+        snapshot_source="june_snapshot",
         snapshot_version="paper_confidence_v1",
         created_at=datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING),
     )
@@ -435,7 +500,7 @@ def test_build_snapshot_report_filters_by_snapshot_created_at(session):
     )
 
     assert report.summary.group_count == 1
-    assert list(report.by_snapshot_source) == ["new_snapshot"]
+    assert list(report.by_snapshot_source) == ["june_snapshot"]
 
 
 def test_build_snapshot_report_defaults_to_all_versions_and_can_filter_version(session):
@@ -467,6 +532,33 @@ def test_build_snapshot_report_defaults_to_all_versions_and_can_filter_version(s
     assert list(filtered_report.by_snapshot_source) == ["manual_record"]
 
 
+def test_build_snapshot_report_can_filter_snapshot_source(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="automation",
+        snapshot_version="paper_confidence_v1",
+        created_at=datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING),
+    )
+    create_group_snapshots_for_record_ids(
+        session,
+        [record.id],
+        snapshot_source="historical_backfill",
+        snapshot_version="paper_confidence_v1",
+        created_at=datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING),
+    )
+
+    report = build_snapshot_report(
+        session,
+        snapshot_source="historical_backfill",
+    )
+
+    assert report.summary.group_count == 1
+    assert list(report.by_snapshot_source) == ["historical_backfill"]
+
+
 def test_parse_cli_snapshot_dates_use_start_and_end_of_day():
     assert _parse_cli_datetime_start("2026-06-22") == datetime(2026, 6, 22, 0, 0)
     assert _parse_cli_datetime_end("2026-06-22") == datetime(2026, 6, 22, 23, 59, 59, 999999)
@@ -483,7 +575,7 @@ def test_format_snapshot_report_includes_market_aware_buckets(session):
         snapshot_source="manual_record",
         created_at=_now(),
     )
-    settle_paper_records(session, settled_at=_now())
+    settle_paper_records(session, settled_at=datetime(2026, 6, 23, 1, 0, tzinfo=BEIJING))
 
     text = format_snapshot_report(build_snapshot_report(session))
 
@@ -496,23 +588,40 @@ def _now() -> datetime:
     return datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING)
 
 
-def _seed_match(session, *, home_score=None, away_score=None, status="scheduled") -> Match:
+def _seed_match(
+    session,
+    *,
+    home_score=None,
+    away_score=None,
+    status="scheduled",
+    source_match_id="fixture-1",
+    kickoff_time: datetime | None = None,
+) -> Match:
+    suffix = source_match_id.replace("fixture-", "")
     league = League(
         source_name="api-football",
         source_league_id="98",
-        name="J1 League",
+        name=f"J1 League {suffix}",
         country_or_region="Japan",
         is_enabled=True,
     )
-    home = Team(source_name="api-football", source_team_id="1", canonical_name="Yokohama F. Marinos")
-    away = Team(source_name="api-football", source_team_id="2", canonical_name="Vissel Kobe")
+    home = Team(
+        source_name="api-football",
+        source_team_id=f"home-{suffix}",
+        canonical_name=f"Yokohama F. Marinos {suffix}",
+    )
+    away = Team(
+        source_name="api-football",
+        source_team_id=f"away-{suffix}",
+        canonical_name=f"Vissel Kobe {suffix}",
+    )
     match = Match(
         source_name="api-football",
-        source_match_id="fixture-1",
+        source_match_id=source_match_id,
         league=league,
         home_team=home,
         away_team=away,
-        kickoff_time=datetime(2026, 6, 22, 19, 0, tzinfo=BEIJING),
+        kickoff_time=kickoff_time or datetime(2026, 6, 22, 19, 0, tzinfo=BEIJING),
         status=status,
         home_score=home_score,
         away_score=away_score,

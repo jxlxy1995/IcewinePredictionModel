@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import csv
 import json
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
+from pathlib import Path
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -23,6 +25,43 @@ MONEY_QUANT = Decimal("0.001")
 RATIO_QUANT = Decimal("0.0000")
 STAKE_QUANT = Decimal("0.00")
 HISTORICAL_BACKFILL_SOURCE = "historical_backfill"
+SNAPSHOT_REPORT_CSV_FIELDNAMES = [
+    "snapshot_id",
+    "snapshot_source",
+    "snapshot_version",
+    "is_backfilled",
+    "group_key",
+    "match_id",
+    "kickoff_time",
+    "league_name",
+    "league_display_name",
+    "home_team_name",
+    "home_team_display_name",
+    "away_team_name",
+    "away_team_display_name",
+    "market_type",
+    "side",
+    "recommendation_text",
+    "recommended_handicap",
+    "representative_market_line",
+    "representative_odds",
+    "line_bucket",
+    "confidence_score",
+    "suggested_stake_units",
+    "stake_cap_reason",
+    "status",
+    "settlement_result",
+    "flat_profit_units",
+    "weighted_profit_units",
+    "representative_record_id",
+    "signal_record_ids_json",
+    "triggered_strategy_keys_json",
+    "triggered_strategy_display_names_json",
+    "signal_families_json",
+    "source_record_created_at_min",
+    "source_record_created_at_max",
+    "snapshot_created_at",
+]
 
 
 @dataclass(frozen=True)
@@ -74,6 +113,7 @@ class SnapshotReportGroup:
 
 @dataclass(frozen=True)
 class SnapshotReport:
+    snapshots: list[PaperRecommendationGroupSnapshot]
     summary: SnapshotReportSummary
     by_market_line_bucket: dict[str, SnapshotReportGroup]
     by_market_stake_bucket: dict[str, SnapshotReportGroup]
@@ -178,9 +218,9 @@ def backfill_group_snapshots(
 ) -> SnapshotBackfillResult:
     records = (
         session.query(PaperRecommendationRecord)
-        .filter(PaperRecommendationRecord.created_at >= from_date)
-        .filter(PaperRecommendationRecord.created_at <= to_date)
-        .order_by(PaperRecommendationRecord.created_at.asc(), PaperRecommendationRecord.id.asc())
+        .filter(PaperRecommendationRecord.kickoff_time >= from_date)
+        .filter(PaperRecommendationRecord.kickoff_time <= to_date)
+        .order_by(PaperRecommendationRecord.kickoff_time.asc(), PaperRecommendationRecord.id.asc())
         .all()
     )
     record_ids = [record.id for record in records]
@@ -218,21 +258,27 @@ def build_snapshot_report(
     from_date: datetime | None = None,
     to_date: datetime | None = None,
     snapshot_version: str | None = None,
+    snapshot_source: str | None = None,
 ) -> SnapshotReport:
     query = session.query(PaperRecommendationGroupSnapshot).options(
         joinedload(PaperRecommendationGroupSnapshot.representative_record)
     )
+    if from_date is not None or to_date is not None:
+        query = query.join(PaperRecommendationGroupSnapshot.representative_record)
     if from_date is not None:
-        query = query.filter(PaperRecommendationGroupSnapshot.created_at >= from_date)
+        query = query.filter(PaperRecommendationRecord.kickoff_time >= from_date)
     if to_date is not None:
-        query = query.filter(PaperRecommendationGroupSnapshot.created_at <= to_date)
+        query = query.filter(PaperRecommendationRecord.kickoff_time <= to_date)
     if snapshot_version is not None:
         query = query.filter(PaperRecommendationGroupSnapshot.snapshot_version == snapshot_version)
+    if snapshot_source is not None:
+        query = query.filter(PaperRecommendationGroupSnapshot.snapshot_source == snapshot_source)
     snapshots = query.order_by(
         PaperRecommendationGroupSnapshot.created_at.asc(),
         PaperRecommendationGroupSnapshot.id.asc(),
     ).all()
     return SnapshotReport(
+        snapshots=snapshots,
         summary=_summarize_snapshots(snapshots),
         by_market_line_bucket=_group_snapshot_report(
             snapshots,
@@ -259,6 +305,15 @@ def format_snapshot_report(report: SnapshotReport) -> str:
     lines.extend(["", "By snapshot_source:"])
     lines.extend(_format_report_groups(report.by_snapshot_source))
     return "\n".join(lines)
+
+
+def write_snapshot_report_csv(report: SnapshotReport, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=SNAPSHOT_REPORT_CSV_FIELDNAMES)
+        writer.writeheader()
+        for snapshot in report.snapshots:
+            writer.writerow(_snapshot_csv_row(snapshot))
 
 
 def _snapshot_exists(
@@ -429,6 +484,7 @@ def _format_report_group(name: str, group: SnapshotReportGroup | SnapshotReportS
         f"- {name}: groups={group.group_count}, settled={group.settled_groups}, "
         f"stake={_format_decimal(group.suggested_stake_units, STAKE_QUANT)}, "
         f"flat_profit={_format_decimal(group.flat_profit_units, MONEY_QUANT)}, "
+        f"flat_roi={_format_decimal(group.flat_roi, RATIO_QUANT)}, "
         f"weighted_profit={_format_decimal(group.weighted_profit_units, MONEY_QUANT)}, "
         f"weighted_roi={_format_decimal(group.weighted_roi, RATIO_QUANT)}"
     )
@@ -436,3 +492,58 @@ def _format_report_group(name: str, group: SnapshotReportGroup | SnapshotReportS
 
 def _format_decimal(value: Decimal, quant: Decimal) -> str:
     return str(_quantize(value, quant))
+
+
+def _snapshot_csv_row(snapshot: PaperRecommendationGroupSnapshot) -> dict[str, str]:
+    record = snapshot.representative_record
+    flat_profit = _snapshot_flat_profit(snapshot)
+    stake = _snapshot_stake(snapshot)
+    weighted_profit = _quantize(flat_profit * stake, MONEY_QUANT)
+    return {
+        "snapshot_id": str(snapshot.id),
+        "snapshot_source": snapshot.snapshot_source,
+        "snapshot_version": snapshot.snapshot_version,
+        "is_backfilled": str(bool(snapshot.is_backfilled)),
+        "group_key": snapshot.group_key,
+        "match_id": str(snapshot.match_id),
+        "kickoff_time": _format_datetime(record.kickoff_time if record is not None else None),
+        "league_name": record.league_name if record is not None else "",
+        "league_display_name": record.league_display_name if record is not None else "",
+        "home_team_name": record.home_team_name if record is not None else "",
+        "home_team_display_name": record.home_team_display_name if record is not None else "",
+        "away_team_name": record.away_team_name if record is not None else "",
+        "away_team_display_name": record.away_team_display_name if record is not None else "",
+        "market_type": snapshot.market_type,
+        "side": snapshot.side,
+        "recommendation_text": snapshot.recommendation_text or "",
+        "recommended_handicap": record.recommended_handicap if record is not None else "",
+        "representative_market_line": _format_decimal(snapshot.representative_market_line, Decimal("0.00")),
+        "representative_odds": _format_decimal(snapshot.representative_odds, Decimal("0.000")),
+        "line_bucket": snapshot.line_bucket or "",
+        "confidence_score": str(snapshot.confidence_score),
+        "suggested_stake_units": _format_decimal(snapshot.suggested_stake_units, STAKE_QUANT),
+        "stake_cap_reason": snapshot.stake_cap_reason,
+        "status": _snapshot_status(snapshot),
+        "settlement_result": _snapshot_settlement_result(snapshot),
+        "flat_profit_units": _format_decimal(flat_profit, MONEY_QUANT),
+        "weighted_profit_units": _format_decimal(weighted_profit, MONEY_QUANT),
+        "representative_record_id": str(snapshot.representative_record_id),
+        "signal_record_ids_json": snapshot.signal_record_ids_json,
+        "triggered_strategy_keys_json": snapshot.triggered_strategy_keys_json,
+        "triggered_strategy_display_names_json": snapshot.triggered_strategy_display_names_json,
+        "signal_families_json": snapshot.signal_families_json,
+        "source_record_created_at_min": _format_datetime(snapshot.source_record_created_at_min),
+        "source_record_created_at_max": _format_datetime(snapshot.source_record_created_at_max),
+        "snapshot_created_at": _format_datetime(snapshot.created_at),
+    }
+
+
+def _snapshot_settlement_result(snapshot: PaperRecommendationGroupSnapshot) -> str:
+    record = snapshot.representative_record
+    if record is not None and record.settlement_result:
+        return record.settlement_result
+    return snapshot.settlement_result or ""
+
+
+def _format_datetime(value: datetime | None) -> str:
+    return value.isoformat(sep=" ") if value is not None else ""

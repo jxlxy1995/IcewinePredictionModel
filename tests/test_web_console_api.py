@@ -697,6 +697,9 @@ def test_web_console_api_returns_paper_recommendation_queue(tmp_path):
             model_name="fake_hgb",
         )
 
+    current_time = {
+        "value": datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+    }
     client = TestClient(
         create_web_app(
             session_factory=session_factory,
@@ -826,6 +829,9 @@ def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
             model_name="fake_hgb",
         )
 
+    current_time = {
+        "value": datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+    }
     client = TestClient(
         create_web_app(
             session_factory=session_factory,
@@ -837,7 +843,7 @@ def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
                 )
             ),
             paper_queue_scorer=fake_scorer,
-            clock=lambda: datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            clock=lambda: current_time["value"],
         )
     )
 
@@ -889,6 +895,7 @@ def test_web_console_api_paper_tracking_workspace_and_record_flow(tmp_path):
         db_match.away_score = 1
         session.commit()
 
+    current_time["value"] = datetime(2026, 5, 30, 5, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
     settle_response = client.post("/api/paper-recommendations/settle")
     assert settle_response.status_code == 200
     assert settle_response.json()["settled_count"] == 1

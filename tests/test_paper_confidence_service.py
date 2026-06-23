@@ -39,7 +39,7 @@ def test_build_paper_confidence_workspace_groups_same_direction_strategy_records
         ),
         recorded_at=_now(),
     )
-    settle_paper_records(session, settled_at=_now())
+    settle_paper_records(session, settled_at=_settlement_time())
 
     workspace = build_paper_confidence_workspace(
         session.query(PaperRecommendationRecord).order_by(PaperRecommendationRecord.id).all()
@@ -92,7 +92,7 @@ def test_build_paper_confidence_workspace_exposes_match_display_fields(session):
         _queue_row(match, status="candidate", line=Decimal("-0.50")),
         recorded_at=_now(),
     )
-    settle_paper_records(session, settled_at=_now())
+    settle_paper_records(session, settled_at=_settlement_time())
 
     group = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all()).groups[0]
 
@@ -143,7 +143,7 @@ def test_build_paper_confidence_workspace_keeps_different_markets_separate(sessi
         ),
         recorded_at=_now(),
     )
-    settle_paper_records(session, settled_at=_now())
+    settle_paper_records(session, settled_at=_settlement_time())
 
     workspace = build_paper_confidence_workspace(session.query(PaperRecommendationRecord).all())
 
@@ -481,3 +481,7 @@ def _queue_row(
 
 def _now() -> datetime:
     return datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+
+def _settlement_time() -> datetime:
+    return datetime(2026, 5, 30, 5, 0, tzinfo=ZoneInfo("Asia/Shanghai"))

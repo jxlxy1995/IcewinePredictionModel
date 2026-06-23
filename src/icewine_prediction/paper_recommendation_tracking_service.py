@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+from icewine_prediction.config import BEIJING_TIMEZONE
 from icewine_prediction.models import Match, PaperRecommendationRecord
 from icewine_prediction.paper_recommendation_queue_service import PaperQueueRow
 from icewine_prediction.paper_strategy_registry import (
@@ -22,6 +24,7 @@ from icewine_prediction.settlement_service import settle_asian_handicap, settle_
 
 
 ACTIVE_STATUSES = ("pending", "settled", "unsettleable")
+DEFAULT_MINIMUM_SETTLEMENT_MINUTES_AFTER_KICKOFF = 120
 
 
 @dataclass(frozen=True)
@@ -206,7 +209,12 @@ def void_paper_record(session: Session, record_id: int) -> PaperRecommendationRe
     return record
 
 
-def settle_paper_records(session: Session, *, settled_at: datetime) -> PaperSettlementResult:
+def settle_paper_records(
+    session: Session,
+    *,
+    settled_at: datetime,
+    minimum_minutes_after_kickoff: int = DEFAULT_MINIMUM_SETTLEMENT_MINUTES_AFTER_KICKOFF,
+) -> PaperSettlementResult:
     records = (
         session.query(PaperRecommendationRecord)
         .filter(PaperRecommendationRecord.status.in_(("pending", "unsettleable")))
@@ -220,6 +228,13 @@ def settle_paper_records(session: Session, *, settled_at: datetime) -> PaperSett
             if match.status == "finished":
                 record.status = "unsettleable"
                 unsettleable_count += 1
+            continue
+        if not _is_settlement_old_enough(
+            match.kickoff_time,
+            settled_at,
+            minimum_minutes_after_kickoff=minimum_minutes_after_kickoff,
+        ):
+            skipped_count += 1
             continue
         if record.market_type == "asian_handicap":
             settlement_result = settle_asian_handicap(
@@ -347,6 +362,24 @@ def _settlement_side(side: str) -> str:
     if side not in side_map:
         raise ValueError(f"unsupported paper recommendation side: {side}")
     return side_map[side]
+
+
+def _is_settlement_old_enough(
+    kickoff_time: datetime,
+    settled_at: datetime,
+    *,
+    minimum_minutes_after_kickoff: int,
+) -> bool:
+    kickoff_time = _as_beijing_datetime(kickoff_time)
+    settled_at = _as_beijing_datetime(settled_at)
+    return settled_at - kickoff_time >= timedelta(minutes=minimum_minutes_after_kickoff)
+
+
+def _as_beijing_datetime(value: datetime) -> datetime:
+    timezone = ZoneInfo(BEIJING_TIMEZONE)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone)
+    return value.astimezone(timezone)
 
 
 def _has_duplicate_active_record(session: Session, row: PaperQueueRow) -> bool:

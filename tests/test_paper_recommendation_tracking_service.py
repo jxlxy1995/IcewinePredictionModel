@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -355,7 +355,7 @@ def test_void_paper_record_excludes_record_from_settlement_summary(session):
     )
 
     voided = void_paper_record(session, record.id)
-    settled = settle_paper_records(session, settled_at=_now())
+    settled = settle_paper_records(session, settled_at=_settlement_time())
     workspace = build_paper_tracking_workspace(session, candidates=[])
 
     assert voided.status == "void"
@@ -380,7 +380,7 @@ def test_settle_paper_records_uses_current_line_and_odds(session):
         manual_note="按人工确认盘口结算",
     )
 
-    result = settle_paper_records(session, settled_at=_now())
+    result = settle_paper_records(session, settled_at=_settlement_time())
     workspace = build_paper_tracking_workspace(session, candidates=[])
 
     session.refresh(record)
@@ -416,7 +416,7 @@ def test_settle_paper_records_supports_total_goals_records(session):
         recorded_at=_now(),
     )
 
-    result = settle_paper_records(session, settled_at=_now())
+    result = settle_paper_records(session, settled_at=_settlement_time())
 
     session.refresh(record)
     assert result.settled_count == 1
@@ -424,6 +424,41 @@ def test_settle_paper_records_supports_total_goals_records(session):
     assert record.status == "settled"
     assert record.settlement_result == "win"
     assert record.profit_units == Decimal("1.000")
+
+
+def test_settle_paper_records_skips_matches_inside_minimum_kickoff_age(session):
+    match = _seed_match(session, home_score=3, away_score=1, status="finished")
+    record = create_paper_record_from_queue_row(
+        session,
+        _queue_row(
+            match,
+            status="candidate",
+            line=Decimal("2.50"),
+            market_type="total_goals",
+            side="over",
+            recommended_handicap="澶?2.50",
+            odds=Decimal("1.925"),
+            line_bucket="mid_2.50",
+            risk_tags=("line_bucket:mid_2.50", "strategy:total_goals_bucket_v2"),
+            strategy_key="total_goals_hgb_bucket_v2",
+            strategy_display_name="澶у皬鐞冩柟鍚?路 HGB鍒嗙洏鍙ｆ《 v2",
+            signal_version="v2",
+        ),
+        recorded_at=_now(),
+    )
+
+    result = settle_paper_records(
+        session,
+        settled_at=match.kickoff_time + timedelta(minutes=20),
+    )
+
+    session.refresh(record)
+    assert result.settled_count == 0
+    assert result.skipped_count == 1
+    assert record.status == "pending"
+    assert record.settlement_result is None
+    assert record.profit_units is None
+    assert record.settled_at is None
 
 
 def test_tracking_workspace_by_strategy_uses_current_registered_display_name(session):
@@ -528,3 +563,7 @@ def _queue_row(
 
 def _now() -> datetime:
     return datetime(2026, 5, 30, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+
+def _settlement_time() -> datetime:
+    return datetime(2026, 5, 30, 5, 0, tzinfo=ZoneInfo("Asia/Shanghai"))

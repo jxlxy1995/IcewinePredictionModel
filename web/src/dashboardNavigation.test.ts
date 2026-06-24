@@ -9,13 +9,14 @@ import { mockDashboardData } from "./mockData";
 
 describe("dashboard navigation", () => {
   it("keeps only active workflow pages in the sidebar", () => {
-    expect(dashboardNavItems.map((item) => item.label)).toEqual([
-      "比赛列表",
-      "自动任务",
-      "中文名",
-      "模型训练",
-      "纸面跟踪",
-      "推荐记录"
+    expect(dashboardNavItems.map((item) => item.key)).toEqual([
+      "matchList",
+      "automationTasks",
+      "displayNames",
+      "models",
+      "paperTracking",
+      "paperSnapshotReview",
+      "records"
     ]);
   });
 
@@ -27,8 +28,9 @@ describe("dashboard navigation", () => {
     expect(mockDashboardData.recommendationRecords).toEqual([]);
   });
 
-  it("does not auto refresh paper candidates when the paper tracking page is first opened", () => {
+  it("loads review pages that should show persisted data on first open", () => {
     expect(shouldAutoLoadLazyView("paperTracking")).toBe(false);
+    expect(shouldAutoLoadLazyView("paperSnapshotReview")).toBe(true);
     expect(shouldAutoLoadLazyView("automationTasks")).toBe(true);
     expect(shouldAutoLoadLazyView("matchList")).toBe(true);
     expect(shouldAutoLoadLazyView("models")).toBe(true);

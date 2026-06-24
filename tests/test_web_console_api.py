@@ -1241,6 +1241,107 @@ def test_web_console_api_workspace_confidence_simulation_prefers_snapshots(tmp_p
     assert group["weighted_profit_units"] == "0.465"
 
 
+def test_web_console_api_paper_snapshot_review_returns_diagnostics(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="Premier Division", country_or_region="Ireland", level=1)
+        home = Team(canonical_name="Drogheda United")
+        away = Team(canonical_name="Waterford")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 2, 45, tzinfo=BEIJING),
+            status="finished",
+            source_name="api_football",
+            source_match_id="17446",
+            home_score=1,
+            away_score=1,
+        )
+        session.add_all([league, home, away, match])
+        session.flush()
+        first = _paper_snapshot_record(
+            match,
+            strategy_key="asian_away_cover_hgb_edge_v1",
+            strategy_display_name="Asian away edge",
+            edge=Decimal("0.2100"),
+        )
+        second = _paper_snapshot_record(
+            match,
+            strategy_key="total_goals_hgb_bucket_v2",
+            strategy_display_name="Total goals bucket",
+            edge=Decimal("0.1600"),
+        )
+        second.market_type = "total_goals"
+        second.side = "under"
+        second.recommended_handicap = "under 2.75"
+        second.original_recommended_handicap = "under 2.75"
+        second.current_market_line = Decimal("2.75")
+        second.original_market_line = Decimal("2.75")
+        second.line_bucket = "mid_2.75"
+        second.profit_units = Decimal("-1.000")
+        second.settlement_result = "loss"
+        session.add_all([first, second])
+        session.flush()
+        session.add_all(
+            [
+                _paper_snapshot(
+                    first,
+                    group_key=f"{match.id}:asian_handicap:away_cover",
+                    confidence_score=85,
+                    suggested_stake_units=Decimal("1.50"),
+                    stake_cap_reason="single_family_limited_history",
+                    signal_families='["asian_away_hgb"]',
+                ),
+                _paper_snapshot(
+                    second,
+                    group_key=f"{match.id}:total_goals:under",
+                    confidence_score=62,
+                    suggested_stake_units=Decimal("0.75"),
+                    stake_cap_reason="none",
+                    signal_families='["total_goals_hgb"]',
+                ),
+            ]
+        )
+        session.commit()
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            start_paper_automation_scheduler=False,
+            clock=lambda: datetime(2026, 6, 24, 12, 0, tzinfo=BEIJING),
+        )
+    )
+
+    response = client.get(
+        "/api/paper-snapshot-review?"
+        "from_date=2026-05-01T00:00:00%2B08:00&"
+        "to_date=2026-06-01T00:00:00%2B08:00"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filters"]["snapshot_source"] == "historical_backfill"
+    assert payload["summary"] == {
+        "group_count": 2,
+        "settled_groups": 2,
+        "pending_groups": 0,
+        "suggested_stake_units": "2.25",
+        "flat_profit_units": "-0.070",
+        "weighted_profit_units": "0.645",
+        "flat_roi": "-0.0350",
+        "weighted_roi": "0.2867",
+    }
+    assert payload["groups"]["by_market_type"][0]["group_name"] == "asian_handicap"
+    assert payload["groups"]["by_confidence_bucket"][0]["group_name"] == "60-64"
+    assert payload["samples"]["high_confidence_losses"] == []
+    assert payload["samples"]["low_stake_wins"] == []
+    assert payload["samples"]["pending"] == []
+
+
 def _paper_snapshot_record(
     match: Match,
     *,
@@ -1284,6 +1385,46 @@ def _paper_snapshot_record(
         profit_units=Decimal("0.930"),
         settled_at=datetime(2026, 6, 5, 12, 0, tzinfo=BEIJING),
         is_manually_adjusted=False,
+    )
+
+
+def _paper_snapshot(
+    record: PaperRecommendationRecord,
+    *,
+    group_key: str,
+    confidence_score: int,
+    suggested_stake_units: Decimal,
+    stake_cap_reason: str,
+    signal_families: str,
+) -> PaperRecommendationGroupSnapshot:
+    weighted_profit = Decimal(record.profit_units or Decimal("0.000")) * suggested_stake_units
+    return PaperRecommendationGroupSnapshot(
+        created_at=datetime(2026, 6, 23, 12, 0, tzinfo=BEIJING),
+        snapshot_source="historical_backfill",
+        snapshot_version="paper_confidence_v1",
+        group_key=group_key,
+        match_id=record.match_id,
+        market_type=record.market_type,
+        side=record.side,
+        representative_record_id=record.id,
+        signal_record_ids_json=f"[{record.id}]",
+        triggered_strategy_keys_json=f'["{record.strategy_key}"]',
+        triggered_strategy_display_names_json=f'["{record.strategy_display_name}"]',
+        signal_families_json=signal_families,
+        confidence_score=confidence_score,
+        suggested_stake_units=suggested_stake_units,
+        stake_cap_reason=stake_cap_reason,
+        recommendation_text=record.recommended_handicap,
+        representative_market_line=record.current_market_line,
+        representative_odds=record.current_odds,
+        line_bucket=record.line_bucket,
+        status=record.status,
+        settlement_result=record.settlement_result,
+        flat_profit_units=record.profit_units or Decimal("0.000"),
+        weighted_profit_units=weighted_profit,
+        is_backfilled=True,
+        source_record_created_at_min=record.created_at,
+        source_record_created_at_max=record.created_at,
     )
 
 

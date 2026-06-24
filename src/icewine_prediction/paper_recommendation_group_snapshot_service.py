@@ -120,6 +120,24 @@ class SnapshotReport:
     by_snapshot_source: dict[str, SnapshotReportGroup]
 
 
+@dataclass(frozen=True)
+class SnapshotReviewWorkspace:
+    snapshots: list[PaperRecommendationGroupSnapshot]
+    summary: SnapshotReportSummary
+    by_market_type: dict[str, SnapshotReportGroup]
+    by_market_side: dict[str, SnapshotReportGroup]
+    by_confidence_bucket: dict[str, SnapshotReportGroup]
+    by_stake_bucket: dict[str, SnapshotReportGroup]
+    by_stake_cap_reason: dict[str, SnapshotReportGroup]
+    by_line_bucket: dict[str, SnapshotReportGroup]
+    by_signal_family_combo: dict[str, SnapshotReportGroup]
+    by_signal_count: dict[str, SnapshotReportGroup]
+    by_league: dict[str, SnapshotReportGroup]
+    high_confidence_losses: list[PaperRecommendationGroupSnapshot]
+    low_stake_wins: list[PaperRecommendationGroupSnapshot]
+    pending_snapshots: list[PaperRecommendationGroupSnapshot]
+
+
 def create_group_snapshots_for_record_ids(
     session: Session,
     record_ids: list[int],
@@ -289,6 +307,60 @@ def build_snapshot_report(
             lambda snapshot: f"{snapshot.market_type}:{_format_decimal(snapshot.suggested_stake_units, STAKE_QUANT)}",
         ),
         by_snapshot_source=_group_snapshot_report(snapshots, lambda snapshot: snapshot.snapshot_source),
+    )
+
+
+def build_snapshot_review_workspace(
+    session: Session,
+    *,
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
+    snapshot_version: str = PAPER_CONFIDENCE_SNAPSHOT_VERSION,
+    snapshot_source: str = HISTORICAL_BACKFILL_SOURCE,
+) -> SnapshotReviewWorkspace:
+    report = build_snapshot_report(
+        session,
+        from_date=from_date,
+        to_date=to_date,
+        snapshot_version=snapshot_version,
+        snapshot_source=snapshot_source,
+    )
+    settled = [snapshot for snapshot in report.snapshots if _snapshot_status(snapshot) == "settled"]
+    high_confidence_losses = [
+        snapshot
+        for snapshot in settled
+        if snapshot.confidence_score >= 80 and _snapshot_weighted_profit(snapshot) < Decimal("0")
+    ]
+    high_confidence_losses.sort(key=_snapshot_weighted_profit)
+    low_stake_wins = [
+        snapshot
+        for snapshot in settled
+        if _snapshot_stake(snapshot) <= Decimal("0.50") and _snapshot_weighted_profit(snapshot) > Decimal("0")
+    ]
+    low_stake_wins.sort(key=_snapshot_weighted_profit, reverse=True)
+    pending = [snapshot for snapshot in report.snapshots if _snapshot_status(snapshot) == "pending"]
+    pending.sort(key=lambda snapshot: (_snapshot_kickoff_time(snapshot) or snapshot.created_at, snapshot.id or 0))
+    return SnapshotReviewWorkspace(
+        snapshots=report.snapshots,
+        summary=report.summary,
+        by_market_type=_group_snapshot_report(report.snapshots, lambda snapshot: snapshot.market_type),
+        by_market_side=_group_snapshot_report(
+            report.snapshots,
+            lambda snapshot: f"{snapshot.market_type}:{snapshot.side}",
+        ),
+        by_confidence_bucket=_group_snapshot_report(report.snapshots, _confidence_bucket),
+        by_stake_bucket=_group_snapshot_report(
+            report.snapshots,
+            lambda snapshot: _format_decimal(snapshot.suggested_stake_units, STAKE_QUANT),
+        ),
+        by_stake_cap_reason=_group_snapshot_report(report.snapshots, lambda snapshot: snapshot.stake_cap_reason),
+        by_line_bucket=_group_snapshot_report(report.snapshots, lambda snapshot: snapshot.line_bucket or "unknown"),
+        by_signal_family_combo=_group_snapshot_report(report.snapshots, _signal_family_combo),
+        by_signal_count=_group_snapshot_report(report.snapshots, _signal_count_bucket),
+        by_league=_group_snapshot_report(report.snapshots, _snapshot_league_name),
+        high_confidence_losses=high_confidence_losses[:20],
+        low_stake_wins=low_stake_wins[:20],
+        pending_snapshots=pending[:50],
     )
 
 
@@ -543,6 +615,43 @@ def _snapshot_settlement_result(snapshot: PaperRecommendationGroupSnapshot) -> s
     if record is not None and record.settlement_result:
         return record.settlement_result
     return snapshot.settlement_result or ""
+
+
+def _snapshot_kickoff_time(snapshot: PaperRecommendationGroupSnapshot) -> datetime | None:
+    record = snapshot.representative_record
+    return record.kickoff_time if record is not None else None
+
+
+def _snapshot_league_name(snapshot: PaperRecommendationGroupSnapshot) -> str:
+    record = snapshot.representative_record
+    if record is None:
+        return "unknown"
+    return record.league_display_name or record.league_name
+
+
+def _confidence_bucket(snapshot: PaperRecommendationGroupSnapshot) -> str:
+    score = snapshot.confidence_score
+    if score < 55:
+        return "<55"
+    if score >= 95:
+        return "95+"
+    lower = ((score - 55) // 5) * 5 + 55
+    return f"{lower}-{lower + 4}"
+
+
+def _signal_family_combo(snapshot: PaperRecommendationGroupSnapshot) -> str:
+    values = _json_values(snapshot.signal_families_json)
+    return "+".join(values) if values else "unknown"
+
+
+def _signal_count_bucket(snapshot: PaperRecommendationGroupSnapshot) -> str:
+    return str(len(_json_values(snapshot.signal_record_ids_json)))
+
+
+def _json_values(value: str | None) -> list:
+    if not value:
+        return []
+    return json.loads(value)
 
 
 def _format_datetime(value: datetime | None) -> str:

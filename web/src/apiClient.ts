@@ -4,6 +4,7 @@ import {
   mockMatchListWorkspace,
   mockOddsTrends,
   mockPaperRecommendationWorkspace,
+  mockPaperSnapshotReviewWorkspace,
   mockTrainingWorkspace,
   mockTeamDisplayNameWorkspaces
 } from "./mockData";
@@ -24,6 +25,7 @@ import type {
   OddspapiBackfillAudit,
   PaperAutomationTask,
   PaperRecommendationWorkspace,
+  PaperSnapshotReviewWorkspace,
   RecommendationRecord,
   TeamDisplayNameRow,
   TeamDisplayNameWorkspaceOption,
@@ -80,6 +82,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
       oddspapiBackfillAudit: mockDashboardData.oddspapiBackfillAudit,
       trainingWorkspace: mockDashboardData.trainingWorkspace,
       paperRecommendations: mockPaperRecommendationWorkspace,
+      paperSnapshotReview: mockPaperSnapshotReviewWorkspace,
       matchList: mockMatchListWorkspace
     };
   } catch {
@@ -207,6 +210,22 @@ export async function loadPaperRecommendationWorkspace(
   }
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return await getJson<PaperRecommendationWorkspace>(`/api/paper-recommendations/workspace${suffix}`);
+}
+
+export async function loadPaperSnapshotReviewWorkspace(params: {
+  from_date?: string;
+  snapshot_source?: string;
+  to_date?: string;
+} = {}): Promise<PaperSnapshotReviewWorkspace> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value == null || value === "") {
+      continue;
+    }
+    query.set(key, value);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return await getJson<PaperSnapshotReviewWorkspace>(`/api/paper-snapshot-review${suffix}`);
 }
 
 export async function loadMatchListWorkspace(params: {

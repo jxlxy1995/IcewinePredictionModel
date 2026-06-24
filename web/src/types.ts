@@ -496,6 +496,71 @@ export type PaperRecommendationWorkspace = {
   batch_result?: PaperBatchRecordResult;
 };
 
+export type PaperSnapshotReviewSummary = {
+  group_count: number;
+  settled_groups: number;
+  pending_groups: number;
+  suggested_stake_units: string;
+  flat_profit_units: string;
+  weighted_profit_units: string;
+  flat_roi: string;
+  weighted_roi: string;
+};
+
+export type PaperSnapshotReviewGroupSummary = PaperSnapshotReviewSummary & {
+  group_name: string;
+};
+
+export type PaperSnapshotReviewSample = {
+  snapshot_id: number;
+  group_key: string;
+  match_id: number;
+  kickoff_time: string;
+  league_name: string;
+  league_display_name?: string | null;
+  home_team_name: string;
+  home_team_display_name?: string | null;
+  away_team_name: string;
+  away_team_display_name?: string | null;
+  market_type: string;
+  side: string;
+  recommendation_text: string | null;
+  line_bucket: string | null;
+  confidence_score: number;
+  suggested_stake_units: string;
+  stake_cap_reason: string;
+  status: string;
+  settlement_result: string | null;
+  flat_profit_units: string;
+  weighted_profit_units: string;
+};
+
+export type PaperSnapshotReviewWorkspace = {
+  filters: {
+    from_date: string | null;
+    to_date: string | null;
+    snapshot_source: string;
+    snapshot_version: string;
+  };
+  summary: PaperSnapshotReviewSummary;
+  groups: {
+    by_market_type: PaperSnapshotReviewGroupSummary[];
+    by_market_side: PaperSnapshotReviewGroupSummary[];
+    by_confidence_bucket: PaperSnapshotReviewGroupSummary[];
+    by_stake_bucket: PaperSnapshotReviewGroupSummary[];
+    by_stake_cap_reason: PaperSnapshotReviewGroupSummary[];
+    by_line_bucket: PaperSnapshotReviewGroupSummary[];
+    by_signal_family_combo: PaperSnapshotReviewGroupSummary[];
+    by_signal_count: PaperSnapshotReviewGroupSummary[];
+    by_league: PaperSnapshotReviewGroupSummary[];
+  };
+  samples: {
+    high_confidence_losses: PaperSnapshotReviewSample[];
+    low_stake_wins: PaperSnapshotReviewSample[];
+    pending: PaperSnapshotReviewSample[];
+  };
+};
+
 export type PaperAutomationTaskResult = {
   target_match_ids: number[];
   odds: unknown;
@@ -727,6 +792,7 @@ export type DashboardData = {
   recommendationRecords: RecommendationRecord[];
   trainingWorkspace: TrainingWorkspace;
   paperRecommendations: PaperRecommendationWorkspace;
+  paperSnapshotReview: PaperSnapshotReviewWorkspace;
   matchList: MatchListWorkspace;
   source: "api" | "mock";
 };

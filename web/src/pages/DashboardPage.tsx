@@ -34,6 +34,7 @@ import {
   loadOddspapiBackfillAudit,
   loadPaperAutomationTasks,
   loadPaperRecommendationWorkspace,
+  loadPaperSnapshotReviewWorkspace,
   loadTrainingWorkspace,
   startTrainingFullRefresh,
   markTeamDisplayNameWorkspaceDone,
@@ -92,6 +93,13 @@ import {
   defaultPaperRecommendationDateRange
 } from "../paperRecommendationWorkspace";
 import {
+  buildPaperSnapshotReviewCards,
+  buildPaperSnapshotReviewPresetRange,
+  buildPaperSnapshotReviewRows,
+  defaultPaperSnapshotReviewFilters,
+  paperSnapshotReviewPresetOptions
+} from "../paperSnapshotReviewWorkspace";
+import {
   formatPaperBatchRecordMessage,
   formatPaperSingleRecordMessage
 } from "../paperBatchRecordMessage";
@@ -127,6 +135,8 @@ import type {
   CreatePaperAutomationTaskPayload,
   PaperAutomationTask,
   PaperRecord,
+  PaperSnapshotReviewGroupSummary,
+  PaperSnapshotReviewSample,
   TeamDisplayNameWorkspace
 } from "../types";
 
@@ -141,6 +151,7 @@ type ViewKey =
   | "displayNames"
   | "models"
   | "paperTracking"
+  | "paperSnapshotReview"
   | "odds"
   | "records";
 
@@ -181,6 +192,12 @@ type PaperFilterState = {
   start_time: string;
 };
 
+type PaperSnapshotReviewFilterState = {
+  from_date: string;
+  snapshot_source: string;
+  to_date: string;
+};
+
 const matchOddsStatusOptions = [
   { key: "none", label: "无赔率" },
   { key: "early", label: "早盘" },
@@ -198,6 +215,7 @@ export const dashboardNavItems: NavItem[] = [
   { key: "displayNames", label: "中文名", icon: Languages },
   { key: "models", label: "模型训练", icon: BrainCircuit },
   { key: "paperTracking", label: "纸面跟踪", icon: ScrollText },
+  { key: "paperSnapshotReview", label: "推荐快照回顾", icon: BarChart3 },
   { key: "records", label: "推荐记录", icon: ListChecks }
 ];
 
@@ -246,6 +264,10 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
     title: "纸面跟踪",
     subtitle: "观察期候选、人工记录、赛后结算和策略复盘"
   },
+  paperSnapshotReview: {
+    title: "推荐快照回顾",
+    subtitle: "按开赛时间回看 historical_backfill 快照，诊断市场、盘口、手数和策略组合"
+  },
   odds: {
     title: "赔率走势",
     subtitle: "查看单场亚盘和大小球主盘口变化"
@@ -291,6 +313,13 @@ export function DashboardPage() {
   const [paperFilters, setPaperFilters] = useState<PaperFilterState>({
     ...defaultPaperRecommendationDateRange()
   });
+  const [paperSnapshotReviewFilters, setPaperSnapshotReviewFilters] =
+    useState<PaperSnapshotReviewFilterState>({
+      ...defaultPaperSnapshotReviewFilters()
+    });
+  const [paperSnapshotReviewAction, setPaperSnapshotReviewAction] = useState<string | null>(null);
+  const [paperSnapshotReviewMessage, setPaperSnapshotReviewMessage] = useState<string | null>(null);
+  const [paperSnapshotReviewError, setPaperSnapshotReviewError] = useState<string | null>(null);
   const [matchListAction, setMatchListAction] = useState<string | null>(null);
   const [matchListMessage, setMatchListMessage] = useState<string | null>(null);
   const [matchListError, setMatchListError] = useState<string | null>(null);
@@ -391,6 +420,13 @@ export function DashboardPage() {
         .catch(() => setPaperError("刷新纸面跟踪失败"))
         .finally(() => setPaperAction(null));
     }
+    if (activeView === "paperSnapshotReview") {
+      setPaperSnapshotReviewAction("refresh");
+      refreshPaperSnapshotReviewWorkspace(setData, paperSnapshotReviewFilters)
+        .then(markLazyViewLoaded)
+        .catch(() => setPaperSnapshotReviewError("读取推荐快照回顾失败"))
+        .finally(() => setPaperSnapshotReviewAction(null));
+    }
     if (activeView === "displayNames") {
       const firstLeague = data.teamDisplayWorkspaces[0];
       if (firstLeague?.season != null) {
@@ -414,7 +450,15 @@ export function DashboardPage() {
           .catch(() => setOddsTrendError("读取首场赔率走势失败"));
       }
     }
-  }, [activeView, data.teamDisplayWorkspaces, data.matchesWithOdds, isLoading, loadedLazyViews, matchListFilters]);
+  }, [
+    activeView,
+    data.teamDisplayWorkspaces,
+    data.matchesWithOdds,
+    isLoading,
+    loadedLazyViews,
+    matchListFilters,
+    paperSnapshotReviewFilters
+  ]);
 
   useEffect(() => {
     if (activeView !== "models" || data.trainingWorkspace.latest_run?.status !== "running") {
@@ -872,6 +916,39 @@ export function DashboardPage() {
                 .then(() => setPaperMessage("纸面记录已作废"))
                 .catch(() => setPaperError("作废纸面记录失败"))
                 .finally(() => setPaperAction(null));
+            }}
+          />
+        )}
+        {activeView === "paperSnapshotReview" && (
+          <PaperSnapshotReviewView
+            actionInFlight={paperSnapshotReviewAction}
+            data={data}
+            errorText={paperSnapshotReviewError}
+            filters={paperSnapshotReviewFilters}
+            messageText={paperSnapshotReviewMessage}
+            onFiltersChange={(filters) => {
+              setPaperSnapshotReviewFilters((current) => ({ ...current, ...filters }));
+            }}
+            onPreset={(preset) => {
+              const range = buildPaperSnapshotReviewPresetRange(preset);
+              const nextFilters = { ...paperSnapshotReviewFilters, ...range };
+              setPaperSnapshotReviewFilters(nextFilters);
+              setPaperSnapshotReviewAction("refresh");
+              setPaperSnapshotReviewError(null);
+              setPaperSnapshotReviewMessage(null);
+              refreshPaperSnapshotReviewWorkspace(setData, nextFilters)
+                .then(() => setPaperSnapshotReviewMessage("推荐快照回顾已刷新"))
+                .catch(() => setPaperSnapshotReviewError("刷新推荐快照回顾失败"))
+                .finally(() => setPaperSnapshotReviewAction(null));
+            }}
+            onRefresh={() => {
+              setPaperSnapshotReviewAction("refresh");
+              setPaperSnapshotReviewError(null);
+              setPaperSnapshotReviewMessage(null);
+              refreshPaperSnapshotReviewWorkspace(setData, paperSnapshotReviewFilters)
+                .then(() => setPaperSnapshotReviewMessage("推荐快照回顾已刷新"))
+                .catch(() => setPaperSnapshotReviewError("刷新推荐快照回顾失败"))
+                .finally(() => setPaperSnapshotReviewAction(null));
             }}
           />
         )}
@@ -2389,6 +2466,204 @@ function formatArtifactPathLabel(key: string) {
   return names[key] ?? key;
 }
 
+function PaperSnapshotReviewView({
+  actionInFlight,
+  data,
+  errorText,
+  filters,
+  messageText,
+  onFiltersChange,
+  onPreset,
+  onRefresh
+}: {
+  actionInFlight: string | null;
+  data: DashboardData;
+  errorText: string | null;
+  filters: PaperSnapshotReviewFilterState;
+  messageText: string | null;
+  onFiltersChange: (filters: Partial<PaperSnapshotReviewFilterState>) => void;
+  onPreset: (preset: (typeof paperSnapshotReviewPresetOptions)[number]["key"]) => void;
+  onRefresh: () => void;
+}) {
+  const workspace = data.paperSnapshotReview;
+  const cards = buildPaperSnapshotReviewCards(workspace);
+  const isBusy = actionInFlight !== null;
+
+  return (
+    <section className="single-column">
+      <section className="metrics snapshot-review-metrics">
+        {cards.map((card) => (
+          <MetricCard key={card.label} label={card.label} value={card.value} />
+        ))}
+      </section>
+      <Panel title="筛选">
+        <div className="action-row snapshot-review-filter-row">
+          <label>
+            <span>开始</span>
+            <input
+              onChange={(event) => onFiltersChange({ from_date: event.target.value })}
+              type="datetime-local"
+              value={filters.from_date}
+            />
+          </label>
+          <label>
+            <span>结束</span>
+            <input
+              onChange={(event) => onFiltersChange({ to_date: event.target.value })}
+              type="datetime-local"
+              value={filters.to_date}
+            />
+          </label>
+          <select
+            onChange={(event) => onFiltersChange({ snapshot_source: event.target.value })}
+            value={filters.snapshot_source}
+          >
+            <option value="historical_backfill">historical_backfill</option>
+            <option value="manual_record">manual_record</option>
+            <option value="automation">automation</option>
+          </select>
+          <button disabled={isBusy} onClick={onRefresh} type="button">
+            <RefreshCw size={16} />
+            刷新
+          </button>
+          {actionInFlight && <span>正在刷新</span>}
+          {messageText && <span className="success-text">{messageText}</span>}
+          {errorText && <span className="error-text">{errorText}</span>}
+        </div>
+        <div className="preset-row">
+          {paperSnapshotReviewPresetOptions.map((option) => (
+            <button disabled={isBusy} key={option.key} onClick={() => onPreset(option.key)} type="button">
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </Panel>
+      <section className="grid snapshot-review-grid">
+        <Panel title="按市场">
+          <PaperSnapshotReviewGroupTable groups={workspace.groups.by_market_type} />
+        </Panel>
+        <Panel title="按方向">
+          <PaperSnapshotReviewGroupTable groups={workspace.groups.by_market_side} />
+        </Panel>
+      </section>
+      <section className="grid snapshot-review-grid">
+        <Panel title="按分数段">
+          <PaperSnapshotReviewGroupTable groups={workspace.groups.by_confidence_bucket} />
+        </Panel>
+        <Panel title="按建议手数">
+          <PaperSnapshotReviewGroupTable groups={workspace.groups.by_stake_bucket} />
+        </Panel>
+      </section>
+      <section className="grid snapshot-review-grid">
+        <Panel title="按盘口桶">
+          <PaperSnapshotReviewGroupTable groups={workspace.groups.by_line_bucket} />
+        </Panel>
+        <Panel title="按信号族">
+          <PaperSnapshotReviewGroupTable groups={workspace.groups.by_signal_family_combo} />
+        </Panel>
+      </section>
+      <section className="grid snapshot-review-grid">
+        <Panel title="按联赛">
+          <PaperSnapshotReviewGroupTable groups={workspace.groups.by_league.slice(0, 20)} />
+        </Panel>
+        <Panel title="按手数限制">
+          <PaperSnapshotReviewGroupTable groups={workspace.groups.by_stake_cap_reason} />
+        </Panel>
+      </section>
+      <section className="grid snapshot-review-grid">
+        <Panel title="高分亏损样本">
+          <PaperSnapshotReviewSampleTable samples={workspace.samples.high_confidence_losses} />
+        </Panel>
+        <Panel title="低手数盈利样本">
+          <PaperSnapshotReviewSampleTable samples={workspace.samples.low_stake_wins} />
+        </Panel>
+      </section>
+      <Panel title="Pending 快照">
+        <PaperSnapshotReviewSampleTable samples={workspace.samples.pending} />
+      </Panel>
+    </section>
+  );
+}
+
+function PaperSnapshotReviewGroupTable({ groups }: { groups: PaperSnapshotReviewGroupSummary[] }) {
+  const rows = buildPaperSnapshotReviewRows(groups);
+  if (rows.length === 0) {
+    return <div className="empty-state">暂无快照分组</div>;
+  }
+  return (
+    <div className="table-scroll">
+      <table className="snapshot-review-table">
+        <thead>
+          <tr>
+            <th>分组</th>
+            <th>组数</th>
+            <th>已结算</th>
+            <th>手数</th>
+            <th>Flat ROI</th>
+            <th>Weighted ROI</th>
+            <th>Weighted 盈亏</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.groupName}>
+              <td>{row.groupName}</td>
+              <td>{row.groupCount}</td>
+              <td>{row.settledGroups}</td>
+              <td>{row.stakeUnits}</td>
+              <td>{row.flatRoi}</td>
+              <td>{row.weightedRoi}</td>
+              <td>{row.weightedProfitUnits}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PaperSnapshotReviewSampleTable({ samples }: { samples: PaperSnapshotReviewSample[] }) {
+  if (samples.length === 0) {
+    return <div className="empty-state">暂无样本</div>;
+  }
+  return (
+    <div className="table-scroll">
+      <table className="snapshot-review-table">
+        <thead>
+          <tr>
+            <th>开赛</th>
+            <th>联赛</th>
+            <th>比赛</th>
+            <th>推荐</th>
+            <th>分数</th>
+            <th>手数</th>
+            <th>结果</th>
+            <th>Weighted 盈亏</th>
+          </tr>
+        </thead>
+        <tbody>
+          {samples.map((sample) => (
+            <tr key={sample.snapshot_id}>
+              <td>{sample.kickoff_time}</td>
+              <td>{sample.league_display_name || sample.league_name}</td>
+              <td>
+                {(sample.home_team_display_name || sample.home_team_name) +
+                  " vs " +
+                  (sample.away_team_display_name || sample.away_team_name)}
+              </td>
+              <td>{sample.recommendation_text ?? "-"}</td>
+              <td>{sample.confidence_score}</td>
+              <td>{sample.suggested_stake_units}</td>
+              <td>{sample.settlement_result ?? sample.status}</td>
+              <td>{sample.weighted_profit_units}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function PaperTrackingView({
   actionInFlight,
   data,
@@ -2549,6 +2824,15 @@ function refreshPaperWorkspace(
 ): Promise<void> {
   return loadPaperRecommendationWorkspace(filters).then((workspace) => {
     setData((current) => ({ ...current, paperRecommendations: workspace }));
+  });
+}
+
+function refreshPaperSnapshotReviewWorkspace(
+  setData: React.Dispatch<React.SetStateAction<DashboardData>>,
+  filters: PaperSnapshotReviewFilterState
+): Promise<void> {
+  return loadPaperSnapshotReviewWorkspace(filters).then((workspace) => {
+    setData((current) => ({ ...current, paperSnapshotReview: workspace }));
   });
 }
 

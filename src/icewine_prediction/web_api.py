@@ -74,7 +74,9 @@ from icewine_prediction.paper_recommendation_queue_service import (
     build_paper_recommendation_queue,
 )
 from icewine_prediction.paper_recommendation_group_snapshot_service import (
+    HISTORICAL_BACKFILL_SOURCE,
     PAPER_CONFIDENCE_SNAPSHOT_VERSION,
+    build_snapshot_review_workspace,
     create_group_snapshots_for_record_ids,
 )
 from icewine_prediction.paper_confidence_service import (
@@ -843,6 +845,39 @@ def create_web_app(
                     edge_threshold=edge_threshold,
                     scorer=paper_queue_scorer,
                     display_name_service=display_name_service,
+                ),
+            ),
+        )
+
+    @app.get("/api/paper-snapshot-review")
+    def paper_snapshot_review(
+        from_date: str | None = None,
+        to_date: str | None = None,
+        snapshot_source: str = HISTORICAL_BACKFILL_SOURCE,
+        snapshot_version: str = PAPER_CONFIDENCE_SNAPSHOT_VERSION,
+    ) -> dict[str, Any]:
+        return cached_response(
+            (
+                "paper-snapshot-review",
+                from_date,
+                to_date,
+                snapshot_source,
+                snapshot_version,
+            ),
+            lambda: _with_session(
+                session_factory,
+                lambda session: build_paper_snapshot_review_payload(
+                    build_snapshot_review_workspace(
+                        session,
+                        from_date=_parse_optional_datetime(from_date),
+                        to_date=_parse_optional_datetime(to_date),
+                        snapshot_source=snapshot_source,
+                        snapshot_version=snapshot_version,
+                    ),
+                    from_date=from_date,
+                    to_date=to_date,
+                    snapshot_source=snapshot_source,
+                    snapshot_version=snapshot_version,
                 ),
             ),
         )
@@ -2341,6 +2376,136 @@ def build_paper_confidence_workspace_payload(workspace) -> dict[str, Any]:
             build_paper_confidence_group_summary_payload(group)
             for group in workspace.by_family_combo
         ],
+    }
+
+
+def build_paper_snapshot_review_payload(
+    workspace,
+    *,
+    from_date: str | None,
+    to_date: str | None,
+    snapshot_source: str,
+    snapshot_version: str,
+) -> dict[str, Any]:
+    return {
+        "filters": {
+            "from_date": from_date,
+            "to_date": to_date,
+            "snapshot_source": snapshot_source,
+            "snapshot_version": snapshot_version,
+        },
+        "summary": build_paper_snapshot_review_summary_payload(workspace.summary),
+        "groups": {
+            "by_market_type": build_paper_snapshot_review_group_list(workspace.by_market_type),
+            "by_market_side": build_paper_snapshot_review_group_list(workspace.by_market_side),
+            "by_confidence_bucket": build_paper_snapshot_review_group_list(
+                workspace.by_confidence_bucket,
+                sort_by="group_name",
+            ),
+            "by_stake_bucket": build_paper_snapshot_review_group_list(
+                workspace.by_stake_bucket,
+                sort_by="group_name",
+            ),
+            "by_stake_cap_reason": build_paper_snapshot_review_group_list(workspace.by_stake_cap_reason),
+            "by_line_bucket": build_paper_snapshot_review_group_list(workspace.by_line_bucket),
+            "by_signal_family_combo": build_paper_snapshot_review_group_list(workspace.by_signal_family_combo),
+            "by_signal_count": build_paper_snapshot_review_group_list(
+                workspace.by_signal_count,
+                sort_by="group_name",
+            ),
+            "by_league": build_paper_snapshot_review_group_list(workspace.by_league),
+        },
+        "samples": {
+            "high_confidence_losses": [
+                build_paper_snapshot_review_sample_payload(snapshot)
+                for snapshot in workspace.high_confidence_losses
+            ],
+            "low_stake_wins": [
+                build_paper_snapshot_review_sample_payload(snapshot)
+                for snapshot in workspace.low_stake_wins
+            ],
+            "pending": [
+                build_paper_snapshot_review_sample_payload(snapshot)
+                for snapshot in workspace.pending_snapshots
+            ],
+        },
+    }
+
+
+def build_paper_snapshot_review_group_list(groups, *, sort_by: str = "weighted_profit_units") -> list[dict[str, Any]]:
+    payloads = [build_paper_snapshot_review_group_payload(group) for group in groups.values()]
+    if sort_by == "group_name":
+        return sorted(payloads, key=lambda item: item["group_name"])
+    return sorted(
+        payloads,
+        key=lambda item: (Decimal(item["weighted_profit_units"]), item["settled_groups"]),
+        reverse=True,
+    )
+
+
+def build_paper_snapshot_review_summary_payload(summary) -> dict[str, Any]:
+    return {
+        "group_count": summary.group_count,
+        "settled_groups": summary.settled_groups,
+        "pending_groups": summary.pending_groups,
+        "suggested_stake_units": _format_decimal(summary.suggested_stake_units, "0.00"),
+        "flat_profit_units": _format_decimal(summary.flat_profit_units, "0.000"),
+        "weighted_profit_units": _format_decimal(summary.weighted_profit_units, "0.000"),
+        "flat_roi": _format_decimal(summary.flat_roi, "0.0000"),
+        "weighted_roi": _format_decimal(summary.weighted_roi, "0.0000"),
+    }
+
+
+def build_paper_snapshot_review_group_payload(group) -> dict[str, Any]:
+    return {
+        "group_name": group.group_name,
+        "group_count": group.group_count,
+        "settled_groups": group.settled_groups,
+        "pending_groups": group.pending_groups,
+        "suggested_stake_units": _format_decimal(group.suggested_stake_units, "0.00"),
+        "flat_profit_units": _format_decimal(group.flat_profit_units, "0.000"),
+        "weighted_profit_units": _format_decimal(group.weighted_profit_units, "0.000"),
+        "flat_roi": _format_decimal(group.flat_roi, "0.0000"),
+        "weighted_roi": _format_decimal(group.weighted_roi, "0.0000"),
+    }
+
+
+def build_paper_snapshot_review_sample_payload(snapshot) -> dict[str, Any]:
+    record = snapshot.representative_record
+    flat_profit = (
+        record.profit_units
+        if record is not None and record.status == "settled" and record.profit_units is not None
+        else snapshot.flat_profit_units
+    )
+    weighted_profit = Decimal(flat_profit or Decimal("0")) * Decimal(
+        snapshot.suggested_stake_units or Decimal("0")
+    )
+    return {
+        "snapshot_id": snapshot.id,
+        "group_key": snapshot.group_key,
+        "match_id": snapshot.match_id,
+        "kickoff_time": _format_datetime(record.kickoff_time if record is not None else None),
+        "league_name": record.league_name if record is not None else "",
+        "league_display_name": record.league_display_name if record is not None else "",
+        "home_team_name": record.home_team_name if record is not None else "",
+        "home_team_display_name": record.home_team_display_name if record is not None else "",
+        "away_team_name": record.away_team_name if record is not None else "",
+        "away_team_display_name": record.away_team_display_name if record is not None else "",
+        "market_type": snapshot.market_type,
+        "side": snapshot.side,
+        "recommendation_text": snapshot.recommendation_text,
+        "line_bucket": snapshot.line_bucket,
+        "confidence_score": snapshot.confidence_score,
+        "suggested_stake_units": _format_decimal(snapshot.suggested_stake_units, "0.00"),
+        "stake_cap_reason": snapshot.stake_cap_reason,
+        "status": record.status if record is not None and record.status else snapshot.status,
+        "settlement_result": (
+            record.settlement_result
+            if record is not None and record.settlement_result
+            else snapshot.settlement_result
+        ),
+        "flat_profit_units": _format_decimal(Decimal(flat_profit or Decimal("0")), "0.000"),
+        "weighted_profit_units": _format_decimal(weighted_profit, "0.000"),
     }
 
 

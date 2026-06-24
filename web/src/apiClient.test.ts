@@ -11,6 +11,7 @@ import {
   loadPaperAutomationTask,
   loadPaperAutomationTasks,
   loadPaperRecommendationWorkspace,
+  loadPaperSnapshotReviewWorkspace,
   recordPaperCandidates,
   startTrainingFullRefresh,
   syncFixtureRange,
@@ -107,6 +108,40 @@ const apiPayloads: Record<string, unknown> = {
       by_manual_adjustment: []
     }
   },
+  "/api/paper-snapshot-review": {
+    filters: {
+      from_date: "2026-05-01T00:00",
+      to_date: "2026-06-23T23:59",
+      snapshot_source: "historical_backfill",
+      snapshot_version: "paper_confidence_v1"
+    },
+    summary: {
+      group_count: 850,
+      settled_groups: 848,
+      pending_groups: 2,
+      suggested_stake_units: "904.50",
+      flat_profit_units: "220.513",
+      weighted_profit_units: "249.399",
+      flat_roi: "0.2600",
+      weighted_roi: "0.2757"
+    },
+    groups: {
+      by_market_type: [],
+      by_market_side: [],
+      by_confidence_bucket: [],
+      by_stake_bucket: [],
+      by_stake_cap_reason: [],
+      by_line_bucket: [],
+      by_signal_family_combo: [],
+      by_signal_count: [],
+      by_league: []
+    },
+    samples: {
+      high_confidence_losses: [],
+      low_stake_wins: [],
+      pending: []
+    }
+  },
   "/api/match-list/workspace": {
     filters: {
       end_time: "2026-05-31T12:00:00+08:00",
@@ -196,6 +231,21 @@ describe("apiClient", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/paper-recommendations/workspace?end_time=2026-05-30T23%3A59&start_time=2026-05-30T00%3A00"
+    );
+  });
+
+  it("loads paper snapshot review with source and kickoff window params", async () => {
+    const fetchMock = vi.fn(async () => Response.json(apiPayloads["/api/paper-snapshot-review"]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await loadPaperSnapshotReviewWorkspace({
+      from_date: "2026-05-01T00:00",
+      snapshot_source: "historical_backfill",
+      to_date: "2026-06-23T23:59"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/paper-snapshot-review?from_date=2026-05-01T00%3A00&snapshot_source=historical_backfill&to_date=2026-06-23T23%3A59"
     );
   });
 

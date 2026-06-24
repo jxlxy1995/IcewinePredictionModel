@@ -5,6 +5,7 @@ import type {
   MatchOddsTrends,
   OddspapiBackfillAudit,
   PaperRecommendationWorkspace,
+  PaperSnapshotReviewWorkspace,
   TeamDisplayNameWorkspace,
   TrainingWorkspace
 } from "./types";
@@ -672,6 +673,41 @@ export const mockOddspapiBackfillAudit: OddspapiBackfillAudit = {
   ]
 };
 
+export const mockPaperSnapshotReviewWorkspace: PaperSnapshotReviewWorkspace = {
+  filters: {
+    from_date: "2026-05-01T00:00",
+    to_date: "2026-06-23T23:59",
+    snapshot_source: "historical_backfill",
+    snapshot_version: "paper_confidence_v1"
+  },
+  summary: {
+    group_count: 850,
+    settled_groups: 848,
+    pending_groups: 2,
+    suggested_stake_units: "904.50",
+    flat_profit_units: "220.513",
+    weighted_profit_units: "249.399",
+    flat_roi: "0.2600",
+    weighted_roi: "0.2757"
+  },
+  groups: {
+    by_market_type: [],
+    by_market_side: [],
+    by_confidence_bucket: [],
+    by_stake_bucket: [],
+    by_stake_cap_reason: [],
+    by_line_bucket: [],
+    by_signal_family_combo: [],
+    by_signal_count: [],
+    by_league: []
+  },
+  samples: {
+    high_confidence_losses: [],
+    low_stake_wins: [],
+    pending: []
+  }
+};
+
 function latestMockTeamKickoffTime(workspace: TeamDisplayNameWorkspace): string | null {
   const values = workspace.teams
     .map((team) => team.latest_kickoff_time)
@@ -797,6 +833,7 @@ export const mockDashboardData: DashboardData = {
   doneDisplayTranslationKeys: ["78-2025"],
   trainingWorkspace: mockTrainingWorkspace,
   paperRecommendations: mockPaperRecommendationWorkspace,
+  paperSnapshotReview: mockPaperSnapshotReviewWorkspace,
   matchList: mockMatchListWorkspace,
   recommendationRecords: []
 };

@@ -1222,11 +1222,23 @@ def test_web_console_api_workspace_confidence_simulation_prefers_snapshots(tmp_p
         )
         session.commit()
 
+    def fake_scorer(row):
+        from icewine_prediction.paper_recommendation_queue_service import PaperQueueScore
+
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.7100"),
+            market_probability=Decimal("0.5000"),
+            edge=Decimal("0.2100"),
+            model_name="fake_hgb",
+        )
+
     client = TestClient(
         create_web_app(
             session_factory=session_factory,
             log_dir=tmp_path,
             start_paper_automation_scheduler=False,
+            paper_queue_scorer=fake_scorer,
             clock=lambda: datetime(2026, 5, 31, 1, 0, tzinfo=BEIJING),
         )
     )

@@ -8,6 +8,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.orm import Session, joinedload
 
 from icewine_prediction.models import HistoricalOddsSnapshot, Match
+from icewine_prediction.odds_provider_selection_service import filter_priority_pinnacle_snapshots
 from icewine_prediction.settlement_service import settle_asian_handicap, settle_total_goals
 
 
@@ -95,8 +96,9 @@ def list_historical_market_training_samples(
     *,
     season: int | None = None,
     limit: int | None = None,
-    source_name: str = "oddspapi",
+    source_name: str | None = "oddspapi",
     bookmaker: str = "pinnacle",
+    use_pinnacle_provider_priority: bool = False,
 ) -> list[HistoricalMarketTrainingSample]:
     query = (
         session.query(Match)
@@ -120,6 +122,7 @@ def list_historical_market_training_samples(
         match_ids=[match.id for match in matches],
         source_name=source_name,
         bookmaker=bookmaker,
+        use_pinnacle_provider_priority=use_pinnacle_provider_priority,
     )
     samples: list[HistoricalMarketTrainingSample] = []
     for match in matches:
@@ -144,19 +147,22 @@ def _load_historical_snapshots(
     session: Session,
     *,
     match_ids: list[int],
-    source_name: str,
+    source_name: str | None,
     bookmaker: str,
+    use_pinnacle_provider_priority: bool = False,
 ) -> dict[int, list[HistoricalOddsSnapshot]]:
     if not match_ids:
         return {}
-    snapshots = (
+    query = (
         session.query(HistoricalOddsSnapshot)
         .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
-        .filter(HistoricalOddsSnapshot.source_name == source_name)
         .filter(HistoricalOddsSnapshot.bookmaker == bookmaker)
-        .order_by(HistoricalOddsSnapshot.snapshot_time.asc())
-        .all()
     )
+    if source_name is not None:
+        query = query.filter(HistoricalOddsSnapshot.source_name == source_name)
+    snapshots = query.order_by(HistoricalOddsSnapshot.snapshot_time.asc()).all()
+    if use_pinnacle_provider_priority:
+        snapshots = filter_priority_pinnacle_snapshots(snapshots, bookmaker=bookmaker)
     snapshots_by_match_id: dict[int, list[HistoricalOddsSnapshot]] = defaultdict(list)
     for snapshot in snapshots:
         snapshots_by_match_id[snapshot.match_id].append(snapshot)

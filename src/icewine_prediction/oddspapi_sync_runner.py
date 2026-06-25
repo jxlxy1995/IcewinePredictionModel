@@ -43,6 +43,7 @@ ODDSPAPI_BASE_URL = "https://api.oddspapi.io/v4"
 ODDSPAPI_SOURCE_NAME = "oddspapi"
 SOCCER_SPORT_ID = 10
 SELECTED_BOOKMAKERS = "pinnacle"
+DEFAULT_BOOKMAKER = "pinnacle"
 TERMINAL_HISTORICAL_ODDS_STATUSES = {"empty", "unavailable", "unmatched"}
 HISTORICAL_ODDS_TIMEOUT_ATTEMPTS = 2
 COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT = 100
@@ -204,6 +205,7 @@ class OddsPapiSyncClient:
     def __init__(
         self,
         client: OddsPapiClient,
+        bookmaker: str = DEFAULT_BOOKMAKER,
         fixture_cooldown_seconds: float = 7.5,
         fixture_limiter: OddsPapiRequestLimiter | None = None,
         historical_odds_cooldown_seconds: float = 0,
@@ -211,6 +213,7 @@ class OddsPapiSyncClient:
         historical_odds_rate_limit_backoff_seconds: float = 30,
     ):
         self.client = client
+        self.bookmaker = bookmaker.lower()
         self._last_fixture_request_at = 0.0
         self._last_historical_odds_request_at = 0.0
         self.fixture_cooldown_seconds = fixture_cooldown_seconds
@@ -266,7 +269,7 @@ class OddsPapiSyncClient:
         params = {
             "sportId": SOCCER_SPORT_ID,
             "fixtureId": source_fixture_id,
-            "bookmakers": SELECTED_BOOKMAKERS,
+            "bookmakers": self.bookmaker,
         }
         if outcome_id is not None:
             params["outcomeId"] = outcome_id
@@ -304,7 +307,7 @@ class OddsPapiSyncClient:
     def fetch_markets(self, source_fixture_id: str) -> list[dict[str, Any]]:
         if self._market_definitions_cache is not None:
             return self._market_definitions_cache
-        cache_key = (SOCCER_SPORT_ID, SELECTED_BOOKMAKERS)
+        cache_key = (SOCCER_SPORT_ID, self.bookmaker)
         with GLOBAL_MARKET_DEFINITIONS_CACHE_LOCK:
             cached_markets = GLOBAL_MARKET_DEFINITIONS_CACHE.get(cache_key)
         if cached_markets is not None:
@@ -315,7 +318,7 @@ class OddsPapiSyncClient:
             {
                 "sportId": SOCCER_SPORT_ID,
                 "fixtureId": source_fixture_id,
-                "bookmakers": SELECTED_BOOKMAKERS,
+                "bookmakers": self.bookmaker,
             },
         )
         with GLOBAL_MARKET_DEFINITIONS_CACHE_LOCK:
@@ -332,7 +335,7 @@ class OddsPapiSyncClient:
     def has_market_definitions_cache(self) -> bool:
         if self._market_definitions_cache is not None:
             return True
-        cache_key = (SOCCER_SPORT_ID, SELECTED_BOOKMAKERS)
+        cache_key = (SOCCER_SPORT_ID, self.bookmaker)
         with GLOBAL_MARKET_DEFINITIONS_CACHE_LOCK:
             return cache_key in GLOBAL_MARKET_DEFINITIONS_CACHE
 
@@ -406,6 +409,7 @@ def run_oddspapi_sync(
     from_date: datetime | None = None,
     historical_odds_cooldown_seconds: float = 6,
     refresh_pre_kickoff_existing: bool = False,
+    bookmaker: str = DEFAULT_BOOKMAKER,
     progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     settings = load_project_settings()
@@ -419,6 +423,7 @@ def run_oddspapi_sync(
     )
     client = OddsPapiSyncClient(
         raw_client,
+        bookmaker=bookmaker,
         fixture_limiter=GLOBAL_FIXTURE_LIMITER,
         historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
         historical_odds_limiter=GLOBAL_HISTORICAL_ODDS_LIMITER,
@@ -452,6 +457,7 @@ def run_oddspapi_sync_result(
     from_date: datetime | None = None,
     historical_odds_cooldown_seconds: float = 6,
     refresh_pre_kickoff_existing: bool = False,
+    bookmaker: str = DEFAULT_BOOKMAKER,
     progress_callback: Callable[[str], None] | None = None,
 ) -> OddsPapiSyncResult:
     settings = load_project_settings()
@@ -465,6 +471,7 @@ def run_oddspapi_sync_result(
     )
     client = OddsPapiSyncClient(
         raw_client,
+        bookmaker=bookmaker,
         fixture_limiter=GLOBAL_FIXTURE_LIMITER,
         historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
         historical_odds_limiter=GLOBAL_HISTORICAL_ODDS_LIMITER,
@@ -491,6 +498,7 @@ def build_oddspapi_probe_report(
     request_budget: int,
     timeout_seconds: int = 20,
     skip_match_ids: set[int] | None = None,
+    bookmaker: str = DEFAULT_BOOKMAKER,
 ) -> str:
     settings = load_project_settings()
     raw_client = OddsPapiClient(
@@ -499,7 +507,11 @@ def build_oddspapi_probe_report(
         timeout_seconds=timeout_seconds,
         request_budget=request_budget,
     )
-    client = OddsPapiSyncClient(raw_client, historical_odds_cooldown_seconds=5)
+    client = OddsPapiSyncClient(
+        raw_client,
+        bookmaker=bookmaker,
+        historical_odds_cooldown_seconds=5,
+    )
     with _open_session() as session:
         report = build_oddspapi_probe_report_for_session(
             session=session,
@@ -1028,6 +1040,7 @@ def _fetch_and_store_historical_odds(
         raw_odds,
         match_id=match.id,
         source_fixture_id=source_fixture_id,
+        selected_bookmakers={client.bookmaker},
         market_definitions=market_definitions,
     )
     raw_snapshot_count = len(raw_snapshots)
@@ -1153,6 +1166,7 @@ def _fetch_and_store_historical_odds(
         raw_odds,
         match_id=match.id,
         source_fixture_id=source_fixture_id,
+        selected_bookmakers={client.bookmaker},
         market_definitions=market_definitions,
     )
     snapshots = build_dynamic_main_market_snapshots(

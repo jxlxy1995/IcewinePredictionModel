@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from typer.testing import CliRunner
@@ -149,6 +150,12 @@ from icewine_prediction.historical_training_sample_service import (
 from icewine_prediction.historical_training_sample_report_service import (
     HistoricalOddsSampleQualityReport,
 )
+from icewine_prediction.bookmaker_overlap_comparison_service import (
+    BookmakerOverlapComparisonReport,
+)
+from icewine_prediction.bookmaker_replay_comparison_service import (
+    BookmakerReplayComparisonReport,
+)
 from icewine_prediction.training_sample_service import TrainingSample
 
 
@@ -204,6 +211,24 @@ def test_samples_group_exposes_historical_odds_close_baseline_help():
 
     assert result.exit_code == 0
     assert "historical-odds-close-baseline" in result.stdout
+
+
+def test_samples_group_exposes_bookmaker_overlap_comparison_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "bookmaker-overlap-comparison" in result.stdout
+
+
+def test_samples_group_exposes_bookmaker_replay_comparison_help():
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["samples", "--help"])
+
+    assert result.exit_code == 0
+    assert "bookmaker-replay-comparison" in result.stdout
 
 
 def test_samples_group_exposes_baseline_dataset_help():
@@ -2069,6 +2094,188 @@ def test_samples_historical_odds_close_baseline_command_outputs_report(monkeypat
     assert captured["bookmaker"] == "pinnacle"
     assert "close market baseline" in result.stdout
     assert "match_winner: evaluated 1 skipped 0" in result.stdout
+
+
+def test_samples_bookmaker_overlap_comparison_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeSessionFactory:
+        def __call__(self):
+            return FakeSession()
+
+    def fake_build_report(
+        session,
+        *,
+        baseline_bookmaker,
+        candidate_bookmaker,
+        season,
+        limit,
+    ):
+        captured["baseline_bookmaker"] = baseline_bookmaker
+        captured["candidate_bookmaker"] = candidate_bookmaker
+        captured["season"] = season
+        captured["limit"] = limit
+        return BookmakerOverlapComparisonReport(
+            baseline_bookmaker=baseline_bookmaker,
+            candidate_bookmaker=candidate_bookmaker,
+            season=season,
+            baseline_sample_count=10,
+            candidate_sample_count=8,
+            overlap_sample_count=7,
+            coverage_ratio=Decimal("0.7000"),
+            market_rows=(),
+        )
+
+    def fake_write_report(report, output_path):
+        captured["output_path"] = str(output_path)
+
+    monkeypatch.setattr("icewine_prediction.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("icewine_prediction.cli.initialize_database", lambda engine: None)
+    monkeypatch.setattr(
+        "icewine_prediction.cli.create_session_factory",
+        lambda engine: FakeSessionFactory(),
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_bookmaker_overlap_comparison_report",
+        fake_build_report,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_bookmaker_overlap_comparison_report",
+        fake_write_report,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "bookmaker-overlap-comparison",
+            "--baseline-bookmaker",
+            "pinnacle",
+            "--candidate-bookmaker",
+            "sbobet",
+            "--season",
+            "2026",
+            "--limit",
+            "200",
+            "--report-path",
+            "local_data/reports/sbobet_overlap.md",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured == {
+        "baseline_bookmaker": "pinnacle",
+        "candidate_bookmaker": "sbobet",
+        "season": 2026,
+        "limit": 200,
+        "output_path": "local_data\\reports\\sbobet_overlap.md",
+    }
+    assert "bookmaker_overlap_comparison" in result.stdout
+    assert "overlap=7" in result.stdout
+    assert "coverage=0.7000" in result.stdout
+
+
+def test_samples_bookmaker_replay_comparison_command_writes_report(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeSessionFactory:
+        def __call__(self):
+            return FakeSession()
+
+    def fake_build_report(
+        session,
+        *,
+        csv_path,
+        baseline_bookmaker,
+        candidate_bookmaker,
+        edge_threshold,
+    ):
+        captured["csv_path"] = str(csv_path)
+        captured["baseline_bookmaker"] = baseline_bookmaker
+        captured["candidate_bookmaker"] = candidate_bookmaker
+        captured["edge_threshold"] = edge_threshold
+        return BookmakerReplayComparisonReport(
+            csv_path=Path(csv_path),
+            row_count=100,
+            train_rows=80,
+            validation_rows=20,
+            source_name="oddspapi",
+            baseline_bookmaker=baseline_bookmaker,
+            candidate_bookmaker=candidate_bookmaker,
+            baseline_snapshot_match_count=18,
+            candidate_snapshot_match_count=16,
+            overlap_match_count=15,
+            baseline_candidate_count=20,
+            candidate_candidate_count=17,
+            overlap_candidate_count=12,
+            baseline_only_candidate_count=8,
+            candidate_only_candidate_count=5,
+            strategy_summaries=[],
+        )
+
+    def fake_write_report(report, output_path):
+        captured["output_path"] = str(output_path)
+
+    monkeypatch.setattr("icewine_prediction.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("icewine_prediction.cli.initialize_database", lambda engine: None)
+    monkeypatch.setattr(
+        "icewine_prediction.cli.create_session_factory",
+        lambda engine: FakeSessionFactory(),
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_bookmaker_replay_comparison_report",
+        fake_build_report,
+    )
+    monkeypatch.setattr(
+        "icewine_prediction.cli.write_bookmaker_replay_comparison_report",
+        fake_write_report,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "samples",
+            "bookmaker-replay-comparison",
+            "--csv-path",
+            "local_data/training/features.csv",
+            "--baseline-bookmaker",
+            "pinnacle",
+            "--candidate-bookmaker",
+            "sbobet",
+            "--edge-threshold",
+            "0.08",
+            "--report-path",
+            "local_data/reports/sbobet_replay.md",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured == {
+        "csv_path": "local_data\\training\\features.csv",
+        "baseline_bookmaker": "pinnacle",
+        "candidate_bookmaker": "sbobet",
+        "edge_threshold": "0.08",
+        "output_path": "local_data\\reports\\sbobet_replay.md",
+    }
+    assert "bookmaker_replay_comparison" in result.stdout
+    assert "overlap_matches=15" in result.stdout
+    assert "overlap_candidates=12" in result.stdout
 
 
 def _historical_market_feature() -> HistoricalOddsMarketFeature:

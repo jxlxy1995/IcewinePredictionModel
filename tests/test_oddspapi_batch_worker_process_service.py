@@ -34,6 +34,7 @@ def test_start_batch_worker_process_writes_status_and_launches_python(monkeypatc
         historical_odds_cooldown_seconds=7.5,
         hard_timeout_seconds=3600,
         log_dir=tmp_path,
+        bookmaker="sbobet",
         league_ids={"41", "89"},
         from_date="2026-01-15",
         skip_match_ids={8328, 8600},
@@ -52,6 +53,7 @@ def test_start_batch_worker_process_writes_status_and_launches_python(monkeypatc
     assert command[command.index("--round-timeout-seconds") + 1] == "60"
     assert command[command.index("--historical-odds-cooldown-seconds") + 1] == "7.5"
     assert command[command.index("--hard-timeout-seconds") + 1] == "3600"
+    assert command[command.index("--bookmaker") + 1] == "sbobet"
     assert "--notify-on-complete" in command
     assert captured["kwargs"]["cwd"] == Path.cwd()
     assert captured["kwargs"]["env"]["PYTHONIOENCODING"] == "utf-8"
@@ -80,6 +82,7 @@ def test_batch_worker_status_reads_current_status_and_log_tail(monkeypatch, tmp_
         historical_odds_cooldown_seconds=7.5,
         hard_timeout_seconds=3600,
         log_dir=tmp_path,
+        bookmaker="pinnacle",
         league_ids={"62"},
         from_date=None,
         skip_match_ids=None,
@@ -117,6 +120,7 @@ def test_batch_worker_status_includes_progress_snapshot(monkeypatch, tmp_path):
         historical_odds_cooldown_seconds=7.5,
         hard_timeout_seconds=3600,
         log_dir=tmp_path,
+        bookmaker="pinnacle",
         league_ids={"62"},
         from_date=None,
         skip_match_ids=None,

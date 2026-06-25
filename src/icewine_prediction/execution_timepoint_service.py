@@ -9,6 +9,9 @@ from icewine_prediction.historical_training_sample_service import (
 
 
 DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES = 5
+BOOKMAKER_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES = {
+    "sbobet": 10,
+}
 
 
 def select_execution_timepoint_pair(
@@ -18,6 +21,11 @@ def select_execution_timepoint_pair(
     target_minutes_before_kickoff: int,
     tolerance_minutes: int = DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES,
 ) -> _PairedMarketSnapshot | None:
+    if pairs:
+        tolerance_minutes = BOOKMAKER_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES.get(
+            pairs[0].bookmaker.lower(),
+            tolerance_minutes,
+        )
     kickoff = _comparable_datetime(kickoff_time)
     target_time = kickoff - timedelta(minutes=target_minutes_before_kickoff)
     tolerance = timedelta(minutes=tolerance_minutes)

@@ -32,17 +32,53 @@ def test_select_execution_timepoint_pair_uses_symmetric_tolerance_after_target()
     assert selected.market_line == Decimal("-0.50")
 
 
+def test_select_execution_timepoint_pair_uses_wider_tolerance_for_sbobet():
+    kickoff_time = datetime(2026, 5, 31, 16, 30)
+    snapshot_time = kickoff_time - timedelta(minutes=36, seconds=24)
+    snapshots = [
+        _snapshot(snapshot_time, Decimal("0.00"), "home", Decimal("1.900"), bookmaker="sbobet"),
+        _snapshot(snapshot_time, Decimal("0.00"), "away", Decimal("1.900"), bookmaker="sbobet"),
+    ]
+
+    selected = select_execution_timepoint_pair(
+        _pair_market_snapshots(snapshots, market_type="asian_handicap"),
+        kickoff_time=kickoff_time,
+        target_minutes_before_kickoff=30,
+    )
+
+    assert selected is not None
+    assert selected.snapshot_time == snapshot_time
+
+
+def test_select_execution_timepoint_pair_keeps_default_tolerance_for_pinnacle():
+    kickoff_time = datetime(2026, 5, 31, 16, 30)
+    snapshot_time = kickoff_time - timedelta(minutes=36, seconds=24)
+    snapshots = [
+        _snapshot(snapshot_time, Decimal("0.00"), "home", Decimal("1.900"), bookmaker="pinnacle"),
+        _snapshot(snapshot_time, Decimal("0.00"), "away", Decimal("1.900"), bookmaker="pinnacle"),
+    ]
+
+    selected = select_execution_timepoint_pair(
+        _pair_market_snapshots(snapshots, market_type="asian_handicap"),
+        kickoff_time=kickoff_time,
+        target_minutes_before_kickoff=30,
+    )
+
+    assert selected is None
+
+
 def _snapshot(
     snapshot_time: datetime,
     line: Decimal,
     side: str,
     odds: Decimal,
+    bookmaker: str = "pinnacle",
 ) -> HistoricalOddsSnapshot:
     return HistoricalOddsSnapshot(
         match_id=1,
         source_name="oddspapi",
         source_fixture_id="fixture-1",
-        bookmaker="pinnacle",
+        bookmaker=bookmaker,
         market_type="asian_handicap",
         market_id=f"asian_handicap-{line}-{side}-{snapshot_time.timestamp()}",
         market_name="asian_handicap",

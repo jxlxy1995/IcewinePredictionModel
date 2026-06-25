@@ -72,11 +72,12 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
         from_date=None,
         historical_odds_cooldown_seconds=5,
         refresh_pre_kickoff_existing=False,
+        bookmaker="pinnacle",
         progress_callback=None: (
             f"fetch:{season}:{max_matches}:{request_budget}:"
             f"{timeout_seconds}:{max_snapshots_per_match}:{skip_match_ids}:"
             f"{match_ids}:{league_ids}:{from_date}:{historical_odds_cooldown_seconds}:"
-            f"{refresh_pre_kickoff_existing}"
+            f"{refresh_pre_kickoff_existing}:{bookmaker}"
         ),
     )
 
@@ -104,6 +105,8 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
             "--historical-odds-cooldown-seconds",
             "3",
             "--refresh-pre-kickoff-existing",
+            "--bookmaker",
+            "sbobet",
         ],
     )
 
@@ -111,7 +114,7 @@ def test_oddspapi_fetch_accepts_season_match_limit_and_request_budget(monkeypatc
     assert "fetch:2025:20:50:12:150:{1149, 1150}:" in result.stdout
     assert "'135'" in result.stdout
     assert "'140'" in result.stdout
-    assert ":2026-01-15:3.0:True" in result.stdout
+    assert ":2026-01-15:3.0:True:sbobet" in result.stdout
 
 
 def test_oddspapi_supplement_snapshots_from_raw_accepts_match_ids(monkeypatch):
@@ -159,9 +162,10 @@ def test_oddspapi_probe_accepts_season_match_limit_and_request_budget(monkeypatc
         max_matches,
         request_budget,
         timeout_seconds,
-        skip_match_ids=None: (
+        skip_match_ids=None,
+        bookmaker="pinnacle": (
             f"probe:{season}:{max_matches}:{request_budget}:"
-            f"{timeout_seconds}:{skip_match_ids}"
+            f"{timeout_seconds}:{skip_match_ids}:{bookmaker}"
         ),
     )
 
@@ -180,11 +184,13 @@ def test_oddspapi_probe_accepts_season_match_limit_and_request_budget(monkeypatc
             "8",
             "--skip-match-ids",
             "1149,1150",
+            "--bookmaker",
+            "sbobet",
         ],
     )
 
     assert result.exit_code == 0
-    assert "probe:2025:20:50:8:{1149, 1150}" in result.stdout
+    assert "probe:2025:20:50:8:{1149, 1150}:sbobet" in result.stdout
 
 
 def test_oddspapi_diagnose_fixtures_accepts_background_report_options(monkeypatch):
@@ -377,6 +383,7 @@ def test_oddspapi_batch_backfill_accepts_controller_options(monkeypatch):
         stop_after_empty_matches,
         stop_after_failed_rounds,
         round_timeout_seconds,
+        bookmaker="pinnacle",
         league_ids=None,
         from_date=None,
         skip_match_ids=None,
@@ -384,7 +391,7 @@ def test_oddspapi_batch_backfill_accepts_controller_options(monkeypatch):
             f"batch:{season}:{mode}:{chunk_size}:{request_budget_per_league}:"
             f"{timeout_seconds}:{max_snapshots_per_match}:{max_rounds_per_league}:"
             f"{stop_after_empty_matches}:{stop_after_failed_rounds}:"
-            f"{round_timeout_seconds}:{league_ids}:{from_date}:{skip_match_ids}:{match_ids}"
+            f"{round_timeout_seconds}:{bookmaker}:{league_ids}:{from_date}:{skip_match_ids}:{match_ids}"
         ),
     )
 
@@ -413,6 +420,8 @@ def test_oddspapi_batch_backfill_accepts_controller_options(monkeypatch):
             "2",
             "--round-timeout-seconds",
             "60",
+            "--bookmaker",
+            "sbobet",
             "--league-ids",
             "62,89",
             "--from-date",
@@ -423,7 +432,7 @@ def test_oddspapi_batch_backfill_accepts_controller_options(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "batch:2025:balanced:20:800:20:120:12:8:2:60.0:" in result.stdout
+    assert "batch:2025:balanced:20:800:20:120:12:8:2:60.0:sbobet:" in result.stdout
     assert "'62'" in result.stdout
     assert "'89'" in result.stdout
     assert "'8328'" in result.stdout or "8328" in result.stdout
@@ -448,6 +457,7 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
         historical_odds_cooldown_seconds,
         hard_timeout_seconds,
         log_dir,
+        bookmaker="pinnacle",
         league_ids=None,
         from_date=None,
         skip_match_ids=None,
@@ -458,7 +468,7 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
             f"{timeout_seconds}:{max_snapshots_per_match}:{max_rounds_per_league}:"
             f"{stop_after_empty_matches}:{stop_after_failed_rounds}:{round_timeout_seconds}:"
             f"{historical_odds_cooldown_seconds}:{hard_timeout_seconds}:"
-            f"{log_dir}:{league_ids}:{from_date}:"
+            f"{log_dir}:{bookmaker}:{league_ids}:{from_date}:"
             f"{skip_match_ids}:{match_ids}:{notify_on_complete}:{output_callback is not None}"
         ),
     )
@@ -492,6 +502,8 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
             "7.5",
             "--hard-timeout-seconds",
             "3600",
+            "--bookmaker",
+            "sbobet",
             "--log-dir",
             "logs/odds",
             "--league-ids",
@@ -507,7 +519,7 @@ def test_oddspapi_batch_worker_accepts_log_options(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "worker:2025:balanced:10:500:20:120:2:8:2:60.0:7.5:3600.0:logs/odds:" in result.stdout
+    assert "worker:2025:balanced:10:500:20:120:2:8:2:60.0:7.5:3600.0:logs/odds:sbobet:" in result.stdout
     assert "'41'" in result.stdout
     assert "'89'" in result.stdout
     assert "'8328'" in result.stdout or "8328" in result.stdout
@@ -535,6 +547,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
         historical_odds_cooldown_seconds,
         hard_timeout_seconds,
         log_dir,
+        bookmaker="pinnacle",
         league_ids=None,
         from_date=None,
         skip_match_ids=None,
@@ -548,7 +561,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
                     f"{timeout_seconds}:{max_snapshots_per_match}:{max_rounds_per_league}:"
                     f"{stop_after_empty_matches}:{stop_after_failed_rounds}:"
                     f"{round_timeout_seconds}:{historical_odds_cooldown_seconds}:"
-                    f"{hard_timeout_seconds}:{log_dir}:{league_ids}:{from_date}:"
+                    f"{hard_timeout_seconds}:{log_dir}:{bookmaker}:{league_ids}:{from_date}:"
                     f"{skip_match_ids}:{match_ids}:{notify_on_complete}"
                 )
             },
@@ -584,6 +597,8 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
             "7.5",
             "--hard-timeout-seconds",
             "3600",
+            "--bookmaker",
+            "sbobet",
             "--log-dir",
             "logs/odds",
             "--league-ids",
@@ -599,7 +614,7 @@ def test_oddspapi_worker_start_accepts_background_options(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "start:2025:fast:12:900:18:100:30:10:3:45.0:7.5:3600.0:logs/odds:" in result.stdout
+    assert "start:2025:fast:12:900:18:100:30:10:3:45.0:7.5:3600.0:logs/odds:sbobet:" in result.stdout
     assert "'62'" in result.stdout
     assert "'89'" in result.stdout
     assert "'8328'" in result.stdout or "8328" in result.stdout

@@ -142,6 +142,72 @@ def test_map_historical_odds_defaults_to_pinnacle_only_for_nested_payloads():
     assert snapshots[0].bookmaker == "pinnacle"
 
 
+def test_map_historical_odds_can_select_sbobet_for_nested_payloads():
+    payload = {
+        "fixtureId": "oddspapi-fixture",
+        "bookmakers": {
+            "pinnacle": {
+                "markets": {
+                    "1070": {
+                        "outcomes": {
+                            "1070": {
+                                "players": {
+                                    "0": [
+                                        {
+                                            "createdAt": "2026-05-23T18:00:00Z",
+                                            "price": 1.91,
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+            "sbobet": {
+                "markets": {
+                    "1070": {
+                        "outcomes": {
+                            "1070": {
+                                "players": {
+                                    "0": [
+                                        {
+                                            "createdAt": "2026-05-23T18:00:00Z",
+                                            "price": 1.88,
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+        },
+    }
+    markets = [
+        {
+            "marketId": 1070,
+            "marketName": "Asian Handicap",
+            "marketType": "spreads",
+            "handicap": -0.25,
+            "period": "fulltime",
+            "outcomes": [{"outcomeId": 1070, "outcomeName": "1"}],
+        },
+    ]
+
+    snapshots = map_historical_odds(
+        payload,
+        match_id=42,
+        source_fixture_id="oddspapi-fixture",
+        selected_bookmakers={"sbobet"},
+        market_definitions=markets,
+    )
+
+    assert len(snapshots) == 1
+    assert snapshots[0].bookmaker == "sbobet"
+    assert snapshots[0].odds == Decimal("1.88")
+
+
 def test_map_historical_odds_handles_nested_oddspapi_response_with_market_definitions():
     payload = {
         "fixtureId": "oddspapi-fixture",

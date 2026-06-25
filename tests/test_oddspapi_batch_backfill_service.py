@@ -661,6 +661,80 @@ def test_batch_backfill_passes_match_ids_to_runner():
     assert calls[0]["match_ids"] == {101, 102}
 
 
+def test_batch_backfill_passes_bookmaker_to_runner():
+    calls = []
+
+    def fake_runner(**kwargs):
+        calls.append(kwargs)
+        return OddsPapiSyncResult(
+            processed_match_count=1,
+            matched_count=1,
+            failed_match_count=0,
+            inserted_snapshot_count=10,
+            skipped_duplicate_snapshot_count=0,
+            skipped_existing_odds_count=0,
+            asian_handicap_count=4,
+            total_goals_count=4,
+            requests_used=1,
+            match_winner_count=2,
+        )
+
+    run_oddspapi_batch_backfill_with_runner(
+        jobs=(LeagueBackfillJob("98", "日职联", 60),),
+        runner=fake_runner,
+        season=2025,
+        from_date=date(2026, 1, 15),
+        mode=BatchBackfillMode.SAFE,
+        chunk_size=1,
+        request_budget_per_league=100,
+        timeout_seconds=20,
+        max_snapshots_per_match=151,
+        max_rounds_per_league=1,
+        stop_after_empty_matches=8,
+        bookmaker="sbobet",
+    )
+
+    assert calls[0]["bookmaker"] == "sbobet"
+
+
+def test_batch_worker_passes_bookmaker_to_runner(tmp_path):
+    calls = []
+
+    def fake_runner(**kwargs):
+        calls.append(kwargs)
+        return OddsPapiSyncResult(
+            processed_match_count=1,
+            matched_count=1,
+            failed_match_count=0,
+            inserted_snapshot_count=10,
+            skipped_duplicate_snapshot_count=0,
+            skipped_existing_odds_count=0,
+            asian_handicap_count=4,
+            total_goals_count=4,
+            requests_used=1,
+            match_winner_count=2,
+        )
+
+    run_oddspapi_batch_worker_with_runner(
+        jobs=(LeagueBackfillJob("98", "日职联", 60),),
+        runner=fake_runner,
+        season=2025,
+        from_date=date(2026, 1, 15),
+        mode=BatchBackfillMode.SAFE,
+        chunk_size=1,
+        request_budget_per_league=100,
+        timeout_seconds=20,
+        max_snapshots_per_match=151,
+        max_rounds_per_league=1,
+        stop_after_empty_matches=8,
+        bookmaker="sbobet",
+        log_dir=tmp_path,
+        output_callback=None,
+    )
+
+    assert calls[0]["bookmaker"] == "sbobet"
+
+
 def test_format_batch_backfill_report_summarizes_leagues():
     @dataclass(frozen=True)
     class FakeReport:

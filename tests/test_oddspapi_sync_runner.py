@@ -2194,6 +2194,31 @@ def test_oddspapi_sync_client_requests_fixture_and_historical_odds_payloads():
     )
 
 
+def test_oddspapi_sync_client_can_request_sbobet_historical_odds_and_markets():
+    raw_client = FakeOddsPapiClient()
+    client = OddsPapiSyncClient(raw_client, bookmaker="sbobet")
+
+    client.fetch_historical_odds(source_fixture_id="oddspapi-fixture-1")
+    client.fetch_markets(source_fixture_id="oddspapi-fixture-1")
+
+    assert raw_client.calls[0] == (
+        "historical-odds",
+        {
+            "sportId": 10,
+            "fixtureId": "oddspapi-fixture-1",
+            "bookmakers": "sbobet",
+        },
+    )
+    assert raw_client.calls[1] == (
+        "markets",
+        {
+            "sportId": 10,
+            "fixtureId": "oddspapi-fixture-1",
+            "bookmakers": "sbobet",
+        },
+    )
+
+
 def test_oddspapi_sync_client_retries_fixture_lookup_without_status_filter_after_404():
     class FixtureFallbackClient(FakeOddsPapiClient):
         def get(self, endpoint, params=None):

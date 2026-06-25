@@ -115,6 +115,16 @@ from icewine_prediction.baseline_execution_robustness_filter_service import (
     build_baseline_execution_robustness_filter_report,
     write_baseline_execution_robustness_filter_report,
 )
+from icewine_prediction.bookmaker_overlap_comparison_service import (
+    BookmakerOverlapComparisonReport,
+    build_bookmaker_overlap_comparison_report,
+    write_bookmaker_overlap_comparison_report,
+)
+from icewine_prediction.bookmaker_replay_comparison_service import (
+    BookmakerReplayComparisonReport,
+    build_bookmaker_replay_comparison_report,
+    write_bookmaker_replay_comparison_report,
+)
 from icewine_prediction.baseline_paper_discovery_alignment_service import (
     BaselinePaperDiscoveryAlignmentReport,
     build_baseline_paper_discovery_alignment_report,
@@ -229,6 +239,7 @@ from icewine_prediction.oddspapi_worker_process_service import (
     start_oddspapi_batch_worker_process,
 )
 from icewine_prediction.paper_recommendation_queue_service import (
+    DEFAULT_FEATURE_CSV_PATH,
     PaperRecommendationQueueReport,
     build_paper_recommendation_queue,
     write_paper_recommendation_queue_report,
@@ -1324,6 +1335,52 @@ def format_historical_odds_anchor_coverage_command_result(
     return "\n".join(lines)
 
 
+def format_bookmaker_overlap_comparison_command_result(
+    *,
+    report_path: str,
+    report: BookmakerOverlapComparisonReport,
+) -> str:
+    return "\n".join(
+        [
+            "bookmaker_overlap_comparison written",
+            f"report: {report_path}",
+            (
+                f"baseline={report.baseline_bookmaker} "
+                f"candidate={report.candidate_bookmaker}"
+            ),
+            (
+                f"baseline_samples={report.baseline_sample_count} "
+                f"candidate_samples={report.candidate_sample_count} "
+                f"overlap={report.overlap_sample_count} "
+                f"coverage={report.coverage_ratio}"
+            ),
+        ]
+    )
+
+
+def format_bookmaker_replay_comparison_command_result(
+    *,
+    report_path: str,
+    report: BookmakerReplayComparisonReport,
+) -> str:
+    return "\n".join(
+        [
+            "bookmaker_replay_comparison written",
+            f"report: {report_path}",
+            (
+                f"baseline={report.baseline_bookmaker} "
+                f"candidate={report.candidate_bookmaker}"
+            ),
+            (
+                f"overlap_matches={report.overlap_match_count} "
+                f"baseline_candidates={report.baseline_candidate_count} "
+                f"candidate_candidates={report.candidate_candidate_count} "
+                f"overlap_candidates={report.overlap_candidate_count}"
+            ),
+        ]
+    )
+
+
 def format_baseline_result_evaluation(evaluation: BaselineResultEvaluation) -> str:
     return "\n".join(
         [
@@ -1782,6 +1839,7 @@ def odds_source_oddspapi_fetch(
         "--historical-odds-cooldown-seconds",
     ),
     refresh_pre_kickoff_existing: bool = typer.Option(False, "--refresh-pre-kickoff-existing"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
 ):
     typer.echo(
         run_oddspapi_sync(
@@ -1796,6 +1854,7 @@ def odds_source_oddspapi_fetch(
             from_date=date.fromisoformat(from_date) if from_date else None,
             historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
             refresh_pre_kickoff_existing=refresh_pre_kickoff_existing,
+            bookmaker=bookmaker,
             progress_callback=typer.echo,
         )
     )
@@ -1813,6 +1872,7 @@ def odds_source_oddspapi_batch_backfill(
     stop_after_empty_matches: int = typer.Option(8, "--stop-after-empty-matches"),
     stop_after_failed_rounds: int = typer.Option(2, "--stop-after-failed-rounds"),
     round_timeout_seconds: float = typer.Option(90, "--round-timeout-seconds"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
     league_ids: str = typer.Option("", "--league-ids"),
     from_date: str | None = typer.Option(None, "--from-date"),
     skip_match_ids: str = typer.Option("", "--skip-match-ids"),
@@ -1830,6 +1890,7 @@ def odds_source_oddspapi_batch_backfill(
             stop_after_empty_matches=stop_after_empty_matches,
             stop_after_failed_rounds=stop_after_failed_rounds,
             round_timeout_seconds=round_timeout_seconds,
+            bookmaker=bookmaker,
             league_ids=_parse_str_set(league_ids),
             from_date=date.fromisoformat(from_date) if from_date else None,
             skip_match_ids=_parse_id_set(skip_match_ids),
@@ -1856,6 +1917,7 @@ def odds_source_oddspapi_batch_worker(
     ),
     hard_timeout_seconds: float = typer.Option(0, "--hard-timeout-seconds"),
     log_dir: str = typer.Option("logs/odds", "--log-dir"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
     league_ids: str = typer.Option("", "--league-ids"),
     from_date: str | None = typer.Option(None, "--from-date"),
     skip_match_ids: str = typer.Option("", "--skip-match-ids"),
@@ -1877,6 +1939,7 @@ def odds_source_oddspapi_batch_worker(
             historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
             hard_timeout_seconds=hard_timeout_seconds,
             log_dir=log_dir,
+            bookmaker=bookmaker,
             league_ids=_parse_str_set(league_ids),
             from_date=date.fromisoformat(from_date) if from_date else None,
             skip_match_ids=_parse_id_set(skip_match_ids),
@@ -1905,6 +1968,7 @@ def odds_source_oddspapi_worker_start(
     ),
     hard_timeout_seconds: float = typer.Option(0, "--hard-timeout-seconds"),
     log_dir: str = typer.Option("logs/odds", "--log-dir"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
     league_ids: str = typer.Option("", "--league-ids"),
     from_date: str | None = typer.Option(None, "--from-date"),
     skip_match_ids: str = typer.Option("", "--skip-match-ids"),
@@ -1925,6 +1989,7 @@ def odds_source_oddspapi_worker_start(
         historical_odds_cooldown_seconds=historical_odds_cooldown_seconds,
         hard_timeout_seconds=hard_timeout_seconds,
         log_dir=log_dir,
+        bookmaker=bookmaker,
         league_ids=_parse_str_set(league_ids),
         from_date=from_date,
         skip_match_ids=_parse_id_set(skip_match_ids),
@@ -1971,6 +2036,7 @@ def odds_source_oddspapi_probe(
     request_budget: int = typer.Option(50, "--request-budget"),
     timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
     skip_match_ids: str = typer.Option("", "--skip-match-ids"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
 ):
     typer.echo(
         build_oddspapi_probe_report(
@@ -1979,6 +2045,7 @@ def odds_source_oddspapi_probe(
             request_budget=request_budget,
             timeout_seconds=timeout_seconds,
             skip_match_ids=_parse_id_set(skip_match_ids),
+            bookmaker=bookmaker,
         )
     )
 
@@ -2357,6 +2424,71 @@ def samples_historical_odds_close_baseline(
             bookmaker=bookmaker,
         )
         typer.echo(format_close_market_baseline_report(report))
+
+
+@samples_app.command("bookmaker-overlap-comparison")
+def samples_bookmaker_overlap_comparison(
+    baseline_bookmaker: str = typer.Option("pinnacle", "--baseline-bookmaker"),
+    candidate_bookmaker: str = typer.Option("sbobet", "--candidate-bookmaker"),
+    season: int | None = typer.Option(None, "--season"),
+    limit: int | None = typer.Option(None, "--limit"),
+    report_path: str = typer.Option(
+        "local_data/reports/bookmaker_overlap_comparison.md",
+        "--report-path",
+    ),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_bookmaker_overlap_comparison_report(
+            session,
+            baseline_bookmaker=baseline_bookmaker,
+            candidate_bookmaker=candidate_bookmaker,
+            season=season,
+            limit=limit,
+        )
+        write_bookmaker_overlap_comparison_report(report, Path(report_path))
+    typer.echo(
+        format_bookmaker_overlap_comparison_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
+
+
+@samples_app.command("bookmaker-replay-comparison")
+def samples_bookmaker_replay_comparison(
+    csv_path: str = typer.Option(
+        str(DEFAULT_FEATURE_CSV_PATH),
+        "--csv-path",
+    ),
+    baseline_bookmaker: str = typer.Option("pinnacle", "--baseline-bookmaker"),
+    candidate_bookmaker: str = typer.Option("sbobet", "--candidate-bookmaker"),
+    edge_threshold: str = typer.Option("0.10", "--edge-threshold"),
+    report_path: str = typer.Option(
+        "local_data/reports/bookmaker_replay_comparison.md",
+        "--report-path",
+    ),
+):
+    engine = create_database_engine()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        report = build_bookmaker_replay_comparison_report(
+            session,
+            csv_path=Path(csv_path),
+            baseline_bookmaker=baseline_bookmaker,
+            candidate_bookmaker=candidate_bookmaker,
+            edge_threshold=edge_threshold,
+        )
+        write_bookmaker_replay_comparison_report(report, Path(report_path))
+    typer.echo(
+        format_bookmaker_replay_comparison_command_result(
+            report_path=report_path,
+            report=report,
+        )
+    )
 
 
 @samples_app.command("baseline-dataset")

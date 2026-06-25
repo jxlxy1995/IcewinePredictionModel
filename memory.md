@@ -46,9 +46,16 @@
 - `chunk-size=4`, cooldown `7.5s`, and round timeout `500s` have been working well.
 - Web/manual OddsPapi fixture lookups also use a 7.5s shared limiter. The 404 filtered-fixture fallback must wait before sending the unfiltered fixture request, and consecutive Web clicks should share the same limiter.
 - Historical odds requests usually take around 5-8 seconds when healthy.
+- OddsPapi bookmaker support should remain isolated and reversible. Default fetch/backfill/worker/probe/Web-training paths still assume `pinnacle`; alternative bookmakers such as `sbobet` should only be used when explicitly requested.
+- SBOBet standard execution-timepoint selection currently uses a wider `±10` minute tolerance, while Pinnacle and other default flows stay on `±5` minutes.
 - Some early boundary matches return raw data but no usable pre-match/main-line snapshots; these are usually marked `empty`.
 - Rechecked non-matching fixtures should be marked `unavailable`, not left as `unmatched`, when candidates clearly do not match target teams.
 - Current `unmatched_count` was cleared to `0` on 2026-05-29.
+- June 25, 2026 SBOBet safe worker finding: many leagues can match fixtures and return `markets`, but `historical-odds` still fails with `404`; treat this as bookmaker historical-availability risk rather than a team-alias issue.
+- SBOBet comparison/audit helpers now exist in the CLI:
+  - `samples bookmaker-overlap-comparison`
+  - `samples bookmaker-replay-comparison`
+  Use them before considering any bookmaker switch.
 
 ## Important Mappings Added
 

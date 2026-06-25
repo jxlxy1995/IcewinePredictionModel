@@ -243,6 +243,11 @@ from icewine_prediction.the_odds_api_probe_service import (
     build_the_odds_api_sports_report,
     build_the_odds_api_upcoming_coverage_report,
 )
+from icewine_prediction.the_odds_api_sync_runner import (
+    build_the_odds_api_match_report,
+    build_the_odds_api_sync_plan,
+    run_the_odds_api_sync,
+)
 from icewine_prediction.paper_recommendation_queue_service import (
     DEFAULT_FEATURE_CSV_PATH,
     PaperRecommendationQueueReport,
@@ -2193,6 +2198,59 @@ def odds_source_oddspapi_supplement_snapshots_from_raw(
 @odds_source_app.command("oddspapi-match-report")
 def odds_source_oddspapi_match_report(match_id: int = typer.Option(..., "--match-id")):
     typer.echo(build_oddspapi_match_report(match_id=match_id))
+
+
+@odds_source_app.command("the-odds-api-plan")
+def odds_source_the_odds_api_plan(
+    season: int = typer.Option(..., "--season"),
+    max_matches: int = typer.Option(10, "--max-matches"),
+    league_ids: str = typer.Option("", "--league-ids"),
+    match_ids: str = typer.Option("", "--match-ids"),
+    from_date: datetime | None = typer.Option(None, "--from-date"),
+):
+    typer.echo(
+        build_the_odds_api_sync_plan(
+            season=season,
+            max_matches=max_matches,
+            league_ids=_parse_str_set(league_ids) or None,
+            match_ids=_parse_id_set(match_ids) or None,
+            from_date=from_date,
+        )
+    )
+
+
+@odds_source_app.command("the-odds-api-fetch")
+def odds_source_the_odds_api_fetch(
+    season: int = typer.Option(..., "--season"),
+    max_matches: int = typer.Option(10, "--max-matches"),
+    request_budget: int = typer.Option(20, "--request-budget"),
+    timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
+    league_ids: str = typer.Option("", "--league-ids"),
+    match_ids: str = typer.Option("", "--match-ids"),
+    from_date: datetime | None = typer.Option(None, "--from-date"),
+    refresh_existing: bool = typer.Option(False, "--refresh-existing"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+    region: str = typer.Option("eu", "--region"),
+):
+    typer.echo(
+        run_the_odds_api_sync(
+            season=season,
+            max_matches=max_matches,
+            request_budget=request_budget,
+            timeout_seconds=timeout_seconds,
+            league_ids=_parse_str_set(league_ids) or None,
+            match_ids=_parse_id_set(match_ids) or None,
+            from_date=from_date,
+            refresh_existing=refresh_existing,
+            bookmaker=bookmaker,
+            region=region,
+        )
+    )
+
+
+@odds_source_app.command("the-odds-api-match-report")
+def odds_source_the_odds_api_match_report(match_id: int = typer.Option(..., "--match-id")):
+    typer.echo(build_the_odds_api_match_report(match_id=match_id))
 
 
 @odds_source_app.command("the-odds-api-probe")

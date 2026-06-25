@@ -26,6 +26,116 @@ def test_odds_source_group_exposes_oddspapi_commands():
     assert "oddspapi-suggest-aliases" in result.stdout
     assert "oddspapi-sample-candidates" in result.stdout
     assert "oddspapi-supplement-snapshots-from-raw" in result.stdout
+    assert "the-odds-api-sports" in result.stdout
+    assert "the-odds-api-probe" in result.stdout
+    assert "the-odds-api-upcoming-coverage" in result.stdout
+
+
+def test_the_odds_api_probe_accepts_sport_and_runtime_options(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_the_odds_api_probe_report",
+        lambda sport_key,
+        max_events,
+        request_budget,
+        timeout_seconds,
+        bookmaker,
+        region: (
+            f"the-odds-api-probe:{sport_key}:{max_events}:{request_budget}:"
+            f"{timeout_seconds}:{bookmaker}:{region}"
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "odds-source",
+            "the-odds-api-probe",
+            "--sport-key",
+            "soccer_epl",
+            "--max-events",
+            "5",
+            "--request-budget",
+            "3",
+            "--timeout-seconds",
+            "12",
+            "--bookmaker",
+            "pinnacle",
+            "--region",
+            "eu",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "the-odds-api-probe:soccer_epl:5:3:12:pinnacle:eu" in result.stdout
+
+
+def test_the_odds_api_sports_accepts_prefix_and_runtime_options(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_the_odds_api_sports_report",
+        lambda key_prefix, request_budget, timeout_seconds: (
+            f"the-odds-api-sports:{key_prefix}:{request_budget}:{timeout_seconds}"
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "odds-source",
+            "the-odds-api-sports",
+            "--key-prefix",
+            "soccer_",
+            "--request-budget",
+            "2",
+            "--timeout-seconds",
+            "12",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "the-odds-api-sports:soccer_:2:12" in result.stdout
+
+
+def test_the_odds_api_upcoming_coverage_accepts_sport_keys(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_the_odds_api_upcoming_coverage_report",
+        lambda sport_keys,
+        max_events_per_sport,
+        request_budget,
+        timeout_seconds,
+        bookmaker,
+        region: (
+            f"coverage:{sport_keys}:{max_events_per_sport}:{request_budget}:"
+            f"{timeout_seconds}:{bookmaker}:{region}"
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "odds-source",
+            "the-odds-api-upcoming-coverage",
+            "--sport-keys",
+            "soccer_epl,soccer_finland_veikkausliiga",
+            "--max-events-per-sport",
+            "5",
+            "--request-budget",
+            "10",
+            "--timeout-seconds",
+            "12",
+            "--bookmaker",
+            "pinnacle",
+            "--region",
+            "eu",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "soccer_epl" in result.stdout
+    assert "soccer_finland_veikkausliiga" in result.stdout
+    assert ":5:10:12:pinnacle:eu" in result.stdout
 
 
 def test_oddspapi_plan_accepts_season_and_match_limit(monkeypatch):

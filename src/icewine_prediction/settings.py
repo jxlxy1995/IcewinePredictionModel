@@ -37,6 +37,7 @@ class SyncSettings:
 class ProjectSettings:
     api_football_key: str | None
     odds_papi_key: str | None
+    the_odds_api_key: str | None
     sources: dict[str, SourceSettings]
     leagues: list[LeagueSettings]
     sync: SyncSettings
@@ -87,6 +88,7 @@ def load_project_settings(config_dir: Path = Path("config")) -> ProjectSettings:
     return ProjectSettings(
         api_football_key=os.getenv("API_FOOTBALL_KEY"),
         odds_papi_key=os.getenv("ODDSPAPI_API_KEY"),
+        the_odds_api_key=os.getenv("THE_ODDS_API_KEY"),
         sources=sources,
         leagues=leagues,
         sync=sync,

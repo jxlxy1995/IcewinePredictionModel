@@ -238,6 +238,11 @@ from icewine_prediction.oddspapi_worker_process_service import (
     build_oddspapi_batch_worker_status,
     start_oddspapi_batch_worker_process,
 )
+from icewine_prediction.the_odds_api_probe_service import (
+    build_the_odds_api_probe_report,
+    build_the_odds_api_sports_report,
+    build_the_odds_api_upcoming_coverage_report,
+)
 from icewine_prediction.paper_recommendation_queue_service import (
     DEFAULT_FEATURE_CSV_PATH,
     PaperRecommendationQueueReport,
@@ -2188,6 +2193,63 @@ def odds_source_oddspapi_supplement_snapshots_from_raw(
 @odds_source_app.command("oddspapi-match-report")
 def odds_source_oddspapi_match_report(match_id: int = typer.Option(..., "--match-id")):
     typer.echo(build_oddspapi_match_report(match_id=match_id))
+
+
+@odds_source_app.command("the-odds-api-probe")
+def odds_source_the_odds_api_probe(
+    sport_key: str = typer.Option(..., "--sport-key"),
+    max_events: int = typer.Option(10, "--max-events"),
+    request_budget: int = typer.Option(5, "--request-budget"),
+    timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+    region: str = typer.Option("eu", "--region"),
+):
+    typer.echo(
+        build_the_odds_api_probe_report(
+            sport_key=sport_key,
+            max_events=max_events,
+            request_budget=request_budget,
+            timeout_seconds=timeout_seconds,
+            bookmaker=bookmaker,
+            region=region,
+        )
+    )
+
+
+@odds_source_app.command("the-odds-api-sports")
+def odds_source_the_odds_api_sports(
+    key_prefix: str = typer.Option("soccer_", "--key-prefix"),
+    request_budget: int = typer.Option(2, "--request-budget"),
+    timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
+):
+    typer.echo(
+        build_the_odds_api_sports_report(
+            key_prefix=key_prefix,
+            request_budget=request_budget,
+            timeout_seconds=timeout_seconds,
+        )
+    )
+
+
+@odds_source_app.command("the-odds-api-upcoming-coverage")
+def odds_source_the_odds_api_upcoming_coverage(
+    sport_keys: str = typer.Option(..., "--sport-keys"),
+    max_events_per_sport: int = typer.Option(10, "--max-events-per-sport"),
+    request_budget: int = typer.Option(30, "--request-budget"),
+    timeout_seconds: int = typer.Option(20, "--timeout-seconds"),
+    bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
+    region: str = typer.Option("eu", "--region"),
+):
+    typer.echo(
+        build_the_odds_api_upcoming_coverage_report(
+            sport_keys=tuple(sorted(_parse_str_set(sport_keys) or set())),
+            max_events_per_sport=max_events_per_sport,
+            request_budget=request_budget,
+            timeout_seconds=timeout_seconds,
+            bookmaker=bookmaker,
+            region=region,
+        )
+    )
 
 
 def _parse_id_set(value: str) -> set[int]:

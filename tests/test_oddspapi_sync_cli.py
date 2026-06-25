@@ -29,6 +29,9 @@ def test_odds_source_group_exposes_oddspapi_commands():
     assert "the-odds-api-sports" in result.stdout
     assert "the-odds-api-probe" in result.stdout
     assert "the-odds-api-upcoming-coverage" in result.stdout
+    assert "the-odds-api-plan" in result.stdout
+    assert "the-odds-api-fetch" in result.stdout
+    assert "the-odds-api-match-report" in result.stdout
 
 
 def test_the_odds_api_probe_accepts_sport_and_runtime_options(monkeypatch):
@@ -136,6 +139,94 @@ def test_the_odds_api_upcoming_coverage_accepts_sport_keys(monkeypatch):
     assert "soccer_epl" in result.stdout
     assert "soccer_finland_veikkausliiga" in result.stdout
     assert ":5:10:12:pinnacle:eu" in result.stdout
+
+
+def test_the_odds_api_plan_accepts_filters(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_the_odds_api_sync_plan",
+        lambda season, max_matches, league_ids, match_ids, from_date: (
+            f"plan:{season}:{max_matches}:{sorted(league_ids or [])}:"
+            f"{sorted(match_ids or [])}:{from_date}"
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "odds-source",
+            "the-odds-api-plan",
+            "--season",
+            "2026",
+            "--max-matches",
+            "3",
+            "--league-ids",
+            "39,140",
+            "--match-ids",
+            "10,11",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "plan:2026:3:['140', '39']:[10, 11]" in result.stdout
+
+
+def test_the_odds_api_fetch_accepts_runtime_options(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.run_the_odds_api_sync",
+        lambda season,
+        max_matches,
+        request_budget,
+        timeout_seconds,
+        league_ids,
+        match_ids,
+        from_date,
+        refresh_existing,
+        bookmaker,
+        region: (
+            f"fetch:{season}:{max_matches}:{request_budget}:{timeout_seconds}:"
+            f"{sorted(league_ids or [])}:{sorted(match_ids or [])}:"
+            f"{refresh_existing}:{bookmaker}:{region}"
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "odds-source",
+            "the-odds-api-fetch",
+            "--season",
+            "2026",
+            "--max-matches",
+            "2",
+            "--request-budget",
+            "5",
+            "--timeout-seconds",
+            "12",
+            "--league-ids",
+            "39",
+            "--match-ids",
+            "10",
+            "--refresh-existing",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "fetch:2026:2:5:12:['39']:[10]:True:pinnacle:eu" in result.stdout
+
+
+def test_the_odds_api_match_report_accepts_match_id(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "icewine_prediction.cli.build_the_odds_api_match_report",
+        lambda match_id: f"match-report:{match_id}",
+    )
+
+    result = runner.invoke(app, ["odds-source", "the-odds-api-match-report", "--match-id", "42"])
+
+    assert result.exit_code == 0
+    assert "match-report:42" in result.stdout
 
 
 def test_oddspapi_plan_accepts_season_and_match_limit(monkeypatch):

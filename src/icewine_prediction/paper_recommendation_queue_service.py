@@ -51,11 +51,14 @@ from icewine_prediction.execution_timepoint_service import (
     select_execution_timepoint_pair,
 )
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, TrainingRun
+from icewine_prediction.odds_provider_selection_service import (
+    filter_priority_pinnacle_snapshots,
+    source_label_for_snapshots,
+)
 from icewine_prediction.oddspapi_sync_runner import (
     COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT,
     COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW,
     COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS,
-    ODDSPAPI_SOURCE_NAME,
     _as_utc,
     _historical_snapshot_as_utc,
 )
@@ -435,6 +438,7 @@ def _historical_snapshots_by_match_id(
         .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
         .all()
     )
+    snapshots = filter_priority_pinnacle_snapshots(snapshots)
     snapshots_by_match_id: dict[int, list[HistoricalOddsSnapshot]] = {}
     for snapshot in snapshots:
         snapshots_by_match_id.setdefault(snapshot.match_id, []).append(snapshot)
@@ -488,7 +492,7 @@ def _build_queue_rows_with_diagnostics(
         if _should_use_historical_snapshots(match, historical_snapshots or [])
         else []
     )
-    odds_source = "oddspapi_historical" if historical_snapshots else "live_snapshot"
+    odds_source = source_label_for_snapshots(historical_snapshots) if historical_snapshots else "live_snapshot"
     execution_target = "latest_historical" if historical_snapshots else None
     historical_snapshot_count = len(historical_snapshots)
     feature_row = _live_feature_row(
@@ -783,7 +787,7 @@ def _scored_rows_by_timepoint(
             feature_row=timepoint.feature_row,
             display_name_service=display_name_service,
             historical_snapshots=timepoint.snapshots,
-            odds_source="oddspapi_historical",
+            odds_source=source_label_for_snapshots(timepoint.snapshots),
             execution_target=timepoint.label,
             historical_snapshot_count=historical_snapshot_count,
         )
@@ -1047,7 +1051,7 @@ def _apply_execution_robustness_to_row(
     if row.status != "candidate":
         return row
     rule = DEFAULT_SELECTED_ROBUSTNESS_RULES.get(row.strategy_key)
-    if rule is None or row.odds_source != "oddspapi_historical":
+    if rule is None or not _is_historical_odds_source(row.odds_source):
         return row
     evaluation = _evaluate_execution_robustness(
         observations,
@@ -1086,6 +1090,10 @@ def _apply_execution_robustness_to_row(
             "robustness_observed_targets": evaluation.observed_targets,
         }
     )
+
+
+def _is_historical_odds_source(odds_source: str) -> bool:
+    return odds_source in {"oddspapi_historical", "the_odds_api_historical", "historical"}
 
 
 def _evaluate_execution_robustness(
@@ -1215,7 +1223,7 @@ def _execution_robustness_observations_by_strategy(
             feature_row=feature_row,
             display_name_service=display_name_service,
             historical_snapshots=target_snapshots,
-            odds_source="oddspapi_historical",
+            odds_source=source_label_for_snapshots(target_snapshots),
             execution_target=f"T-{target}",
             historical_snapshot_count=len(historical_snapshots),
         )
@@ -1322,7 +1330,7 @@ def _historical_snapshots_for_execution_target(
             tolerance_minutes=tolerance_minutes,
         )
         if pair is not None:
-            selected.extend(_snapshots_from_pair(match, pair))
+            selected.extend(_snapshots_from_pair(historical_snapshots, pair))
     return selected
 
 
@@ -1342,28 +1350,17 @@ def _select_execution_pair(
 
 
 def _snapshots_from_pair(
-    match: Match,
+    snapshots: list[HistoricalOddsSnapshot],
     pair: _PairedMarketSnapshot,
 ) -> list[HistoricalOddsSnapshot]:
-    sides = [(pair.side_a, pair.side_a_odds), (pair.side_b, pair.side_b_odds)]
-    if pair.side_c is not None and pair.side_c_odds is not None:
-        sides.append((pair.side_c, pair.side_c_odds))
     return [
-        HistoricalOddsSnapshot(
-            match_id=match.id,
-            source_name=ODDSPAPI_SOURCE_NAME,
-            source_fixture_id=match.source_match_id or str(match.id),
-            bookmaker=pair.bookmaker,
-            market_type=pair.market_type,
-            market_id=f"execution-{pair.market_type}-{side}",
-            market_name=pair.market_type,
-            market_line=pair.market_line,
-            outcome_side=side,
-            odds=odds,
-            snapshot_time=pair.snapshot_time,
-            period="fulltime",
-        )
-        for side, odds in sides
+        snapshot
+        for snapshot in snapshots
+        if snapshot.snapshot_time == pair.snapshot_time
+        and snapshot.bookmaker == pair.bookmaker
+        and snapshot.market_type == pair.market_type
+        and snapshot.market_line == pair.market_line
+        and snapshot.outcome_side in {pair.side_a, pair.side_b, pair.side_c}
     ]
 
 
@@ -2352,7 +2349,7 @@ def _has_complete_historical_odds(
     relevant = [
         snapshot
         for snapshot in snapshots
-        if snapshot.source_name == ODDSPAPI_SOURCE_NAME
+        if snapshot.bookmaker == "pinnacle"
         and kickoff_utc - timedelta(hours=24)
         <= _historical_snapshot_as_utc(snapshot.snapshot_time)
         <= kickoff_utc

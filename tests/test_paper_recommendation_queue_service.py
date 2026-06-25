@@ -798,6 +798,89 @@ def test_build_paper_recommendation_queue_uses_historical_odds_for_scheduled_mat
     assert candidate.historical_snapshot_count == 42
 
 
+def test_paper_queue_prefers_the_odds_api_pinnacle_snapshots_over_oddspapi(session):
+    league = League(name="Premier League", country_or_region="England", level=1, is_enabled=True)
+    home = Team(canonical_name="Arsenal")
+    away = Team(canonical_name="Chelsea")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        season=2026,
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="1001",
+    )
+    session.add(match)
+    session.flush()
+    for source_name, asian_line, home_odds, away_odds in (
+        ("oddspapi", Decimal("-0.25"), Decimal("1.90"), Decimal("2.00")),
+        ("the_odds_api", Decimal("-0.50"), Decimal("1.80"), Decimal("2.10")),
+    ):
+        for target_minutes in (60, 30, 25, 20, 15, 10):
+            snapshot_time = kickoff - timedelta(minutes=target_minutes)
+            _add_source_historical_market_pair(
+                session,
+                match.id,
+                source_name,
+                snapshot_time,
+                market_type="asian_handicap",
+                line=asian_line,
+                outcomes={"home": home_odds, "away": away_odds},
+            )
+            _add_source_historical_market_pair(
+                session,
+                match.id,
+                source_name,
+                snapshot_time,
+                market_type="total_goals",
+                line=Decimal("2.50"),
+                outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+            )
+            _add_source_historical_market_pair(
+                session,
+                match.id,
+                source_name,
+                snapshot_time,
+                market_type="match_winner",
+                line=Decimal("0.00"),
+                outcomes={
+                    "home": Decimal("2.10"),
+                    "draw": Decimal("3.30"),
+                    "away": Decimal("3.40"),
+                },
+            )
+    session.commit()
+
+    seen_rows = []
+
+    def scorer(row):
+        seen_rows.append(row)
+        return PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.4762"),
+            edge=Decimal("0.1738"),
+            model_name="fake_hgb",
+        )
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 6, 26, 12, 0, tzinfo=ZoneInfo("UTC")),
+        hours=12,
+        scorer=scorer,
+    )
+
+    candidate = next(row for row in report.rows if row.status == "candidate")
+    assert candidate.odds_source == "the_odds_api_historical"
+    assert candidate.line == Decimal("-0.50")
+    assert seen_rows[0]["asian_handicap_close_line"] == "-0.50"
+
+
 def test_build_paper_recommendation_queue_ignores_latest_when_t10_targets_are_robust(session):
     league = League(name="T10 Union League", country_or_region="Norway", level=1, is_enabled=True)
     home = Team(canonical_name="T10 Home")
@@ -2286,6 +2369,37 @@ def _add_historical_market_pair(
                 period="fulltime",
             )
         )
+
+
+def _add_source_historical_market_pair(
+    session,
+    match_id: int,
+    source_name: str,
+    snapshot_time: datetime,
+    *,
+    market_type: str,
+    line: Decimal,
+    outcomes: dict[str, Decimal],
+) -> None:
+    session.add_all(
+        [
+            HistoricalOddsSnapshot(
+                match_id=match_id,
+                source_name=source_name,
+                source_fixture_id=f"{source_name}-event",
+                bookmaker="pinnacle",
+                market_type=market_type,
+                market_id=f"{source_name}:{market_type}:{snapshot_time.isoformat()}:{side}",
+                market_name=market_type,
+                market_line=line,
+                outcome_side=side,
+                odds=odds,
+                snapshot_time=snapshot_time,
+                period="full_time",
+            )
+            for side, odds in outcomes.items()
+        ]
+    )
 
 
 def _add_historical_market_pair_at_target(

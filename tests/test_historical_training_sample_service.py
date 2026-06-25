@@ -201,6 +201,81 @@ def test_historical_market_training_sample_extracts_match_winner_triplets(sessio
     assert sample.anchors[-1].side_c_result == "loss"
 
 
+def test_historical_training_samples_default_remains_explicit_oddspapi(session):
+    match = _add_finished_match(session)
+    _add_pair(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.25"),
+        snapshot_time=match.kickoff_time - timedelta(hours=1),
+        side_a="home",
+        side_b="away",
+        side_a_odds=Decimal("1.90"),
+        side_b_odds=Decimal("1.96"),
+        market_id="oddspapi-ah",
+        source_name="oddspapi",
+    )
+    _add_pair(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.50"),
+        snapshot_time=match.kickoff_time - timedelta(hours=1),
+        side_a="home",
+        side_b="away",
+        side_a_odds=Decimal("1.80"),
+        side_b_odds=Decimal("2.10"),
+        market_id="toa-ah",
+        source_name="the_odds_api",
+    )
+    session.commit()
+
+    samples = list_historical_market_training_samples(session, season=2026)
+
+    assert samples[0].anchors[-1].market_line == Decimal("-0.25")
+
+
+def test_historical_training_samples_can_use_pinnacle_provider_priority(session):
+    match = _add_finished_match(session)
+    _add_pair(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.25"),
+        snapshot_time=match.kickoff_time - timedelta(hours=1),
+        side_a="home",
+        side_b="away",
+        side_a_odds=Decimal("1.90"),
+        side_b_odds=Decimal("1.96"),
+        market_id="oddspapi-ah",
+        source_name="oddspapi",
+    )
+    _add_pair(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.50"),
+        snapshot_time=match.kickoff_time - timedelta(hours=1),
+        side_a="home",
+        side_b="away",
+        side_a_odds=Decimal("1.80"),
+        side_b_odds=Decimal("2.10"),
+        market_id="toa-ah",
+        source_name="the_odds_api",
+    )
+    session.commit()
+
+    samples = list_historical_market_training_samples(
+        session,
+        season=2026,
+        source_name=None,
+        use_pinnacle_provider_priority=True,
+    )
+
+    assert samples[0].anchors[-1].market_line == Decimal("-0.50")
+
+
 def _add_finished_match(session) -> Match:
     league = League(name="Premier League", country_or_region="England", level=1)
     home = Team(canonical_name="Arsenal")
@@ -236,12 +311,13 @@ def _add_pair(
     side_a_odds: Decimal,
     side_b_odds: Decimal,
     market_id: str,
+    source_name: str = "oddspapi",
 ) -> None:
     for side, odds in [(side_a, side_a_odds), (side_b, side_b_odds)]:
         session.add(
             HistoricalOddsSnapshot(
                 match_id=match.id,
-                source_name="oddspapi",
+                source_name=source_name,
                 source_fixture_id="fixture-1",
                 bookmaker="pinnacle",
                 market_type=market_type,

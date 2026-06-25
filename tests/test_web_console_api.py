@@ -30,7 +30,6 @@ from icewine_prediction.paper_recommendation_queue_service import (
     PaperQueueRow,
     PaperRecommendationQueueReport,
 )
-from icewine_prediction.sources.api_football_mapper import ExternalOddsSnapshot
 from icewine_prediction import web_api
 from icewine_prediction.web_api import create_web_app
 
@@ -2088,6 +2087,69 @@ def test_web_console_api_match_list_sync_buttons_record_runs(tmp_path):
     assert odds_response.json()["sync_run"]["requests_used"] == 5
 
 
+def test_web_console_api_default_odds_syncer_uses_match_odds_sync_service(tmp_path, monkeypatch):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    calls = []
+    with session_factory() as session:
+        league = League(
+            name="Premier League",
+            country_or_region="England",
+            level=1,
+            source_name="api_football",
+            source_league_id="39",
+        )
+        home = Team(canonical_name="Arsenal")
+        away = Team(canonical_name="Chelsea")
+        session.add_all([league, home, away])
+        session.flush()
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            season=2026,
+            status="scheduled",
+            source_name="api_football",
+            source_match_id="1001",
+        )
+        session.add(match)
+        session.commit()
+        match_id = match.id
+
+    def fake_match_odds_sync_for_session(**kwargs):
+        calls.append(kwargs)
+        return {
+            "success": [{"match_id": match_id, "message": "赔率已刷新"}],
+            "failed": [],
+            "skipped": [],
+            "requests": 2,
+        }
+
+    monkeypatch.setattr(
+        web_api,
+        "run_match_odds_sync_for_session",
+        fake_match_odds_sync_for_session,
+    )
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            clock=lambda: datetime(2026, 6, 25, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            start_paper_automation_scheduler=False,
+        )
+    )
+
+    response = client.post(f"/api/matches/{match_id}/sync/odds", json={})
+
+    assert response.status_code == 200
+    assert calls
+    assert calls[0]["match_ids"] == [match_id]
+    assert response.json()["sync_run"]["requests_used"] == 2
+
+
 def test_web_console_api_match_list_sync_uses_filtered_match_targets(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)
@@ -2657,7 +2719,7 @@ def test_web_console_api_persists_and_returns_match_sync_run_items(tmp_path):
     assert payload["report"]["failed"][0]["source_fixture_id"] == "missing-fixture"
 
 
-def test_match_list_odds_sync_falls_back_to_live_odds_for_upcoming_match(monkeypatch):
+def test_match_list_odds_sync_does_not_use_api_football_live_odds_fallback_by_default(monkeypatch):
     engine = create_memory_database()
     initialize_database(engine)
     session_factory = create_session_factory(engine)
@@ -2687,52 +2749,7 @@ def test_match_list_odds_sync_falls_back_to_live_odds_for_upcoming_match(monkeyp
         session.commit()
         match_id = match.id
 
-    class LiveOddsProvider:
-        def __init__(self):
-            self.client = type("Client", (), {"request_count": 0})()
-
-        def fetch_odds_for_fixtures(self, fixture_ids):
-            self.client.request_count += 1
-            assert fixture_ids == ["1494190"]
-            return [
-                ExternalOddsSnapshot(
-                    source_name="api_football",
-                    source_match_id="1494190",
-                    captured_at=datetime(2026, 5, 31, 20, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
-                    bookmaker="Bet365",
-                    asian_handicap=Decimal("-0.25"),
-                    home_odds=Decimal("1.950"),
-                    away_odds=Decimal("1.850"),
-                    total_line=Decimal("2.75"),
-                    over_odds=Decimal("1.910"),
-                    under_odds=Decimal("1.990"),
-                    match_winner_home_odds=Decimal("2.300"),
-                    match_winner_draw_odds=Decimal("3.200"),
-                    match_winner_away_odds=Decimal("2.900"),
-                )
-            ]
-
-    def fake_historical_sync(**kwargs):
-        with session_factory() as session:
-            source_match = OddsSourceMatch(
-                match_id=match_id,
-                source_name="oddspapi",
-                source_fixture_id="id1000004067126590",
-                matched_at=datetime(2026, 5, 31, 20, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
-                match_confidence=Decimal("1.0000"),
-                match_reason="league/time/team match; time_delta_seconds=0",
-                historical_odds_status="unavailable",
-                historical_odds_checked_at=datetime(2026, 5, 31, 20, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
-                historical_odds_error="OddsPapi HTTP error: status=404",
-            )
-            session.add(source_match)
-            session.commit()
-        return type("Result", (), {"requests_used": 1})()
-
     monkeypatch.setattr(web_api, "_open_session_for_web_sync", lambda: session_factory())
-    monkeypatch.setattr(web_api, "run_oddspapi_sync_result", fake_historical_sync)
-    monkeypatch.setattr(web_api, "load_project_settings", lambda: object())
-    monkeypatch.setattr(web_api, "build_api_football_provider", lambda settings: LiveOddsProvider())
     monkeypatch.setattr(
         web_api,
         "now_beijing",
@@ -2741,25 +2758,12 @@ def test_match_list_odds_sync_falls_back_to_live_odds_for_upcoming_match(monkeyp
 
     result = web_api._run_match_list_odds_sync([match_id])
 
-    assert result["failed"] == []
-    assert result["success"] == [
-        {
-            "match_id": match_id,
-            "message": "赔率已刷新",
-        }
-    ]
-    assert result["requests"] == 2
+    assert result["failed"] == [{"match_id": match_id, "message": "未获取到可用赔率"}]
+    assert result["success"] == []
+    assert result["requests"] == 0
     with session_factory() as session:
         assert session.query(HistoricalOddsSnapshot).filter_by(match_id=match_id).count() == 0
-        live_snapshot = session.query(OddsSnapshot).filter_by(match_id=match_id).one()
-        assert live_snapshot.data_source == "api_football"
-        assert live_snapshot.asian_handicap == Decimal("-0.25")
-        diagnostics = web_api._build_match_sync_diagnostics(session, [match_id])
-        assert diagnostics[match_id]["diagnostic_status"] == "live_odds_fallback"
-        assert diagnostics[match_id]["diagnostic_error"] is None
-        assert diagnostics[match_id]["snapshot_count"] == 1
-
-
+        assert session.query(OddsSnapshot).filter_by(match_id=match_id).count() == 0
 def test_match_list_odds_sync_does_not_fetch_live_odds_when_historical_exists(monkeypatch):
     engine = create_memory_database()
     initialize_database(engine)
@@ -2807,25 +2811,13 @@ def test_match_list_odds_sync_does_not_fetch_live_odds_when_historical_exists(mo
         session.commit()
         match_id = match.id
 
-    class FailingProvider:
-        client = type("Client", (), {"request_count": 0})()
-
-        def fetch_odds_for_fixtures(self, fixture_ids):
-            raise AssertionError("live odds fallback should not run when historical odds exist")
-
-    def fake_historical_sync(**kwargs):
-        return type("Result", (), {"requests_used": 1})()
-
     monkeypatch.setattr(web_api, "_open_session_for_web_sync", lambda: session_factory())
-    monkeypatch.setattr(web_api, "run_oddspapi_sync_result", fake_historical_sync)
-    monkeypatch.setattr(web_api, "load_project_settings", lambda: object())
-    monkeypatch.setattr(web_api, "build_api_football_provider", lambda settings: FailingProvider())
 
     result = web_api._run_match_list_odds_sync([match_id])
 
     assert result["success"] == [{"match_id": match_id, "message": "赔率已刷新"}]
     assert result["failed"] == []
-    assert result["requests"] == 1
+    assert result["requests"] == 0
     with session_factory() as session:
         assert session.query(OddsSnapshot).filter_by(match_id=match_id).count() == 0
 
@@ -2860,19 +2852,7 @@ def test_match_list_odds_sync_does_not_fetch_live_odds_after_kickoff(monkeypatch
         session.commit()
         match_id = match.id
 
-    class FailingProvider:
-        client = type("Client", (), {"request_count": 0})()
-
-        def fetch_odds_for_fixtures(self, fixture_ids):
-            raise AssertionError("live odds fallback should not run after kickoff")
-
-    def fake_historical_sync(**kwargs):
-        return type("Result", (), {"requests_used": 1})()
-
     monkeypatch.setattr(web_api, "_open_session_for_web_sync", lambda: session_factory())
-    monkeypatch.setattr(web_api, "run_oddspapi_sync_result", fake_historical_sync)
-    monkeypatch.setattr(web_api, "load_project_settings", lambda: object())
-    monkeypatch.setattr(web_api, "build_api_football_provider", lambda settings: FailingProvider())
     monkeypatch.setattr(
         web_api,
         "now_beijing",
@@ -2883,7 +2863,7 @@ def test_match_list_odds_sync_does_not_fetch_live_odds_after_kickoff(monkeypatch
 
     assert result["success"] == []
     assert result["failed"] == [{"match_id": match_id, "message": "未获取到可用赔率"}]
-    assert result["requests"] == 1
+    assert result["requests"] == 0
     with session_factory() as session:
         assert session.query(OddsSnapshot).filter_by(match_id=match_id).count() == 0
 

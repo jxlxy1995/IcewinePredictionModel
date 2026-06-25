@@ -103,3 +103,89 @@ def test_map_the_odds_api_event_odds_ignores_non_pinnacle_bookmakers_and_incompl
     }
 
     assert map_the_odds_api_event_odds(match_id=42, event=event) == []
+
+
+def test_map_the_odds_api_event_odds_can_override_snapshot_time_for_historical_queries():
+    event = {
+        "id": "event-1",
+        "home_team": "Arsenal",
+        "away_team": "Chelsea",
+        "bookmakers": [
+            {
+                "key": "pinnacle",
+                "markets": [
+                    {
+                        "key": "h2h",
+                        "last_update": "2026-06-26T18:50:00Z",
+                        "outcomes": [
+                            {"name": "Arsenal", "price": 2.10},
+                            {"name": "Draw", "price": 3.30},
+                            {"name": "Chelsea", "price": 3.40},
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+
+    snapshots = map_the_odds_api_event_odds(
+        match_id=42,
+        event=event,
+        snapshot_time_override=datetime(2026, 6, 26, 18, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
+    assert len(snapshots) == 3
+    assert {snapshot.snapshot_time for snapshot in snapshots} == {
+        datetime(2026, 6, 26, 18, 0, tzinfo=ZoneInfo("UTC")),
+    }
+
+
+def test_map_the_odds_api_event_odds_maps_alternate_lines():
+    event = {
+        "id": "event-1",
+        "home_team": "Arsenal",
+        "away_team": "Chelsea",
+        "bookmakers": [
+            {
+                "key": "pinnacle",
+                "markets": [
+                    {
+                        "key": "alternate_spreads",
+                        "last_update": "2026-06-26T18:50:00Z",
+                        "outcomes": [
+                            {"name": "Arsenal", "price": 1.80, "point": -0.5},
+                            {"name": "Chelsea", "price": 2.10, "point": 0.5},
+                            {"name": "Arsenal", "price": 2.20, "point": -0.75},
+                            {"name": "Chelsea", "price": 1.70, "point": 0.75},
+                        ],
+                    },
+                    {
+                        "key": "alternate_totals",
+                        "last_update": "2026-06-26T18:50:00Z",
+                        "outcomes": [
+                            {"name": "Over", "price": 1.70, "point": 2.25},
+                            {"name": "Under", "price": 2.20, "point": 2.25},
+                            {"name": "Over", "price": 2.10, "point": 2.75},
+                            {"name": "Under", "price": 1.80, "point": 2.75},
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+
+    snapshots = map_the_odds_api_event_odds(match_id=42, event=event)
+
+    assert {
+        (snapshot.market_type, snapshot.market_line, snapshot.outcome_side)
+        for snapshot in snapshots
+    } == {
+        ("asian_handicap", Decimal("-0.5"), "home"),
+        ("asian_handicap", Decimal("-0.5"), "away"),
+        ("asian_handicap", Decimal("-0.75"), "home"),
+        ("asian_handicap", Decimal("-0.75"), "away"),
+        ("total_goals", Decimal("2.25"), "over"),
+        ("total_goals", Decimal("2.25"), "under"),
+        ("total_goals", Decimal("2.75"), "over"),
+        ("total_goals", Decimal("2.75"), "under"),
+    }

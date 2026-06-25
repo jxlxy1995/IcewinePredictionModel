@@ -322,6 +322,33 @@ def test_match_list_workspace_classifies_and_filters_odds_statuses(session):
     assert workspace.filters.odds_filter == "none,near,pending_fill"
 
 
+def test_match_list_workspace_marks_the_odds_api_finished_match_as_filled(session):
+    now = datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING)
+    league = League(name="J1 League", country_or_region="Japan", level=1)
+    session.add(league)
+    session.flush()
+    filled = _add_match(
+        session,
+        league,
+        "The Odds API Filled",
+        datetime(2026, 5, 30, 7, 0, tzinfo=BEIJING),
+        status="finished",
+        home_score=1,
+        away_score=0,
+    )
+    _add_complete_historical_odds(session, filled, source_name="the_odds_api")
+    session.commit()
+
+    workspace = build_match_list_workspace(
+        session,
+        now=now,
+        start_time=datetime(2026, 5, 30, 0, 0, tzinfo=BEIJING),
+        end_time=datetime(2026, 5, 31, 0, 0, tzinfo=BEIJING),
+    )
+
+    assert workspace.matches[0].odds_status_key == "filled"
+
+
 def test_match_list_workspace_limits_odds_status_work_to_filtered_matches(session):
     now = datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING)
     league = League(name="J1 League", country_or_region="Japan", level=1)
@@ -551,6 +578,47 @@ def test_match_detail_includes_standard_execution_timepoint_coverage(session):
     assert [cell.available for cell in winner.cells] == [False, False, False, False, False, False]
 
 
+def test_match_detail_execution_timepoint_coverage_prefers_the_odds_api(session):
+    league = League(name="J1 League", country_or_region="Japan", level=1)
+    home = Team(canonical_name="Sanfrecce Hiroshima")
+    away = Team(canonical_name="Kawasaki Frontale")
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=BEIJING),
+        status="scheduled",
+    )
+    session.add_all([league, home, away, match])
+    session.flush()
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.50"),
+        target_minutes=60,
+        source_name="oddspapi",
+    )
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.25"),
+        target_minutes=10,
+        source_name="the_odds_api",
+    )
+    session.commit()
+
+    detail = build_match_detail(session, match_id=match.id)
+
+    assert detail is not None
+    coverage = detail.execution_timepoint_coverage
+    asian = next(row for row in coverage.rows if row.market_type == "asian_handicap")
+    assert coverage.available_count == 1
+    assert [cell.available for cell in asian.cells] == [False, False, False, False, False, True]
+    assert asian.cells[-1].market_line == "-0.25"
+
+
 def _add_asian_handicap_snapshot(session, match: Match, *, line: Decimal):
     session.add_all(
         [
@@ -594,6 +662,7 @@ def _add_historical_market_pair_at_target(
     market_type: str,
     market_line: Decimal,
     target_minutes: int,
+    source_name: str = "oddspapi",
 ) -> None:
     sides = {
         "asian_handicap": ("home", "away"),
@@ -605,7 +674,7 @@ def _add_historical_market_pair_at_target(
         session.add(
             HistoricalOddsSnapshot(
                 match_id=match.id,
-                source_name="oddspapi",
+                source_name=source_name,
                 source_fixture_id=match.source_match_id or str(match.id),
                 bookmaker="pinnacle",
                 market_type=market_type,
@@ -663,7 +732,7 @@ def _add_live_odds_snapshot(session, match: Match, *, captured_at: datetime) -> 
     )
 
 
-def _add_complete_historical_odds(session, match: Match) -> None:
+def _add_complete_historical_odds(session, match: Match, *, source_name: str = "oddspapi") -> None:
     snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=6)
     markets = [
         ("asian_handicap", Decimal("-0.25"), ("home", "away")),
@@ -678,7 +747,7 @@ def _add_complete_historical_odds(session, match: Match) -> None:
         session.add(
             HistoricalOddsSnapshot(
                 match_id=match.id,
-                source_name="oddspapi",
+                source_name=source_name,
                 source_fixture_id=match.source_match_id or str(match.id),
                 bookmaker="pinnacle",
                 market_type=market_type,

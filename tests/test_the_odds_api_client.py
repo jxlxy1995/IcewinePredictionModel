@@ -105,6 +105,21 @@ def test_the_odds_api_client_api_error_does_not_expose_api_key_in_url():
     assert "apiKey" not in str(exc_info.value)
 
 
+def test_the_odds_api_client_http_error_includes_response_message_without_api_key():
+    client = TheOddsApiClient(
+        api_key="secret",
+        session=FakeSession([FakeResponse({"message": "Markets not available"}, status_code=422)]),
+    )
+
+    with pytest.raises(TheOddsApiApiError) as exc_info:
+        client.get("sports/soccer_epl/odds", {"apiKey": "secret"})
+
+    assert "status=422" in str(exc_info.value)
+    assert "Markets not available" in str(exc_info.value)
+    assert "secret" not in str(exc_info.value)
+    assert "apiKey" not in str(exc_info.value)
+
+
 def test_the_odds_api_client_wraps_request_errors_without_exposing_api_key():
     class RequestFailingSession:
         def get(self, url, params, timeout):

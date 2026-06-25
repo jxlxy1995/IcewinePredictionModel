@@ -19,6 +19,7 @@ def map_the_odds_api_event_odds(
     match_id: int,
     event: dict[str, Any],
     bookmaker: str = PINNACLE_BOOKMAKER,
+    snapshot_time_override: datetime | None = None,
 ) -> list[HistoricalOddsSnapshotInput]:
     bookmaker_payload = _find_bookmaker(event.get("bookmakers") or [], bookmaker)
     if bookmaker_payload is None:
@@ -27,11 +28,11 @@ def map_the_odds_api_event_odds(
     for market in bookmaker_payload.get("markets") or []:
         market_key = str(market.get("key") or "")
         if market_key == "h2h":
-            snapshots.extend(_map_h2h(match_id, event, market, bookmaker))
-        elif market_key == "spreads":
-            snapshots.extend(_map_spreads(match_id, event, market, bookmaker))
-        elif market_key == "totals":
-            snapshots.extend(_map_totals(match_id, event, market, bookmaker))
+            snapshots.extend(_map_h2h(match_id, event, market, bookmaker, snapshot_time_override))
+        elif market_key in {"spreads", "alternate_spreads"}:
+            snapshots.extend(_map_spreads(match_id, event, market, bookmaker, snapshot_time_override))
+        elif market_key in {"totals", "alternate_totals"}:
+            snapshots.extend(_map_totals(match_id, event, market, bookmaker, snapshot_time_override))
     return snapshots
 
 
@@ -40,6 +41,7 @@ def _map_h2h(
     event: dict[str, Any],
     market: dict[str, Any],
     bookmaker: str,
+    snapshot_time_override: datetime | None,
 ) -> list[HistoricalOddsSnapshotInput]:
     home_team = str(event.get("home_team") or "")
     away_team = str(event.get("away_team") or "")
@@ -65,6 +67,7 @@ def _map_h2h(
             Decimal("0.00"),
             side,
             sides[side],
+            snapshot_time_override,
         )
         for side in ("home", "draw", "away")
     ]
@@ -75,46 +78,53 @@ def _map_spreads(
     event: dict[str, Any],
     market: dict[str, Any],
     bookmaker: str,
+    snapshot_time_override: datetime | None,
 ) -> list[HistoricalOddsSnapshotInput]:
     home_team = str(event.get("home_team") or "")
     away_team = str(event.get("away_team") or "")
     by_side = {}
     for outcome in market.get("outcomes") or []:
         name = str(outcome.get("name") or "")
+        line = _decimal(outcome.get("point"))
+        if line is None:
+            continue
         if name == home_team:
-            by_side["home"] = outcome
+            by_side.setdefault(line, {})["home"] = outcome
         elif name == away_team:
-            by_side["away"] = outcome
-    if not {"home", "away"}.issubset(by_side):
-        return []
-    home_line = _decimal(by_side["home"].get("point"))
-    away_line = _decimal(by_side["away"].get("point"))
-    if home_line is None or away_line is None or home_line != -away_line:
-        return []
-    return [
-        _snapshot(
-            match_id,
-            event,
-            market,
-            bookmaker,
-            "asian_handicap",
-            "Asian Handicap",
-            home_line,
-            "home",
-            by_side["home"],
-        ),
-        _snapshot(
-            match_id,
-            event,
-            market,
-            bookmaker,
-            "asian_handicap",
-            "Asian Handicap",
-            home_line,
-            "away",
-            by_side["away"],
-        ),
-    ]
+            by_side.setdefault(-line, {})["away"] = outcome
+    snapshots: list[HistoricalOddsSnapshotInput] = []
+    for home_line, sides in sorted(by_side.items()):
+        if not {"home", "away"}.issubset(sides):
+            continue
+        snapshots.extend(
+            [
+                _snapshot(
+                    match_id,
+                    event,
+                    market,
+                    bookmaker,
+                    "asian_handicap",
+                    "Asian Handicap",
+                    home_line,
+                    "home",
+                    sides["home"],
+                    snapshot_time_override,
+                ),
+                _snapshot(
+                    match_id,
+                    event,
+                    market,
+                    bookmaker,
+                    "asian_handicap",
+                    "Asian Handicap",
+                    home_line,
+                    "away",
+                    sides["away"],
+                    snapshot_time_override,
+                ),
+            ]
+        )
+    return snapshots
 
 
 def _map_totals(
@@ -122,42 +132,49 @@ def _map_totals(
     event: dict[str, Any],
     market: dict[str, Any],
     bookmaker: str,
+    snapshot_time_override: datetime | None,
 ) -> list[HistoricalOddsSnapshotInput]:
     by_side = {}
     for outcome in market.get("outcomes") or []:
         name = str(outcome.get("name") or "").lower()
+        line = _decimal(outcome.get("point"))
+        if line is None:
+            continue
         if name in {"over", "under"}:
-            by_side[name] = outcome
-    if not {"over", "under"}.issubset(by_side):
-        return []
-    line = _decimal(by_side["over"].get("point"))
-    under_line = _decimal(by_side["under"].get("point"))
-    if line is None or under_line is None or line != under_line:
-        return []
-    return [
-        _snapshot(
-            match_id,
-            event,
-            market,
-            bookmaker,
-            "total_goals",
-            "Total Goals",
-            line,
-            "over",
-            by_side["over"],
-        ),
-        _snapshot(
-            match_id,
-            event,
-            market,
-            bookmaker,
-            "total_goals",
-            "Total Goals",
-            line,
-            "under",
-            by_side["under"],
-        ),
-    ]
+            by_side.setdefault(line, {})[name] = outcome
+    snapshots: list[HistoricalOddsSnapshotInput] = []
+    for line, sides in sorted(by_side.items()):
+        if not {"over", "under"}.issubset(sides):
+            continue
+        snapshots.extend(
+            [
+                _snapshot(
+                    match_id,
+                    event,
+                    market,
+                    bookmaker,
+                    "total_goals",
+                    "Total Goals",
+                    line,
+                    "over",
+                    sides["over"],
+                    snapshot_time_override,
+                ),
+                _snapshot(
+                    match_id,
+                    event,
+                    market,
+                    bookmaker,
+                    "total_goals",
+                    "Total Goals",
+                    line,
+                    "under",
+                    sides["under"],
+                    snapshot_time_override,
+                ),
+            ]
+        )
+    return snapshots
 
 
 def _snapshot(
@@ -170,10 +187,11 @@ def _snapshot(
     market_line: Decimal,
     outcome_side: str,
     outcome: dict[str, Any],
+    snapshot_time_override: datetime | None,
 ) -> HistoricalOddsSnapshotInput:
     event_id = str(event.get("id") or "")
     market_key = str(market.get("key") or market_type)
-    snapshot_time = _parse_time(
+    snapshot_time = snapshot_time_override or _parse_time(
         market.get("last_update") or event.get("last_update") or event.get("commence_time")
     )
     return HistoricalOddsSnapshotInput(

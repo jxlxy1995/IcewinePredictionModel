@@ -28,6 +28,11 @@ from icewine_prediction.oddspapi_sync_runner import (
     _as_utc,
     _historical_snapshot_as_utc,
 )
+from icewine_prediction.odds_provider_selection_service import (
+    PINNACLE_BOOKMAKER,
+    PINNACLE_SOURCE_PRIORITY,
+    filter_priority_pinnacle_snapshots,
+)
 
 EXECUTION_TIMEPOINT_TARGETS = (60, 30, 25, 20, 15, 10)
 EXECUTION_TIMEPOINT_MARKETS = (
@@ -408,11 +413,12 @@ def _execution_timepoint_coverage(
     snapshots = (
         session.query(HistoricalOddsSnapshot)
         .filter(HistoricalOddsSnapshot.match_id == match.id)
-        .filter(HistoricalOddsSnapshot.source_name == ODDSPAPI_SOURCE_NAME)
-        .filter(HistoricalOddsSnapshot.bookmaker == "pinnacle")
+        .filter(HistoricalOddsSnapshot.source_name.in_(PINNACLE_SOURCE_PRIORITY))
+        .filter(HistoricalOddsSnapshot.bookmaker == PINNACLE_BOOKMAKER)
         .order_by(HistoricalOddsSnapshot.snapshot_time.asc())
         .all()
     )
+    snapshots = filter_priority_pinnacle_snapshots(snapshots)
     kickoff_time = _snapshot_timeline_kickoff_time(match)
     rows: list[ExecutionTimepointCoverageRow] = []
     available_count = 0
@@ -659,7 +665,8 @@ def _complete_historical_odds_match_ids(session: Session, matches: list[Match]) 
             HistoricalOddsSnapshot.snapshot_time,
         )
         .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
-        .filter_by(source_name=ODDSPAPI_SOURCE_NAME)
+        .filter(HistoricalOddsSnapshot.source_name.in_(PINNACLE_SOURCE_PRIORITY))
+        .filter(HistoricalOddsSnapshot.bookmaker == PINNACLE_BOOKMAKER)
         .filter(HistoricalOddsSnapshot.snapshot_time >= earliest_kickoff_utc - timedelta(hours=24))
         .filter(HistoricalOddsSnapshot.snapshot_time <= latest_kickoff_utc)
         .all()

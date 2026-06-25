@@ -59,8 +59,14 @@ class TheOddsApiClient:
             response.raise_for_status()
         except Exception as exc:
             status_code = getattr(response, "status_code", None)
+            provider_message = _response_error_message(response)
+            details = [f"The Odds API HTTP error: {exc.__class__.__name__}"]
+            if isinstance(status_code, int):
+                details.append(f"status={status_code}")
+            if provider_message:
+                details.append(provider_message)
             raise TheOddsApiApiError(
-                f"The Odds API HTTP error: {exc.__class__.__name__}",
+                "; ".join(details),
                 status_code=status_code if isinstance(status_code, int) else None,
             ) from None
         payload = response.json()
@@ -79,3 +85,15 @@ def _build_default_session() -> requests.Session:
     session = requests.Session()
     session.trust_env = False
     return session
+
+
+def _response_error_message(response: Any) -> str | None:
+    try:
+        payload = response.json()
+    except Exception:
+        return None
+    if isinstance(payload, dict):
+        message = payload.get("message") or payload.get("error")
+        if message:
+            return str(message)
+    return None

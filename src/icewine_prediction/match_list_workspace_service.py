@@ -144,6 +144,7 @@ class ExecutionTimepointCoverage:
     total_count: int
     health_key: str
     health_label: str
+    bookmaker: str | None
 
 
 @dataclass(frozen=True)
@@ -412,6 +413,7 @@ def _execution_timepoint_coverage(
         .all()
     )
     snapshots = filter_priority_trusted_snapshots(snapshots)
+    bookmaker = _selected_bookmaker(snapshots)
     kickoff_time = _snapshot_timeline_kickoff_time(match)
     rows: list[ExecutionTimepointCoverageRow] = []
     available_count = 0
@@ -460,7 +462,14 @@ def _execution_timepoint_coverage(
         total_count=total_count,
         health_key=health_key,
         health_label=health_label,
+        bookmaker=bookmaker,
     )
+
+
+def _selected_bookmaker(snapshots: list[HistoricalOddsSnapshot]) -> str | None:
+    if not snapshots:
+        return None
+    return snapshots[0].bookmaker.lower()
 
 
 def _execution_timepoint_health(available_count: int, total_count: int) -> tuple[str, str]:

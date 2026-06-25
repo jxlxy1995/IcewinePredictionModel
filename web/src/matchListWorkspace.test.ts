@@ -66,6 +66,7 @@ const detail: MatchDetail = {
     available_count: 2,
     total_count: 18,
     health_key: "low",
+    bookmaker: "pinnacle",
     health_label: "偏低",
     rows: [
       {
@@ -169,6 +170,8 @@ describe("matchListWorkspace", () => {
 
   it("builds execution timepoint coverage view model", () => {
     expect(buildExecutionTimepointCoverageView(detail.execution_timepoint_coverage)).toMatchObject({
+      bookmakerLabel: "Pinnacle",
+      canClearSbobet: false,
       summary: "2/18",
       healthClassName: "coverage-health coverage-health-low",
       healthLabel: "偏低"
@@ -187,6 +190,19 @@ describe("matchListWorkspace", () => {
       targetMinutes: 30,
       title: "T-30 · 缺失"
     });
+  });
+
+  it("blocks per-cell manual odds entry when coverage uses sbobet", () => {
+    const sbobetCoverage = {
+      ...detail.execution_timepoint_coverage,
+      bookmaker: "sbobet"
+    };
+
+    const view = buildExecutionTimepointCoverageView(sbobetCoverage);
+
+    expect(view.bookmakerLabel).toBe("SBOBet");
+    expect(view.canClearSbobet).toBe(true);
+    expect(view.rows[0].cells[1].canCreateManualOdds).toBe(false);
   });
 
   it("builds match sync summary labels", () => {

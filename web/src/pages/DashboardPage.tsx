@@ -24,6 +24,7 @@ import type { LucideIcon } from "lucide-react";
 
 import {
   cancelPaperAutomationTask,
+  clearSbobetExecutionTimepointOdds,
   createPaperAutomationTask,
   createManualExecutionTimepointOdds,
   loadDashboardData,
@@ -1618,10 +1619,43 @@ function ExecutionTimepointCoverageMatrix({
     }
   }
 
+  async function clearSbobetGroup() {
+    const confirmed = window.confirm("确认清除当前比赛的 SBOBet 赔率组？清除后可手动补录 Pinnacle。");
+    if (!confirmed) {
+      return;
+    }
+    setIsSubmitting(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const result = await clearSbobetExecutionTimepointOdds(detail.match_id);
+      setMessage(`已清除 SBOBet 赔率 ${result.deleted_count} 条`);
+      setSelected(null);
+      setDraft(createManualOddsDraft());
+      const nextDetail = await loadMatchDetail(detail.match_id);
+      onDetailUpdated(nextDetail);
+    } catch (caught) {
+      setError(formatActionError("清除 SBOBet 赔率组失败", caught));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <div className="execution-coverage">
       <div className="execution-coverage-header">
         <span>标准时点覆盖</span>
+        <span>{coverage.bookmakerLabel}</span>
+        {coverage.canClearSbobet && (
+          <button
+            className="inline-action compact-action"
+            disabled={isSubmitting}
+            onClick={clearSbobetGroup}
+            type="button"
+          >
+            清除 SBOBet 赔率组
+          </button>
+        )}
         <strong className={coverage.healthClassName}>
           {coverage.healthLabel} · {coverage.summary}
         </strong>

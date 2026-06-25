@@ -568,6 +568,7 @@ export const mockMatchDetail: MatchDetail = {
     available_count: 0,
     total_count: 18,
     health_key: "none",
+    bookmaker: null,
     health_label: "无覆盖",
     rows: [
       {

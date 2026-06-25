@@ -695,6 +695,7 @@ export type ExecutionTimepointCoverage = {
   total_count: number;
   health_key: "high" | "medium" | "low" | "none" | string;
   health_label: string;
+  bookmaker: string | null;
 };
 
 export type ManualExecutionTimepointOddsPayload = {
@@ -709,6 +710,12 @@ export type ManualExecutionTimepointOddsResult = {
   status: "created" | "already_exists" | string;
   inserted_count: number;
   snapshot_time: string | null;
+  message: string;
+};
+
+export type ClearSbobetExecutionTimepointOddsResult = {
+  status: "cleared" | string;
+  deleted_count: number;
   message: string;
 };
 

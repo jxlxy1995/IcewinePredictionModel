@@ -39,6 +39,9 @@ export type ExecutionTimepointCoverageView = {
   summary: string;
   healthClassName: string;
   healthLabel: string;
+  bookmaker: string | null;
+  bookmakerLabel: string;
+  canClearSbobet: boolean;
   targets: string[];
   rows: {
     marketType: string;
@@ -108,10 +111,15 @@ export function summarizeMatchDetail(detail: MatchDetail) {
 export function buildExecutionTimepointCoverageView(
   coverage: ExecutionTimepointCoverage
 ): ExecutionTimepointCoverageView {
+  const bookmaker = coverage.bookmaker?.toLowerCase() ?? null;
+  const isSbobet = bookmaker === "sbobet";
   return {
     summary: `${coverage.available_count}/${coverage.total_count}`,
     healthClassName: `coverage-health coverage-health-${coverage.health_key}`,
     healthLabel: coverage.health_label,
+    bookmaker,
+    bookmakerLabel: formatBookmakerLabel(bookmaker),
+    canClearSbobet: isSbobet,
     targets: coverage.targets,
     rows: coverage.rows.map((row) => ({
       marketType: row.market_type,
@@ -119,7 +127,7 @@ export function buildExecutionTimepointCoverageView(
       cells: row.cells.map((cell) => ({
         label: cell.label,
         available: cell.available,
-        canCreateManualOdds: !cell.available,
+        canCreateManualOdds: !cell.available && !isSbobet,
         className: `coverage-cell ${cell.available ? "available" : "missing"}`,
         marketType: row.market_type,
         targetMinutes: cell.target_minutes,
@@ -129,6 +137,16 @@ export function buildExecutionTimepointCoverageView(
       }))
     }))
   };
+}
+
+function formatBookmakerLabel(bookmaker: string | null): string {
+  if (bookmaker === "pinnacle") {
+    return "Pinnacle";
+  }
+  if (bookmaker === "sbobet") {
+    return "SBOBet";
+  }
+  return "鏈€夋嫨";
 }
 
 export function buildMatchSyncSummary(report: MatchSyncReport): MatchSyncSummary {

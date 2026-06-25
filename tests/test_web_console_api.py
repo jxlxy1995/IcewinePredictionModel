@@ -15,6 +15,7 @@ from icewine_prediction.display_service import DisplayNameService, DisplayNames,
 from icewine_prediction.display_translation_status_service import DisplayTranslationStatusService
 from icewine_prediction.models import (
     DataSyncRunItem,
+    HistoricalOddsRawSnapshot,
     HistoricalOddsSnapshot,
     League,
     Match,
@@ -1983,6 +1984,7 @@ def test_web_console_api_returns_match_list_workspace_and_detail(tmp_path):
     detail = detail_response.json()
     assert detail["home_team_logo_url"] == "home.png"
     assert detail["execution_timepoint_coverage"]["total_count"] == 18
+    assert detail["execution_timepoint_coverage"]["bookmaker"] == "pinnacle"
     assert detail["execution_timepoint_coverage"]["targets"] == [
         "T-60",
         "T-30",
@@ -2041,6 +2043,75 @@ def test_web_console_api_creates_manual_execution_timepoint_odds(tmp_path):
     assert response.json()["inserted_count"] == 3
     assert duplicate_response.status_code == 200
     assert duplicate_response.json()["status"] == "already_exists"
+
+
+def test_web_console_api_clears_sbobet_execution_timepoint_odds(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="Norway 1. Division", country_or_region="Norway", level=2)
+        home = Team(canonical_name="Start")
+        away = Team(canonical_name="Stabaek")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+            source_match_id="norway-1",
+        )
+        session.add_all([league, home, away, match])
+        session.flush()
+        session.add_all(
+            [
+                HistoricalOddsSnapshot(
+                    match_id=match.id,
+                    source_name="oddspapi",
+                    source_fixture_id="norway-1",
+                    bookmaker="sbobet",
+                    market_type="asian_handicap",
+                    market_id="ah-sbo",
+                    market_name="Asian Handicap",
+                    market_line=Decimal("-0.50"),
+                    outcome_side="home",
+                    odds=Decimal("1.900"),
+                    snapshot_time=datetime(2026, 5, 30, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                    period="fulltime",
+                ),
+                HistoricalOddsRawSnapshot(
+                    match_id=match.id,
+                    source_name="oddspapi",
+                    source_fixture_id="norway-1",
+                    bookmaker="sbobet",
+                    market_type="asian_handicap",
+                    market_id="raw-ah-sbo",
+                    market_name="Asian Handicap",
+                    market_line=Decimal("-0.50"),
+                    outcome_side="home",
+                    odds=Decimal("1.900"),
+                    snapshot_time=datetime(2026, 5, 30, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                    period="fulltime",
+                    raw_payload='{"bookmaker":"sbobet"}',
+                ),
+            ]
+        )
+        session.commit()
+        match_id = match.id
+
+    client = TestClient(create_web_app(session_factory=session_factory, log_dir=tmp_path))
+
+    response = client.post(f"/api/matches/{match_id}/execution-timepoint-odds/clear-sbobet")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "cleared",
+        "deleted_count": 1,
+        "message": "sbobet execution timepoint odds group cleared",
+    }
+    with session_factory() as session:
+        assert session.query(HistoricalOddsSnapshot).filter_by(match_id=match_id).count() == 0
+        assert session.query(HistoricalOddsRawSnapshot).filter_by(match_id=match_id).count() == 1
 
 
 def test_web_console_api_match_list_sync_buttons_record_runs(tmp_path):

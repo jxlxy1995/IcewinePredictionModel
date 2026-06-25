@@ -153,6 +153,19 @@ Next action when J2 is needed:
 4. Probe SBOBet `historical-odds`.
 5. Add J2 to fallback only after historical-odds succeeds.
 
+## Manual Pinnacle Replacement Note
+
+Match detail can clear the currently selected SBOBet group before manual Pinnacle entry.
+
+The clear action deletes only `historical_odds_snapshots` rows for the match where
+`source_name = oddspapi` and `bookmaker = sbobet`. It intentionally does not delete
+`historical_odds_raw_snapshots`, Pinnacle rows, or The Odds API rows.
+
+Because of this, it is expected that raw snapshots may still contain SBOBet data while
+the standardized main table has Pinnacle rows or no selected rows for the same match.
+Treat raw as source evidence and `historical_odds_snapshots` as the current model/display
+main table.
+
 ## Verification
 
 Tests added/updated:

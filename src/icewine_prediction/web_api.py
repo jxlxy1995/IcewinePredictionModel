@@ -92,6 +92,7 @@ from icewine_prediction.match_list_workspace_service import (
 from icewine_prediction.match_odds_sync_service import run_match_odds_sync_for_session
 from icewine_prediction.historical_odds_service import (
     ManualExecutionTimepointOddsInput,
+    clear_sbobet_execution_timepoint_odds_group,
     create_manual_execution_timepoint_odds,
 )
 from icewine_prediction.paper_recommendation_tracking_service import (
@@ -723,6 +724,16 @@ def create_web_app(
         with session_factory() as session:
             try:
                 result = create_manual_execution_timepoint_odds(session, input_data)
+            except ValueError as error:
+                status_code = 404 if str(error) == "match not found" else 400
+                raise HTTPException(status_code=status_code, detail=str(error)) from error
+            return asdict(result)
+
+    @app.post("/api/matches/{match_id}/execution-timepoint-odds/clear-sbobet")
+    def clear_match_sbobet_execution_timepoint_odds(match_id: int) -> dict[str, Any]:
+        with session_factory() as session:
+            try:
+                result = clear_sbobet_execution_timepoint_odds_group(session, match_id)
             except ValueError as error:
                 status_code = 404 if str(error) == "match not found" else 400
                 raise HTTPException(status_code=status_code, detail=str(error)) from error

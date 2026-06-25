@@ -20,6 +20,7 @@ import type {
   MatchWithOdds,
   MatchOddsTrends,
   CreatePaperAutomationTaskPayload,
+  ClearSbobetExecutionTimepointOddsResult,
   ManualExecutionTimepointOddsPayload,
   ManualExecutionTimepointOddsResult,
   OddspapiBackfillAudit,
@@ -318,6 +319,15 @@ export async function createManualExecutionTimepointOdds(
   return await postJson<ManualExecutionTimepointOddsResult>(
     `/api/matches/${matchId}/execution-timepoint-odds/manual`,
     payload
+  );
+}
+
+export async function clearSbobetExecutionTimepointOdds(
+  matchId: number
+): Promise<ClearSbobetExecutionTimepointOddsResult> {
+  return await postJson<ClearSbobetExecutionTimepointOddsResult>(
+    `/api/matches/${matchId}/execution-timepoint-odds/clear-sbobet`,
+    {}
   );
 }
 

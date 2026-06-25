@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  clearSbobetExecutionTimepointOdds,
   createManualExecutionTimepointOdds,
   createPaperAutomationTask,
   cancelPaperAutomationTask,
@@ -529,6 +530,29 @@ describe("apiClient", () => {
       }
     );
     expect(result.status).toBe("created");
+  });
+
+  it("clears sbobet execution timepoint odds with match id path", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        deleted_count: 2,
+        message: "sbobet execution timepoint odds group cleared",
+        status: "cleared"
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await clearSbobetExecutionTimepointOdds(16356);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/matches/16356/execution-timepoint-odds/clear-sbobet",
+      {
+        body: "{}",
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      }
+    );
+    expect(result.deleted_count).toBe(2);
   });
 
   it("loads paper automation tasks", async () => {

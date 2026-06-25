@@ -8,6 +8,7 @@ from icewine_prediction.historical_odds_service import (
     ManualExecutionTimepointOddsInput,
     build_historical_odds_market_coverage,
     build_historical_odds_coverage_report,
+    clear_sbobet_execution_timepoint_odds_group,
     create_manual_execution_timepoint_odds,
     sample_oddspapi_training_snapshots,
     sample_historical_odds_snapshots,
@@ -417,6 +418,92 @@ def test_create_manual_execution_timepoint_odds_returns_existing_without_overwri
         "over": Decimal("1.880"),
         "under": Decimal("1.980"),
     }
+
+
+def test_clear_sbobet_execution_timepoint_odds_group_removes_only_main_sbobet_snapshots(session):
+    match = _match(session)
+    other_match = _match(
+        session,
+        source_match_id="other-fixture",
+        league_name="Other League",
+        home_team_name="Other Home",
+        away_team_name="Other Away",
+    )
+    session.add_all(
+        [
+            HistoricalOddsSnapshot(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id="fixture-1",
+                bookmaker="sbobet",
+                market_type="asian_handicap",
+                market_id="ah-sbo-home",
+                market_name="Asian Handicap",
+                market_line=Decimal("-0.50"),
+                outcome_side="home",
+                odds=Decimal("1.900"),
+                snapshot_time=datetime(2026, 5, 23, 18, 0, tzinfo=ZoneInfo("UTC")),
+                period="fulltime",
+            ),
+            HistoricalOddsSnapshot(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id="fixture-1",
+                bookmaker="pinnacle",
+                market_type="asian_handicap",
+                market_id="ah-pin-home",
+                market_name="Asian Handicap",
+                market_line=Decimal("-0.50"),
+                outcome_side="home",
+                odds=Decimal("1.910"),
+                snapshot_time=datetime(2026, 5, 23, 18, 0, tzinfo=ZoneInfo("UTC")),
+                period="fulltime",
+            ),
+            HistoricalOddsSnapshot(
+                match_id=other_match.id,
+                source_name="oddspapi",
+                source_fixture_id="fixture-2",
+                bookmaker="sbobet",
+                market_type="asian_handicap",
+                market_id="ah-sbo-other",
+                market_name="Asian Handicap",
+                market_line=Decimal("-0.50"),
+                outcome_side="home",
+                odds=Decimal("1.920"),
+                snapshot_time=datetime(2026, 5, 23, 18, 0, tzinfo=ZoneInfo("UTC")),
+                period="fulltime",
+            ),
+            HistoricalOddsRawSnapshot(
+                match_id=match.id,
+                source_name="oddspapi",
+                source_fixture_id="fixture-1",
+                bookmaker="sbobet",
+                market_type="asian_handicap",
+                market_id="raw-ah-sbo-home",
+                market_name="Asian Handicap",
+                market_line=Decimal("-0.50"),
+                outcome_side="home",
+                odds=Decimal("1.900"),
+                snapshot_time=datetime(2026, 5, 23, 18, 0, tzinfo=ZoneInfo("UTC")),
+                period="fulltime",
+                raw_payload='{"bookmaker":"sbobet"}',
+            ),
+        ]
+    )
+    session.commit()
+
+    result = clear_sbobet_execution_timepoint_odds_group(session, match.id)
+
+    saved_main = session.query(HistoricalOddsSnapshot).order_by(HistoricalOddsSnapshot.bookmaker).all()
+    saved_raw = session.query(HistoricalOddsRawSnapshot).all()
+    assert result.deleted_count == 1
+    assert [(row.match_id, row.bookmaker, row.market_id) for row in saved_main] == [
+        (match.id, "pinnacle", "ah-pin-home"),
+        (other_match.id, "sbobet", "ah-sbo-other"),
+    ]
+    assert [(row.match_id, row.bookmaker, row.market_id) for row in saved_raw] == [
+        (match.id, "sbobet", "raw-ah-sbo-home")
+    ]
 
 
 def test_store_historical_odds_snapshots_preserves_execution_timepoint_from_source(session):

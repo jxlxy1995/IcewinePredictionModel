@@ -590,6 +590,7 @@ def test_match_detail_includes_standard_execution_timepoint_coverage(session):
 
     assert detail is not None
     coverage = detail.execution_timepoint_coverage
+    assert coverage.bookmaker == "pinnacle"
     assert coverage.available_count == 2
     assert coverage.total_count == 18
     assert coverage.health_key == "low"
@@ -636,10 +637,45 @@ def test_match_detail_execution_timepoint_coverage_prefers_the_odds_api(session)
 
     assert detail is not None
     coverage = detail.execution_timepoint_coverage
+    assert coverage.bookmaker == "pinnacle"
     asian = next(row for row in coverage.rows if row.market_type == "asian_handicap")
     assert coverage.available_count == 1
     assert [cell.available for cell in asian.cells] == [False, False, False, False, False, True]
     assert asian.cells[-1].market_line == "-0.25"
+
+
+def test_match_detail_execution_timepoint_coverage_reports_sbobet_bookmaker(session):
+    league = League(name="Norway 1. Division", country_or_region="Norway", level=2)
+    home = Team(canonical_name="Start")
+    away = Team(canonical_name="Stabaek")
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=BEIJING),
+        status="scheduled",
+    )
+    session.add_all([league, home, away, match])
+    session.flush()
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.50"),
+        target_minutes=60,
+        source_name="oddspapi",
+        bookmaker="sbobet",
+    )
+    session.commit()
+
+    detail = build_match_detail(session, match_id=match.id)
+
+    assert detail is not None
+    coverage = detail.execution_timepoint_coverage
+    asian = next(row for row in coverage.rows if row.market_type == "asian_handicap")
+    assert coverage.bookmaker == "sbobet"
+    assert coverage.available_count == 1
+    assert [cell.available for cell in asian.cells] == [True, False, False, False, False, False]
 
 
 def _add_asian_handicap_snapshot(session, match: Match, *, line: Decimal):

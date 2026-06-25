@@ -93,6 +93,13 @@ class ManualExecutionTimepointOddsResult:
     message: str
 
 
+@dataclass(frozen=True)
+class ClearSbobetExecutionTimepointOddsResult:
+    status: str
+    deleted_count: int
+    message: str
+
+
 DEFAULT_EXECUTION_SNAPSHOT_TARGETS = (60, 30, 25, 20, 15, 10)
 STANDARD_SNAPSHOT_TARGET_MARKET_TYPES = (
     "asian_handicap",
@@ -765,6 +772,28 @@ def create_manual_execution_timepoint_odds(
         message="manual execution timepoint odds created"
         if store_result.inserted_count
         else "execution timepoint odds already exist",
+    )
+
+
+def clear_sbobet_execution_timepoint_odds_group(
+    session: Session,
+    match_id: int,
+) -> ClearSbobetExecutionTimepointOddsResult:
+    match = session.get(Match, match_id)
+    if match is None:
+        raise ValueError("match not found")
+    deleted_count = (
+        session.query(HistoricalOddsSnapshot)
+        .filter(HistoricalOddsSnapshot.match_id == match_id)
+        .filter(HistoricalOddsSnapshot.source_name == "oddspapi")
+        .filter(HistoricalOddsSnapshot.bookmaker == "sbobet")
+        .delete(synchronize_session=False)
+    )
+    session.commit()
+    return ClearSbobetExecutionTimepointOddsResult(
+        status="cleared",
+        deleted_count=int(deleted_count or 0),
+        message="sbobet execution timepoint odds group cleared",
     )
 
 

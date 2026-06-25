@@ -35,7 +35,7 @@ python -m icewine_prediction.cli records snapshots-backfill `
   --dry-run
 ```
 
-Adjust the dates to match the real paper-record period. The date filters are based on `PaperRecommendationRecord.created_at`, not match kickoff time.
+Adjust the dates to match the real paper-record period. The date filters are based on `PaperRecommendationRecord.kickoff_time`, using the inclusive match kickoff window.
 
 If the dry-run numbers look reasonable, write the backfilled snapshots:
 
@@ -53,7 +53,7 @@ python -m icewine_prediction.cli records snapshot-report `
   --to-date 2026-06-23
 ```
 
-The report date filters are based on snapshot `created_at`, not match kickoff time. For historical backfill rows, this means the snapshot creation/backfill time, not the original paper record time. If the lead worker wants to analyze historical paper-record periods after backfill, use the backfill command window and the generated rows together with database inspection as needed.
+The report date filters are also based on the representative paper record's `kickoff_time`, not snapshot creation time. This keeps the CLI report aligned with the web snapshot review page and with period-based review of historical paper records.
 
 ## Expected Checks
 

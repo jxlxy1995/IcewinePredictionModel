@@ -200,11 +200,9 @@ type PaperSnapshotReviewFilterState = {
 
 const matchOddsStatusOptions = [
   { key: "none", label: "无赔率" },
-  { key: "early", label: "早盘" },
-  { key: "near", label: "近盘" },
-  { key: "close", label: "临盘" },
-  { key: "pending_fill", label: "待回填" },
-  { key: "filled", label: "已回填" }
+  { key: "partial", label: "部分覆盖" },
+  { key: "basic", label: "基本覆盖" },
+  { key: "complete", label: "完整覆盖" }
 ];
 
 export const initialDashboardView: ViewKey = "matchList";

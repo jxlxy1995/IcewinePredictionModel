@@ -53,7 +53,7 @@ const workspace: PaperRecommendationWorkspace = {
       strategy_key: "asian_away_cover_hgb_edge_v1",
       strategy_display_name: "亚盘客队方向 · HGB边际 v1",
       signal_version: "v1",
-      odds_source: "oddspapi_historical",
+      odds_source: "oddspapi_pinnacle_historical",
       execution_target: "T-10",
       historical_snapshot_count: 42,
       robustness_mode: "filter",

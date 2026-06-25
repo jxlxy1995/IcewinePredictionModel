@@ -276,6 +276,36 @@ def test_historical_training_samples_can_use_pinnacle_provider_priority(session)
     assert samples[0].anchors[-1].market_line == Decimal("-0.50")
 
 
+def test_historical_training_samples_provider_priority_falls_back_to_sbobet(session):
+    match = _add_finished_match(session)
+    _add_pair(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.75"),
+        snapshot_time=match.kickoff_time - timedelta(hours=1),
+        side_a="home",
+        side_b="away",
+        side_a_odds=Decimal("1.91"),
+        side_b_odds=Decimal("1.97"),
+        market_id="sbobet-ah",
+        source_name="oddspapi",
+        bookmaker="sbobet",
+    )
+    session.commit()
+
+    samples = list_historical_market_training_samples(
+        session,
+        season=2026,
+        source_name=None,
+        use_pinnacle_provider_priority=True,
+    )
+
+    assert samples[0].bookmaker == "sbobet"
+    assert samples[0].anchors[-1].bookmaker == "sbobet"
+    assert samples[0].anchors[-1].market_line == Decimal("-0.75")
+
+
 def _add_finished_match(session) -> Match:
     league = League(name="Premier League", country_or_region="England", level=1)
     home = Team(canonical_name="Arsenal")
@@ -312,6 +342,7 @@ def _add_pair(
     side_b_odds: Decimal,
     market_id: str,
     source_name: str = "oddspapi",
+    bookmaker: str = "pinnacle",
 ) -> None:
     for side, odds in [(side_a, side_a_odds), (side_b, side_b_odds)]:
         session.add(
@@ -319,7 +350,7 @@ def _add_pair(
                 match_id=match.id,
                 source_name=source_name,
                 source_fixture_id="fixture-1",
-                bookmaker="pinnacle",
+                bookmaker=bookmaker,
                 market_type=market_type,
                 market_id=market_id,
                 market_name=market_type,

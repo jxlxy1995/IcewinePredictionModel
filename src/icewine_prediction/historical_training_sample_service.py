@@ -8,7 +8,13 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.orm import Session, joinedload
 
 from icewine_prediction.models import HistoricalOddsSnapshot, Match
-from icewine_prediction.odds_provider_selection_service import filter_priority_pinnacle_snapshots
+from icewine_prediction.odds_provider_selection_service import (
+    TRUSTED_SNAPSHOT_PRIORITY,
+    filter_priority_trusted_snapshots,
+)
+
+TRUSTED_SOURCE_NAMES = tuple({source_name for source_name, _bookmaker in TRUSTED_SNAPSHOT_PRIORITY})
+TRUSTED_BOOKMAKERS = tuple({bookmaker for _source_name, bookmaker in TRUSTED_SNAPSHOT_PRIORITY})
 from icewine_prediction.settlement_service import settle_asian_handicap, settle_total_goals
 
 
@@ -136,7 +142,6 @@ def list_historical_market_training_samples(
                     for snapshot in match_snapshots
                     if snapshot.market_type == market_type
                 ],
-                bookmaker=bookmaker,
             )
             if sample is not None:
                 samples.append(sample)
@@ -156,13 +161,17 @@ def _load_historical_snapshots(
     query = (
         session.query(HistoricalOddsSnapshot)
         .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
-        .filter(HistoricalOddsSnapshot.bookmaker == bookmaker)
     )
-    if source_name is not None:
-        query = query.filter(HistoricalOddsSnapshot.source_name == source_name)
+    if use_pinnacle_provider_priority:
+        query = query.filter(HistoricalOddsSnapshot.source_name.in_(TRUSTED_SOURCE_NAMES))
+        query = query.filter(HistoricalOddsSnapshot.bookmaker.in_(TRUSTED_BOOKMAKERS))
+    else:
+        query = query.filter(HistoricalOddsSnapshot.bookmaker == bookmaker)
+        if source_name is not None:
+            query = query.filter(HistoricalOddsSnapshot.source_name == source_name)
     snapshots = query.order_by(HistoricalOddsSnapshot.snapshot_time.asc()).all()
     if use_pinnacle_provider_priority:
-        snapshots = filter_priority_pinnacle_snapshots(snapshots, bookmaker=bookmaker)
+        snapshots = filter_priority_trusted_snapshots(snapshots)
     snapshots_by_match_id: dict[int, list[HistoricalOddsSnapshot]] = defaultdict(list)
     for snapshot in snapshots:
         snapshots_by_match_id[snapshot.match_id].append(snapshot)
@@ -174,7 +183,6 @@ def _build_market_sample(
     match: Match,
     market_type: str,
     snapshots: list[HistoricalOddsSnapshot],
-    bookmaker: str,
 ) -> HistoricalMarketTrainingSample | None:
     kickoff_time = _comparable_datetime(match.kickoff_time)
     pre_match_snapshots = [
@@ -186,6 +194,7 @@ def _build_market_sample(
     pairs = _pair_market_snapshots(pre_match_snapshots, market_type=market_type)
     if not pairs:
         return None
+    bookmaker = pairs[0].bookmaker
 
     anchors: list[HistoricalOddsAnchorFeature] = []
     missing_labels = []

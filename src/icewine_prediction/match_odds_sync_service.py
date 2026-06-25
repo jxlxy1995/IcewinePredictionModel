@@ -1,14 +1,14 @@
 from enum import StrEnum
 from typing import Any, Callable
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from icewine_prediction.models import HistoricalOddsSnapshot, Match
 from icewine_prediction.oddspapi_sync_runner import run_oddspapi_sync_result
 from icewine_prediction.odds_provider_selection_service import (
-    PINNACLE_BOOKMAKER,
-    PINNACLE_SOURCE_PRIORITY,
     THE_ODDS_API_SOURCE_NAME,
+    TRUSTED_SNAPSHOT_PRIORITY,
 )
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.sources.the_odds_api_client import TheOddsApiClient
@@ -86,7 +86,7 @@ def run_match_odds_sync_for_session(
     for match in matches:
         if match.season is None:
             continue
-        if has_priority_pinnacle_historical_odds(session, match.id):
+        if has_trusted_historical_odds(session, match.id):
             success_ids.append(match.id)
         else:
             failed_ids.append(match.id)
@@ -108,15 +108,23 @@ def run_match_odds_sync_for_session(
     }
 
 
-def has_priority_pinnacle_historical_odds(session: Session, match_id: int) -> bool:
+def has_trusted_historical_odds(session: Session, match_id: int) -> bool:
+    trusted_filters = [
+        (HistoricalOddsSnapshot.source_name == source_name)
+        & (HistoricalOddsSnapshot.bookmaker == bookmaker)
+        for source_name, bookmaker in TRUSTED_SNAPSHOT_PRIORITY
+    ]
     return (
         session.query(HistoricalOddsSnapshot.id)
         .filter(HistoricalOddsSnapshot.match_id == match_id)
-        .filter(HistoricalOddsSnapshot.bookmaker == PINNACLE_BOOKMAKER)
-        .filter(HistoricalOddsSnapshot.source_name.in_(PINNACLE_SOURCE_PRIORITY))
+        .filter(or_(*trusted_filters))
         .first()
         is not None
     )
+
+
+def has_priority_pinnacle_historical_odds(session: Session, match_id: int) -> bool:
+    return has_trusted_historical_odds(session, match_id)
 
 
 def run_default_the_odds_api_sync_for_session(**kwargs: Any) -> Any:

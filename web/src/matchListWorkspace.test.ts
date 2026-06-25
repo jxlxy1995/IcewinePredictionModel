@@ -47,8 +47,8 @@ const workspace: MatchListWorkspace = {
       home_score: null,
       away_score: null,
       has_odds: true,
-      odds_status_key: "close",
-      odds_status_label: "临盘",
+      odds_status_key: "basic",
+      odds_status_label: "基本覆盖",
       odds_summary: {
         asian_handicap: "Away +0.50 @ 1.950",
         total_goals: null,
@@ -124,7 +124,7 @@ describe("matchListWorkspace", () => {
     expect(buildMatchListRows(workspace)[0]).toMatchObject({
       fixture: "Hiroshima vs Kawasaki",
       league: "J1",
-      oddsAvailability: "临盘"
+      oddsAvailability: "基本覆盖"
     });
   });
 

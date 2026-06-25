@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session, joinedload
 
 from icewine_prediction.config import BEIJING_TIMEZONE
 from icewine_prediction.display_service import DisplayNameService
-from icewine_prediction.execution_timepoint_service import select_execution_timepoint_pair
+from icewine_prediction.execution_timepoint_service import (
+    DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES,
+    select_execution_timepoint_pair,
+)
 from icewine_prediction.historical_training_sample_service import _pair_market_snapshots
 from icewine_prediction.models import (
     DataSyncRun,
@@ -20,19 +23,13 @@ from icewine_prediction.models import (
     PaperRecommendationRecord,
     RecommendationRecord,
 )
-from icewine_prediction.oddspapi_sync_runner import (
-    COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT,
-    COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW,
-    COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS,
-    ODDSPAPI_SOURCE_NAME,
-    _as_utc,
-    _historical_snapshot_as_utc,
-)
 from icewine_prediction.odds_provider_selection_service import (
-    PINNACLE_BOOKMAKER,
-    PINNACLE_SOURCE_PRIORITY,
-    filter_priority_pinnacle_snapshots,
+    TRUSTED_SNAPSHOT_PRIORITY,
+    filter_priority_trusted_snapshots,
 )
+
+TRUSTED_SOURCE_NAMES = tuple({source_name for source_name, _bookmaker in TRUSTED_SNAPSHOT_PRIORITY})
+TRUSTED_BOOKMAKERS = tuple({bookmaker for _source_name, bookmaker in TRUSTED_SNAPSHOT_PRIORITY})
 
 EXECUTION_TIMEPOINT_TARGETS = (60, 30, 25, 20, 15, 10)
 EXECUTION_TIMEPOINT_MARKETS = (
@@ -66,7 +63,7 @@ class MatchOddsStatus:
 
 @dataclass(frozen=True)
 class MatchOddsStatusFacts:
-    complete_historical_match_ids: set[int]
+    standard_coverage_count_by_match_id: dict[int, int]
     latest_odds_time_by_match_id: dict[int, datetime]
     odds_match_ids: set[int]
 
@@ -176,20 +173,16 @@ class MatchDetail:
 
 
 MATCH_ODDS_STATUS_NONE = MatchOddsStatus("none", "无赔率")
-MATCH_ODDS_STATUS_EARLY = MatchOddsStatus("early", "早盘")
-MATCH_ODDS_STATUS_NEAR = MatchOddsStatus("near", "近盘")
-MATCH_ODDS_STATUS_CLOSE = MatchOddsStatus("close", "临盘")
-MATCH_ODDS_STATUS_PENDING_FILL = MatchOddsStatus("pending_fill", "待回填")
-MATCH_ODDS_STATUS_FILLED = MatchOddsStatus("filled", "已回填")
+MATCH_ODDS_STATUS_PARTIAL = MatchOddsStatus("partial", "部分覆盖")
+MATCH_ODDS_STATUS_BASIC = MatchOddsStatus("basic", "基本覆盖")
+MATCH_ODDS_STATUS_COMPLETE = MatchOddsStatus("complete", "完整覆盖")
 MATCH_ODDS_STATUS_BY_KEY = {
     status.key: status
     for status in (
         MATCH_ODDS_STATUS_NONE,
-        MATCH_ODDS_STATUS_EARLY,
-        MATCH_ODDS_STATUS_NEAR,
-        MATCH_ODDS_STATUS_CLOSE,
-        MATCH_ODDS_STATUS_PENDING_FILL,
-        MATCH_ODDS_STATUS_FILLED,
+        MATCH_ODDS_STATUS_PARTIAL,
+        MATCH_ODDS_STATUS_BASIC,
+        MATCH_ODDS_STATUS_COMPLETE,
     )
 }
 LEGACY_ODDS_FILTERS = {"all", "with_odds", "without_odds"}
@@ -413,12 +406,12 @@ def _execution_timepoint_coverage(
     snapshots = (
         session.query(HistoricalOddsSnapshot)
         .filter(HistoricalOddsSnapshot.match_id == match.id)
-        .filter(HistoricalOddsSnapshot.source_name.in_(PINNACLE_SOURCE_PRIORITY))
-        .filter(HistoricalOddsSnapshot.bookmaker == PINNACLE_BOOKMAKER)
+        .filter(HistoricalOddsSnapshot.source_name.in_(TRUSTED_SOURCE_NAMES))
+        .filter(HistoricalOddsSnapshot.bookmaker.in_(TRUSTED_BOOKMAKERS))
         .order_by(HistoricalOddsSnapshot.snapshot_time.asc())
         .all()
     )
-    snapshots = filter_priority_pinnacle_snapshots(snapshots)
+    snapshots = filter_priority_trusted_snapshots(snapshots)
     kickoff_time = _snapshot_timeline_kickoff_time(match)
     rows: list[ExecutionTimepointCoverageRow] = []
     available_count = 0
@@ -616,7 +609,7 @@ def _odds_match_ids(session: Session) -> set[int]:
 
 def _empty_odds_status_facts() -> MatchOddsStatusFacts:
     return MatchOddsStatusFacts(
-        complete_historical_match_ids=set(),
+        standard_coverage_count_by_match_id={},
         latest_odds_time_by_match_id={},
         odds_match_ids=set(),
     )
@@ -644,58 +637,55 @@ def _odds_status_facts(session: Session, matches: list[Match]) -> MatchOddsStatu
         if (times := [value for value in (live_latest.get(match_id), historical_latest.get(match_id)) if value is not None])
     }
     return MatchOddsStatusFacts(
-        complete_historical_match_ids=_complete_historical_odds_match_ids(session, matches),
+        standard_coverage_count_by_match_id=_standard_coverage_counts_by_match_id(session, matches),
         latest_odds_time_by_match_id=latest_odds_time_by_match_id,
         odds_match_ids=set(live_latest) | set(historical_latest),
     )
 
 
-def _complete_historical_odds_match_ids(session: Session, matches: list[Match]) -> set[int]:
+def _standard_coverage_counts_by_match_id(session: Session, matches: list[Match]) -> dict[int, int]:
     match_by_id = {match.id: match for match in matches}
     match_ids = list(match_by_id)
     if not match_ids:
-        return set()
-    earliest_kickoff_utc = min(_as_utc(match.kickoff_time) for match in matches)
-    latest_kickoff_utc = max(_as_utc(match.kickoff_time) for match in matches)
-    rows = (
-        session.query(
-            HistoricalOddsSnapshot.match_id,
-            HistoricalOddsSnapshot.market_type,
-            HistoricalOddsSnapshot.outcome_side,
-            HistoricalOddsSnapshot.snapshot_time,
-        )
+        return {}
+    kickoff_times = [_snapshot_timeline_kickoff_time(match) for match in matches]
+    earliest_kickoff_utc = min(kickoff_times)
+    latest_kickoff_utc = max(kickoff_times)
+    snapshots = (
+        session.query(HistoricalOddsSnapshot)
         .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
-        .filter(HistoricalOddsSnapshot.source_name.in_(PINNACLE_SOURCE_PRIORITY))
-        .filter(HistoricalOddsSnapshot.bookmaker == PINNACLE_BOOKMAKER)
-        .filter(HistoricalOddsSnapshot.snapshot_time >= earliest_kickoff_utc - timedelta(hours=24))
+        .filter(HistoricalOddsSnapshot.source_name.in_(TRUSTED_SOURCE_NAMES))
+        .filter(HistoricalOddsSnapshot.bookmaker.in_(TRUSTED_BOOKMAKERS))
+        .filter(HistoricalOddsSnapshot.snapshot_time >= earliest_kickoff_utc - timedelta(minutes=max(EXECUTION_TIMEPOINT_TARGETS) + DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES))
         .filter(HistoricalOddsSnapshot.snapshot_time <= latest_kickoff_utc)
         .all()
     )
-    snapshots_by_match_id: dict[int, list[tuple[str, str, datetime]]] = {}
-    for match_id, market_type, outcome_side, snapshot_time in rows:
-        snapshots_by_match_id.setdefault(match_id, []).append((market_type, outcome_side, snapshot_time))
-    complete_match_ids: set[int] = set()
+    snapshots = filter_priority_trusted_snapshots(snapshots)
+    snapshots_by_match_id: dict[int, list[HistoricalOddsSnapshot]] = {}
+    for snapshot in snapshots:
+        snapshots_by_match_id.setdefault(snapshot.match_id, []).append(snapshot)
+    counts: dict[int, int] = {}
     for match in matches:
-        kickoff_utc = _as_utc(match.kickoff_time)
-        snapshots = [
-            snapshot
-            for snapshot in snapshots_by_match_id.get(match.id, [])
-            if kickoff_utc - timedelta(hours=24) <= _historical_snapshot_as_utc(snapshot[2]) <= kickoff_utc
-        ]
-        if len(snapshots) < COMPLETE_HISTORICAL_ODDS_24H_SNAPSHOT_COUNT:
-            continue
-        close_window_start = kickoff_utc - COMPLETE_HISTORICAL_ODDS_CLOSE_WINDOW
-        sides_by_market: dict[str, set[str]] = {}
-        for market_type, outcome_side, snapshot_time in snapshots:
-            snapshot_utc = _historical_snapshot_as_utc(snapshot_time)
-            if close_window_start <= snapshot_utc <= kickoff_utc:
-                sides_by_market.setdefault(market_type, set()).add(outcome_side)
-        if all(
-            required_sides.issubset(sides_by_market.get(market_type, set()))
-            for market_type, required_sides in COMPLETE_HISTORICAL_ODDS_REQUIRED_MARKETS.items()
-        ):
-            complete_match_ids.add(match.id)
-    return complete_match_ids
+        counts[match.id] = _standard_coverage_count(match, snapshots_by_match_id.get(match.id, []))
+    return counts
+
+
+def _standard_coverage_count(match: Match, snapshots: list[HistoricalOddsSnapshot]) -> int:
+    kickoff_time = _snapshot_timeline_kickoff_time(match)
+    available_count = 0
+    for market_type, _market_label in EXECUTION_TIMEPOINT_MARKETS:
+        pairs = _pair_market_snapshots(
+            [snapshot for snapshot in snapshots if snapshot.market_type == market_type],
+            market_type=market_type,
+        )
+        for target in EXECUTION_TIMEPOINT_TARGETS:
+            if select_execution_timepoint_pair(
+                pairs,
+                kickoff_time=kickoff_time,
+                target_minutes_before_kickoff=target,
+            ) is not None:
+                available_count += 1
+    return available_count
 
 
 def _filter_matches_by_legacy_odds_filter(
@@ -757,33 +747,26 @@ def _odds_status(
     facts: MatchOddsStatusFacts | None = None,
 ) -> MatchOddsStatus:
     facts = facts or _empty_odds_status_facts()
-    status = _display_status(match, now=now) if now is not None else match.status
-    status_group = _status_group(status)
-    if status_group in {"finished", "live"}:
-        if match.id in facts.complete_historical_match_ids:
-            return MATCH_ODDS_STATUS_FILLED
-        if match.id in facts.odds_match_ids:
-            return MATCH_ODDS_STATUS_PENDING_FILL
+    available_count = facts.standard_coverage_count_by_match_id.get(match.id, 0)
+    if available_count <= 0:
         return MATCH_ODDS_STATUS_NONE
-
-    latest_odds = facts.latest_odds_time_by_match_id.get(match.id)
-    if latest_odds is None:
-        return MATCH_ODDS_STATUS_NONE
-    lead_time = _as_beijing_datetime(match.kickoff_time) - _as_beijing_datetime(latest_odds)
-    if timedelta(0) <= lead_time <= timedelta(minutes=30):
-        return MATCH_ODDS_STATUS_CLOSE
-    if timedelta(minutes=30) < lead_time <= timedelta(hours=3):
-        return MATCH_ODDS_STATUS_NEAR
-    return MATCH_ODDS_STATUS_EARLY
+    if available_count >= len(EXECUTION_TIMEPOINT_TARGETS) * len(EXECUTION_TIMEPOINT_MARKETS):
+        return MATCH_ODDS_STATUS_COMPLETE
+    if available_count >= 12:
+        return MATCH_ODDS_STATUS_BASIC
+    return MATCH_ODDS_STATUS_PARTIAL
 
 
 def _odds_summary(session: Session, match_id: int) -> MatchOddsSummary:
     snapshots = (
         session.query(HistoricalOddsSnapshot)
         .filter(HistoricalOddsSnapshot.match_id == match_id)
+        .filter(HistoricalOddsSnapshot.source_name.in_(TRUSTED_SOURCE_NAMES))
+        .filter(HistoricalOddsSnapshot.bookmaker.in_(TRUSTED_BOOKMAKERS))
         .order_by(HistoricalOddsSnapshot.snapshot_time.desc())
         .all()
     )
+    snapshots = filter_priority_trusted_snapshots(snapshots)
     return MatchOddsSummary(
         asian_handicap=_format_asian_handicap(_latest_market_pair(snapshots, "asian_handicap")),
         total_goals=_format_total_goals(_latest_market_pair(snapshots, "total_goals")),
@@ -800,12 +783,15 @@ def _odds_summaries_by_match_id(
     snapshots = (
         session.query(HistoricalOddsSnapshot)
         .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
+        .filter(HistoricalOddsSnapshot.source_name.in_(TRUSTED_SOURCE_NAMES))
+        .filter(HistoricalOddsSnapshot.bookmaker.in_(TRUSTED_BOOKMAKERS))
         .order_by(
             HistoricalOddsSnapshot.match_id.asc(),
             HistoricalOddsSnapshot.snapshot_time.desc(),
         )
         .all()
     )
+    snapshots = filter_priority_trusted_snapshots(snapshots)
     snapshots_by_match_id: dict[int, list[HistoricalOddsSnapshot]] = {}
     for snapshot in snapshots:
         snapshots_by_match_id.setdefault(snapshot.match_id, []).append(snapshot)

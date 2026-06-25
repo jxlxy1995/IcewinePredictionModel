@@ -38,6 +38,36 @@ def test_sport_key_mapping_contains_mainstream_leagues():
     assert API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS["179"] == "soccer_spl"
 
 
+def test_sport_key_mapping_covers_the_odds_api_supported_whitelist_leagues():
+    expected_mappings = {
+        "2": "soccer_uefa_champs_league",
+        "3": "soccer_uefa_europa_league",
+        "848": "soccer_uefa_europa_conference_league",
+        "141": "soccer_spain_segunda_division",
+        "144": "soccer_belgium_first_div",
+        "203": "soccer_turkey_super_league",
+        "197": "soccer_greece_super_league",
+        "218": "soccer_austria_bundesliga",
+        "207": "soccer_switzerland_superleague",
+        "235": "soccer_russia_premier_league",
+        "106": "soccer_poland_ekstraklasa",
+        "119": "soccer_denmark_superliga",
+        "128": "soccer_argentina_primera_division",
+        "265": "soccer_chile_campeonato",
+        "244": "soccer_finland_veikkausliiga",
+        "113": "soccer_sweden_allsvenskan",
+        "114": "soccer_sweden_superettan",
+        "41": "soccer_england_league1",
+        "103": "soccer_norway_eliteserien",
+        "307": "soccer_saudi_arabia_pro_league",
+        "169": "soccer_china_superleague",
+    }
+
+    for league_id, sport_key in expected_mappings.items():
+        assert API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS[league_id] == sport_key
+    assert len(API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS) >= 40
+
+
 def test_find_best_the_odds_api_event_match_uses_time_and_team_names(session):
     match = _add_match(session, home_team_name="Arsenal", away_team_name="Chelsea")
     events = [

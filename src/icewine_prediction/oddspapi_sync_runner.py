@@ -108,6 +108,17 @@ API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "1087": 55,
 }
 
+SBOBET_FALLBACK_API_FOOTBALL_LEAGUE_IDS = frozenset(
+    {
+        "104",
+        "120",
+        "164",
+        "274",
+        "358",
+        "1087",
+    }
+)
+
 
 @dataclass(frozen=True)
 class OddsPapiSyncPlan:

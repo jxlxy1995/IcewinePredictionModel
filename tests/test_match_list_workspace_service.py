@@ -92,8 +92,8 @@ def test_match_list_workspace_defaults_to_today_through_tomorrow_noon_and_freshn
     assert workspace.matches[0].league_display_name == "\u65e5\u804c\u8054"
     assert workspace.matches[0].home_team_logo_url == "home.png"
     assert workspace.matches[0].has_odds is True
-    assert workspace.matches[0].odds_status_key == "pending_fill"
-    assert workspace.matches[0].odds_status_label == "\u5f85\u56de\u586b"
+    assert workspace.matches[0].odds_status_key == "none"
+    assert workspace.matches[0].odds_status_label == "\u65e0\u8d54\u7387"
     assert workspace.matches[0].odds_summary.asian_handicap == "\u5ba2\u961f +0.25 @ 1.950"
 
 
@@ -277,32 +277,20 @@ def test_match_list_workspace_classifies_and_filters_odds_statuses(session):
     session.add(league)
     session.flush()
     no_odds = _add_match(session, league, "No Odds", datetime(2026, 5, 30, 13, 0, tzinfo=BEIJING))
-    early = _add_match(session, league, "Early", datetime(2026, 5, 30, 15, 0, tzinfo=BEIJING))
-    near = _add_match(session, league, "Near", datetime(2026, 5, 30, 12, 0, tzinfo=BEIJING))
-    close = _add_match(session, league, "Close", datetime(2026, 5, 30, 10, 20, tzinfo=BEIJING))
-    pending = _add_match(
+    partial = _add_match(session, league, "Partial", datetime(2026, 5, 30, 12, 0, tzinfo=BEIJING))
+    basic = _add_match(session, league, "Basic", datetime(2026, 5, 30, 11, 0, tzinfo=BEIJING))
+    complete = _add_match(
         session,
         league,
-        "Pending",
-        datetime(2026, 5, 30, 8, 0, tzinfo=BEIJING),
-        status="finished",
-        home_score=1,
-        away_score=0,
-    )
-    filled = _add_match(
-        session,
-        league,
-        "Filled",
+        "Complete",
         datetime(2026, 5, 30, 7, 0, tzinfo=BEIJING),
         status="finished",
         home_score=1,
         away_score=0,
     )
-    _add_live_odds_snapshot(session, early, captured_at=datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING))
-    _add_live_odds_snapshot(session, near, captured_at=datetime(2026, 5, 30, 9, 30, tzinfo=BEIJING))
-    _add_live_odds_snapshot(session, close, captured_at=datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING))
-    _add_live_odds_snapshot(session, pending, captured_at=datetime(2026, 5, 30, 7, 30, tzinfo=BEIJING))
-    _add_complete_historical_odds(session, filled)
+    _add_standard_timepoint_cells(session, partial, cell_count=11)
+    _add_standard_timepoint_cells(session, basic, cell_count=12)
+    _add_standard_timepoint_cells(session, complete, cell_count=18)
     session.commit()
 
     workspace = build_match_list_workspace(
@@ -310,24 +298,24 @@ def test_match_list_workspace_classifies_and_filters_odds_statuses(session):
         now=now,
         start_time=datetime(2026, 5, 30, 0, 0, tzinfo=BEIJING),
         end_time=datetime(2026, 5, 31, 0, 0, tzinfo=BEIJING),
-        odds_filter="none,near,pending_fill",
+        odds_filter="none,partial,basic",
     )
 
-    assert [match.match_id for match in workspace.matches] == [pending.id, near.id, no_odds.id]
+    assert [match.match_id for match in workspace.matches] == [basic.id, partial.id, no_odds.id]
     assert [match.odds_status_label for match in workspace.matches] == [
-        "\u5f85\u56de\u586b",
-        "\u8fd1\u76d8",
+        "\u57fa\u672c\u8986\u76d6",
+        "\u90e8\u5206\u8986\u76d6",
         "\u65e0\u8d54\u7387",
     ]
-    assert workspace.filters.odds_filter == "none,near,pending_fill"
+    assert workspace.filters.odds_filter == "none,partial,basic"
 
 
-def test_match_list_workspace_marks_the_odds_api_finished_match_as_filled(session):
+def test_match_list_workspace_marks_the_odds_api_finished_match_as_complete(session):
     now = datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING)
     league = League(name="J1 League", country_or_region="Japan", level=1)
     session.add(league)
     session.flush()
-    filled = _add_match(
+    complete = _add_match(
         session,
         league,
         "The Odds API Filled",
@@ -336,7 +324,7 @@ def test_match_list_workspace_marks_the_odds_api_finished_match_as_filled(sessio
         home_score=1,
         away_score=0,
     )
-    _add_complete_historical_odds(session, filled, source_name="the_odds_api")
+    _add_standard_timepoint_cells(session, complete, cell_count=18)
     session.commit()
 
     workspace = build_match_list_workspace(
@@ -346,7 +334,35 @@ def test_match_list_workspace_marks_the_odds_api_finished_match_as_filled(sessio
         end_time=datetime(2026, 5, 31, 0, 0, tzinfo=BEIJING),
     )
 
-    assert workspace.matches[0].odds_status_key == "filled"
+    assert workspace.matches[0].odds_status_key == "complete"
+
+
+def test_match_list_workspace_uses_sbobet_when_pinnacle_is_missing(session):
+    now = datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING)
+    league = League(name="J1 League", country_or_region="Japan", level=1)
+    session.add(league)
+    session.flush()
+    match = _add_match(
+        session,
+        league,
+        "SBOBet Covered",
+        datetime(2026, 5, 30, 7, 0, tzinfo=BEIJING),
+        status="finished",
+        home_score=1,
+        away_score=0,
+    )
+    _add_standard_timepoint_cells(session, match, cell_count=12, source_name="oddspapi", bookmaker="sbobet")
+    session.commit()
+
+    workspace = build_match_list_workspace(
+        session,
+        now=now,
+        start_time=datetime(2026, 5, 30, 0, 0, tzinfo=BEIJING),
+        end_time=datetime(2026, 5, 31, 0, 0, tzinfo=BEIJING),
+    )
+
+    assert workspace.matches[0].odds_status_key == "basic"
+    assert workspace.matches[0].odds_status_label == "\u57fa\u672c\u8986\u76d6"
 
 
 def test_match_list_workspace_limits_odds_status_work_to_filtered_matches(session):
@@ -480,18 +496,18 @@ def test_select_match_list_sync_targets_filters_by_multiple_odds_statuses(sessio
     session.add(league)
     session.flush()
     no_odds = _add_match(session, league, "No Sync Odds", datetime(2026, 5, 30, 13, 0, tzinfo=BEIJING))
-    close = _add_match(session, league, "Close Sync Odds", datetime(2026, 5, 30, 10, 20, tzinfo=BEIJING))
-    filled = _add_match(
+    partial = _add_match(session, league, "Partial Sync Odds", datetime(2026, 5, 30, 10, 20, tzinfo=BEIJING))
+    complete = _add_match(
         session,
         league,
-        "Filled Sync Odds",
+        "Complete Sync Odds",
         datetime(2026, 5, 30, 7, 0, tzinfo=BEIJING),
         status="finished",
         home_score=2,
         away_score=1,
     )
-    _add_live_odds_snapshot(session, close, captured_at=datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING))
-    _add_complete_historical_odds(session, filled)
+    _add_standard_timepoint_cells(session, partial, cell_count=4)
+    _add_standard_timepoint_cells(session, complete, cell_count=18)
     session.commit()
 
     targets = select_match_list_sync_targets(
@@ -499,10 +515,10 @@ def test_select_match_list_sync_targets_filters_by_multiple_odds_statuses(sessio
         now=now,
         start_time=datetime(2026, 5, 30, 0, 0, tzinfo=BEIJING),
         end_time=datetime(2026, 5, 31, 0, 0, tzinfo=BEIJING),
-        odds_filter="none,close",
+        odds_filter="none,partial",
     )
 
-    assert [match.id for match in targets] == [close.id, no_odds.id]
+    assert [match.id for match in targets] == [partial.id, no_odds.id]
 
 
 def test_match_detail_includes_odds_and_recommendation_placeholders(session):
@@ -518,7 +534,14 @@ def test_match_detail_includes_odds_and_recommendation_placeholders(session):
     )
     session.add_all([league, home, away, match])
     session.flush()
-    _add_asian_handicap_snapshot(session, match, line=Decimal("-0.50"))
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.50"),
+        target_minutes=10,
+    )
+    session.commit()
 
     detail = build_match_detail(session, match_id=match.id)
 
@@ -526,10 +549,10 @@ def test_match_detail_includes_odds_and_recommendation_placeholders(session):
     assert detail.match_id == match.id
     assert detail.home_team_logo_url == "home.png"
     assert detail.has_odds is True
-    assert detail.odds_status_key == "early"
-    assert detail.odds_status_label == "\u65e9\u76d8"
+    assert detail.odds_status_key == "partial"
+    assert detail.odds_status_label == "\u90e8\u5206\u8986\u76d6"
     assert detail.team_data_note == "\u5f85\u63a5\u5165"
-    assert detail.odds_summary.asian_handicap == "\u5ba2\u961f +0.50 @ 1.950"
+    assert detail.odds_summary.asian_handicap == "\u5ba2\u961f +0.50 @ 1.900"
     assert detail.paper_recommendation_summary.label == "\u6682\u65e0\u7eb8\u9762\u63a8\u8350\u8bb0\u5f55"
     assert detail.formal_recommendation_summary.label == "\u6682\u65e0\u6b63\u5f0f\u63a8\u8350\u8bb0\u5f55"
 
@@ -663,6 +686,7 @@ def _add_historical_market_pair_at_target(
     market_line: Decimal,
     target_minutes: int,
     source_name: str = "oddspapi",
+    bookmaker: str = "pinnacle",
 ) -> None:
     sides = {
         "asian_handicap": ("home", "away"),
@@ -676,7 +700,7 @@ def _add_historical_market_pair_at_target(
                 match_id=match.id,
                 source_name=source_name,
                 source_fixture_id=match.source_match_id or str(match.id),
-                bookmaker="pinnacle",
+                bookmaker=bookmaker,
                 market_type=market_type,
                 market_id=f"{market_type}-{target_minutes}-{side}",
                 market_name=market_type,
@@ -686,6 +710,36 @@ def _add_historical_market_pair_at_target(
                 snapshot_time=snapshot_time,
                 period="fulltime",
             )
+        )
+
+
+def _add_standard_timepoint_cells(
+    session,
+    match: Match,
+    *,
+    cell_count: int,
+    source_name: str = "the_odds_api",
+    bookmaker: str = "pinnacle",
+) -> None:
+    cells = [
+        ("asian_handicap", Decimal("-0.50"), target)
+        for target in (60, 30, 25, 20, 15, 10)
+    ] + [
+        ("total_goals", Decimal("2.50"), target)
+        for target in (60, 30, 25, 20, 15, 10)
+    ] + [
+        ("match_winner", Decimal("0.00"), target)
+        for target in (60, 30, 25, 20, 15, 10)
+    ]
+    for market_type, market_line, target_minutes in cells[:cell_count]:
+        _add_historical_market_pair_at_target(
+            session,
+            match,
+            market_type=market_type,
+            market_line=market_line,
+            target_minutes=target_minutes,
+            source_name=source_name,
+            bookmaker=bookmaker,
         )
 
 

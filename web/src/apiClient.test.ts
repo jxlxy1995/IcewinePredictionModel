@@ -336,13 +336,13 @@ describe("apiClient", () => {
     const workspace = await loadMatchListWorkspace({
       end_time: "2026-05-31T12:00",
       league_name: "J1 League",
-      odds_filter: ["none", "near"],
+      odds_filter: ["none", "basic"],
       start_time: "2026-05-30T00:00",
       status_filter: "live"
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/match-list/workspace?end_time=2026-05-31T12%3A00&league_name=J1+League&odds_filter=none%2Cnear&start_time=2026-05-30T00%3A00&status_filter=live"
+      "/api/match-list/workspace?end_time=2026-05-31T12%3A00&league_name=J1+League&odds_filter=none%2Cbasic&start_time=2026-05-30T00%3A00&status_filter=live"
     );
     expect(workspace.filters.start_time).toBe("2026-05-30T00:00:00+08:00");
   });
@@ -383,7 +383,7 @@ describe("apiClient", () => {
     await syncFilteredMatchListFixturesResults({
       end_time: "2026-05-31T12:00",
       league_name: "J1 League",
-      odds_filter: ["pending_fill", "none"],
+      odds_filter: ["partial", "none"],
       search: "hiro",
       start_time: "2026-05-30T00:00",
       status_filter: "not_started"
@@ -393,7 +393,7 @@ describe("apiClient", () => {
       body: JSON.stringify({
         end_time: "2026-05-31T12:00",
         league_name: "J1 League",
-        odds_filter: "pending_fill,none",
+        odds_filter: "partial,none",
         search: "hiro",
         start_time: "2026-05-30T00:00",
         status_filter: "not_started"

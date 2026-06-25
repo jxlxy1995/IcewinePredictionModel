@@ -52,7 +52,7 @@ from icewine_prediction.execution_timepoint_service import (
 )
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, TrainingRun
 from icewine_prediction.odds_provider_selection_service import (
-    filter_priority_pinnacle_snapshots,
+    filter_priority_trusted_snapshots,
     source_label_for_snapshots,
 )
 from icewine_prediction.oddspapi_sync_runner import (
@@ -438,7 +438,7 @@ def _historical_snapshots_by_match_id(
         .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
         .all()
     )
-    snapshots = filter_priority_pinnacle_snapshots(snapshots)
+    snapshots = filter_priority_trusted_snapshots(snapshots)
     snapshots_by_match_id: dict[int, list[HistoricalOddsSnapshot]] = {}
     for snapshot in snapshots:
         snapshots_by_match_id.setdefault(snapshot.match_id, []).append(snapshot)
@@ -1093,7 +1093,14 @@ def _apply_execution_robustness_to_row(
 
 
 def _is_historical_odds_source(odds_source: str) -> bool:
-    return odds_source in {"oddspapi_historical", "the_odds_api_historical", "historical"}
+    return odds_source in {
+        "oddspapi_historical",
+        "oddspapi_pinnacle_historical",
+        "oddspapi_sbobet_historical",
+        "the_odds_api_historical",
+        "the_odds_api_pinnacle_historical",
+        "historical",
+    }
 
 
 def _evaluate_execution_robustness(

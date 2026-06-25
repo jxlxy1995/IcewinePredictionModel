@@ -5,10 +5,12 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from icewine_prediction.execution_robustness_rules import DEFAULT_SELECTED_ROBUSTNESS_RULES
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, OddsSnapshot, Team, TrainingRun
+from icewine_prediction.paper_strategy_registry import ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY
 from icewine_prediction.paper_recommendation_queue_service import (
+    PaperQueueRow,
     PaperQueueScore,
+    _apply_execution_robustness_to_rows,
     build_paper_recommendation_queue,
     format_paper_recommendation_queue_report,
     train_paper_queue_scorer_from_rows,
@@ -690,7 +692,7 @@ def test_build_paper_recommendation_queue_does_not_require_close_match_winner_fo
     candidate = report.rows[0]
     assert candidate.status == "candidate"
     assert candidate.source_match_id == "finished-pending-fill"
-    assert candidate.odds_source == "oddspapi_historical"
+    assert candidate.odds_source == "oddspapi_pinnacle_historical"
     assert candidate.execution_target == "T-10"
     assert candidate.robustness_status == "kept"
     assert candidate.recommended_handicap.endswith("+0.50")
@@ -748,6 +750,50 @@ def test_build_paper_recommendation_queue_replays_finished_match_with_historical
     assert candidate.recommended_handicap.endswith("+0.50")
 
 
+def test_build_paper_recommendation_queue_replays_finished_match_with_sbobet_historical_odds(session):
+    league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
+    home = Team(canonical_name="Rosenborg")
+    away = Team(canonical_name="Bodo/Glimt")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 5, 30, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="finished",
+        home_score=1,
+        away_score=2,
+        source_name="api_football",
+        source_match_id="finished-sbobet-priced",
+    )
+    session.add(match)
+    session.flush()
+    _add_complete_historical_markets_at_targets(session, match, bookmaker="sbobet")
+    _add_complete_historical_odds(session, match, bookmaker="sbobet")
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 5, 31, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        start_time=datetime(2026, 5, 30, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        end_time=datetime(2026, 5, 30, 23, 59, tzinfo=ZoneInfo("Asia/Shanghai")),
+        scorer=lambda row: PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5181"),
+            edge=Decimal("0.1319"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    assert report.candidate_count == 1
+    candidate = report.rows[0]
+    assert candidate.source_match_id == "finished-sbobet-priced"
+    assert candidate.odds_source == "oddspapi_sbobet_historical"
+
+
 def test_build_paper_recommendation_queue_uses_historical_odds_for_scheduled_match(session):
     league = League(name="Norway Eliteserien", country_or_region="Norway", level=1, is_enabled=True)
     home = Team(canonical_name="Rosenborg")
@@ -793,7 +839,7 @@ def test_build_paper_recommendation_queue_uses_historical_odds_for_scheduled_mat
     candidate = report.rows[0]
     assert candidate.status == "candidate"
     assert candidate.source_match_id == "scheduled-priced"
-    assert candidate.odds_source == "oddspapi_historical"
+    assert candidate.odds_source == "oddspapi_pinnacle_historical"
     assert candidate.execution_target == "T-10"
     assert candidate.historical_snapshot_count == 42
 
@@ -876,9 +922,121 @@ def test_paper_queue_prefers_the_odds_api_pinnacle_snapshots_over_oddspapi(sessi
     )
 
     candidate = next(row for row in report.rows if row.status == "candidate")
-    assert candidate.odds_source == "the_odds_api_historical"
+    assert candidate.odds_source == "the_odds_api_pinnacle_historical"
     assert candidate.line == Decimal("-0.50")
     assert seen_rows[0]["asian_handicap_close_line"] == "-0.50"
+
+
+def test_paper_queue_uses_sbobet_when_pinnacle_is_missing(session):
+    league = League(name="Premier League", country_or_region="England", level=1, is_enabled=True)
+    home = Team(canonical_name="Arsenal")
+    away = Team(canonical_name="Chelsea")
+    session.add_all([league, home, away])
+    session.flush()
+    kickoff = datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC"))
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        season=2026,
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="1001",
+    )
+    session.add(match)
+    session.flush()
+    for target_minutes in (60, 30, 25, 20, 15, 10):
+        snapshot_time = kickoff - timedelta(minutes=target_minutes)
+        _add_source_historical_market_pair(
+            session,
+            match.id,
+            "oddspapi",
+            snapshot_time,
+            bookmaker="sbobet",
+            market_type="asian_handicap",
+            line=Decimal("-0.75"),
+            outcomes={"home": Decimal("1.91"), "away": Decimal("1.97")},
+        )
+        _add_source_historical_market_pair(
+            session,
+            match.id,
+            "oddspapi",
+            snapshot_time,
+            bookmaker="sbobet",
+            market_type="total_goals",
+            line=Decimal("2.50"),
+            outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+        )
+        _add_source_historical_market_pair(
+            session,
+            match.id,
+            "oddspapi",
+            snapshot_time,
+            bookmaker="sbobet",
+            market_type="match_winner",
+            line=Decimal("0.00"),
+            outcomes={"home": Decimal("2.10"), "draw": Decimal("3.30"), "away": Decimal("3.40")},
+        )
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=datetime(2026, 6, 26, 12, 0, tzinfo=ZoneInfo("UTC")),
+        hours=12,
+        scorer=lambda row: PaperQueueScore(
+            side="away_cover",
+            model_probability=Decimal("0.6500"),
+            market_probability=Decimal("0.5076"),
+            edge=Decimal("0.1424"),
+            model_name="fake_hgb",
+        ),
+    )
+
+    candidate = next(row for row in report.rows if row.status == "candidate")
+    assert candidate.odds_source == "oddspapi_sbobet_historical"
+    assert candidate.line == Decimal("-0.75")
+
+
+def test_paper_queue_treats_specific_historical_source_labels_as_historical_for_robustness(session):
+    row = PaperQueueRow(
+        match_id=1,
+        source_match_id="fixture-1",
+        kickoff_time="2026-06-26 19:00",
+        league_name="Premier League",
+        league_display_name="Premier League",
+        home_team_name="Arsenal",
+        home_team_display_name="Arsenal",
+        away_team_name="Chelsea",
+        away_team_display_name="Chelsea",
+        status="candidate",
+        market_type="asian_handicap",
+        line=Decimal("-0.75"),
+        side="away_cover",
+        recommended_handicap="Chelsea +0.75",
+        odds=Decimal("1.970"),
+        model_probability=Decimal("0.6500"),
+        market_probability=Decimal("0.5076"),
+        edge=Decimal("0.1424"),
+        line_bucket="away_plus",
+        risk_tags=(),
+        strategy_key=ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
+        odds_source="oddspapi_sbobet_historical",
+    )
+    match = Match(status="scheduled")
+
+    [updated] = _apply_execution_robustness_to_rows(
+        [row],
+        match=match,
+        scorer=lambda _row: None,
+        edge_threshold=Decimal("0.0500"),
+        display_name_service=None,
+        historical_snapshots=[],
+        team_prior_states=None,
+    )
+
+    assert updated.robustness_status == "unavailable"
+    assert "robustness:unavailable" in updated.risk_tags
 
 
 def test_build_paper_recommendation_queue_ignores_latest_when_t10_targets_are_robust(session):
@@ -2377,6 +2535,7 @@ def _add_source_historical_market_pair(
     source_name: str,
     snapshot_time: datetime,
     *,
+    bookmaker: str = "pinnacle",
     market_type: str,
     line: Decimal,
     outcomes: dict[str, Decimal],
@@ -2387,7 +2546,7 @@ def _add_source_historical_market_pair(
                 match_id=match_id,
                 source_name=source_name,
                 source_fixture_id=f"{source_name}-event",
-                bookmaker="pinnacle",
+                bookmaker=bookmaker,
                 market_type=market_type,
                 market_id=f"{source_name}:{market_type}:{snapshot_time.isoformat()}:{side}",
                 market_name=market_type,
@@ -2411,6 +2570,7 @@ def _add_historical_market_pair_at_target(
     line: Decimal,
     outcomes: dict[str, Decimal],
     offset: timedelta = timedelta(0),
+    bookmaker: str = "pinnacle",
 ) -> None:
     snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=target_minutes) + offset
     for side, odds in outcomes.items():
@@ -2419,7 +2579,7 @@ def _add_historical_market_pair_at_target(
                 match_id=match.id,
                 source_name="oddspapi",
                 source_fixture_id=match.source_match_id or str(match.id),
-                bookmaker="pinnacle",
+                bookmaker=bookmaker,
                 market_type=market_type,
                 market_id=f"{market_type}-{target_minutes}-{side}",
                 market_name=market_type,
@@ -2432,7 +2592,12 @@ def _add_historical_market_pair_at_target(
         )
 
 
-def _add_complete_historical_markets_at_targets(session, match: Match) -> None:
+def _add_complete_historical_markets_at_targets(
+    session,
+    match: Match,
+    *,
+    bookmaker: str = "pinnacle",
+) -> None:
     for target_minutes in (60, 30, 25, 20, 15, 10):
         _add_historical_market_pair_at_target(
             session,
@@ -2441,6 +2606,7 @@ def _add_complete_historical_markets_at_targets(session, match: Match) -> None:
             market_type="asian_handicap",
             line=Decimal("-0.50"),
             outcomes={"home": Decimal("1.99"), "away": Decimal("1.93")},
+            bookmaker=bookmaker,
         )
         _add_historical_market_pair_at_target(
             session,
@@ -2449,6 +2615,7 @@ def _add_complete_historical_markets_at_targets(session, match: Match) -> None:
             market_type="total_goals",
             line=Decimal("2.50"),
             outcomes={"over": Decimal("1.90"), "under": Decimal("2.00")},
+            bookmaker=bookmaker,
         )
         _add_historical_market_pair_at_target(
             session,
@@ -2457,10 +2624,11 @@ def _add_complete_historical_markets_at_targets(session, match: Match) -> None:
             market_type="match_winner",
             line=Decimal("0.00"),
             outcomes={"home": Decimal("2.10"), "draw": Decimal("3.25"), "away": Decimal("3.40")},
+            bookmaker=bookmaker,
         )
 
 
-def _add_complete_historical_odds(session, match: Match) -> None:
+def _add_complete_historical_odds(session, match: Match, *, bookmaker: str = "pinnacle") -> None:
     snapshot_time = match.kickoff_time.astimezone(ZoneInfo("UTC")) - timedelta(minutes=6)
     markets = [
         ("asian_handicap", Decimal("-0.50"), ("home", "away"), {"home": Decimal("1.99"), "away": Decimal("1.93")}),
@@ -2482,7 +2650,7 @@ def _add_complete_historical_odds(session, match: Match) -> None:
                 match_id=match.id,
                 source_name="oddspapi",
                 source_fixture_id=match.source_match_id or str(match.id),
-                bookmaker="pinnacle",
+                bookmaker=bookmaker,
                 market_type=market_type,
                 market_id=f"complete-{market_type}-{index}",
                 market_name=market_type,

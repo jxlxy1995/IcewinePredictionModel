@@ -990,6 +990,14 @@ def test_api_football_league_mappings_include_new_main_leagues():
     assert mappings["262"] == 27466
 
 
+def test_sbobet_fallback_leagues_include_only_verified_historical_odds_targets():
+    fallback_ids = oddspapi_sync_runner.SBOBET_FALLBACK_API_FOOTBALL_LEAGUE_IDS
+
+    assert fallback_ids == frozenset({"120", "1087", "104", "358", "164", "274"})
+    assert "293" not in fallback_ids
+    assert "99" not in fallback_ids
+
+
 def test_api_football_world_cup_maps_to_oddspapi_world_cup():
     mappings = oddspapi_sync_runner.API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS
 

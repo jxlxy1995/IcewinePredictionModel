@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from icewine_prediction.match_odds_sync_service import (
     MatchOddsSyncProvider,
-    has_priority_pinnacle_historical_odds,
+    has_trusted_historical_odds,
     run_match_odds_sync_for_session,
 )
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, Team
@@ -99,12 +99,27 @@ def test_run_match_odds_sync_does_not_overwrite_legacy_oddspapi_snapshots(sessio
     assert result["success"] == [{"match_id": match.id, "message": "赔率已刷新"}]
 
 
-def test_has_priority_pinnacle_historical_odds_accepts_legacy_source(session):
+def test_has_trusted_historical_odds_accepts_legacy_source(session):
     match = _add_match(session)
     session.add(_snapshot(match_id=match.id, source_name=ODDSPAPI_SOURCE_NAME, odds=Decimal("1.90")))
     session.commit()
 
-    assert has_priority_pinnacle_historical_odds(session, match.id) is True
+    assert has_trusted_historical_odds(session, match.id) is True
+
+
+def test_has_trusted_historical_odds_accepts_sbobet_fallback(session):
+    match = _add_match(session)
+    session.add(
+        _snapshot(
+            match_id=match.id,
+            source_name=ODDSPAPI_SOURCE_NAME,
+            bookmaker="sbobet",
+            odds=Decimal("1.90"),
+        )
+    )
+    session.commit()
+
+    assert has_trusted_historical_odds(session, match.id) is True
 
 
 def test_run_match_odds_sync_supports_explicit_legacy_provider(session):

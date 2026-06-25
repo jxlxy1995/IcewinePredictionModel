@@ -6,7 +6,9 @@ from icewine_prediction.models import HistoricalOddsSnapshot
 from icewine_prediction.odds_provider_selection_service import (
     ODDSPAPI_SOURCE_NAME,
     PINNACLE_BOOKMAKER,
+    SBOBET_BOOKMAKER,
     THE_ODDS_API_SOURCE_NAME,
+    filter_priority_trusted_snapshots,
     filter_priority_pinnacle_snapshots,
     source_label_for_snapshots,
 )
@@ -25,7 +27,7 @@ def test_filter_priority_pinnacle_snapshots_prefers_the_odds_api_per_match():
     selected = filter_priority_pinnacle_snapshots([old, new, ignored])
 
     assert selected == [new]
-    assert source_label_for_snapshots(selected) == "the_odds_api_historical"
+    assert source_label_for_snapshots(selected) == "the_odds_api_pinnacle_historical"
 
 
 def test_filter_priority_pinnacle_snapshots_falls_back_to_oddspapi():
@@ -34,7 +36,7 @@ def test_filter_priority_pinnacle_snapshots_falls_back_to_oddspapi():
     selected = filter_priority_pinnacle_snapshots([old])
 
     assert selected == [old]
-    assert source_label_for_snapshots(selected) == "oddspapi_historical"
+    assert source_label_for_snapshots(selected) == "oddspapi_pinnacle_historical"
 
 
 def test_filter_priority_pinnacle_snapshots_keeps_each_match_independent():
@@ -45,6 +47,40 @@ def test_filter_priority_pinnacle_snapshots_keeps_each_match_independent():
     selected = filter_priority_pinnacle_snapshots([match_one_old, match_one_new, match_two_old])
 
     assert selected == [match_one_new, match_two_old]
+
+
+def test_filter_priority_trusted_snapshots_falls_back_to_sbobet_when_pinnacle_missing():
+    sbobet = _snapshot(
+        match_id=3,
+        source_name=ODDSPAPI_SOURCE_NAME,
+        bookmaker=SBOBET_BOOKMAKER,
+        odds=Decimal("1.92"),
+    )
+
+    selected = filter_priority_trusted_snapshots([sbobet])
+
+    assert selected == [sbobet]
+    assert source_label_for_snapshots(selected) == "oddspapi_sbobet_historical"
+
+
+def test_filter_priority_trusted_snapshots_prefers_pinnacle_over_sbobet_for_same_match():
+    sbobet = _snapshot(
+        match_id=4,
+        source_name=ODDSPAPI_SOURCE_NAME,
+        bookmaker=SBOBET_BOOKMAKER,
+        odds=Decimal("1.92"),
+    )
+    pinnacle = _snapshot(
+        match_id=4,
+        source_name=THE_ODDS_API_SOURCE_NAME,
+        bookmaker=PINNACLE_BOOKMAKER,
+        odds=Decimal("1.95"),
+    )
+
+    selected = filter_priority_trusted_snapshots([sbobet, pinnacle])
+
+    assert selected == [pinnacle]
+    assert source_label_for_snapshots(selected) == "the_odds_api_pinnacle_historical"
 
 
 def _snapshot(

@@ -786,7 +786,7 @@ def test_web_console_api_paper_workspace_replays_finished_window(tmp_path):
     assert payload["summary"]["candidate_count"] == 1
     assert payload["diagnostics"]["discarded_by_robustness_match_count"] == 0
     assert payload["candidates"][0]["match_id"] == seeded["matched_match_id"]
-    assert payload["candidates"][0]["odds_source"] == "oddspapi_historical"
+    assert payload["candidates"][0]["odds_source"] == "oddspapi_pinnacle_historical"
     assert payload["candidates"][0]["execution_target"] == "T-10"
     assert payload["candidates"][0]["historical_snapshot_count"] > 0
     assert payload["candidates"][0]["robustness_status"] == "kept"

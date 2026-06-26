@@ -119,6 +119,28 @@ class FakeIrishClient:
         ]
 
 
+class FakeFinishedClient:
+    def __init__(self):
+        self.finished_dates = []
+
+    def fetch_score_matches(self, type_id=1):
+        return []
+
+    def fetch_finished_score_matches(self, match_date):
+        self.finished_dates.append(match_date)
+        if match_date != "2026-06-26":
+            return []
+        return [
+            {
+                "ID": "4480129",
+                "league": "\u51b0\u5c9b\u8d85",
+                "home_en": "Breidablik",
+                "away_en": "Vikingur Reykjavik",
+                "time": "2026-06-26 03:15:00",
+            }
+        ]
+
+
 def test_discoverer_matches_by_chinese_display_names(session):
     first = _add_match(
         session,
@@ -189,6 +211,32 @@ def test_discoverer_allows_close_chinese_display_name_variants(session):
     discovered = discoverer.discover([first, second])
 
     assert discovered == {first.id: "4493693", second.id: "4493692"}
+
+
+def test_discoverer_checks_finished_score_list_by_match_date(session):
+    match = _add_match(
+        session,
+        league_name="Urvalsdeild (Iceland)",
+        home_name="Breidablik",
+        away_name="Vikingur Reykjavik",
+        kickoff_time=datetime(2026, 6, 25, 19, 15, tzinfo=ZoneInfo("UTC")),
+    )
+    client = FakeFinishedClient()
+    discoverer = ZQCF918MatchDiscoverer(
+        client=client,
+        display_names=DisplayNames(
+            leagues={"Urvalsdeild (Iceland)": "\u51b0\u5c9b\u8d85"},
+            teams={
+                "Breidablik": "\u8d1d\u96f7\u8fbe\u6bd4\u5386\u514b",
+                "Vikingur Reykjavik": "\u7ef4\u4eac\u53e4",
+            },
+        ),
+    )
+
+    discovered = discoverer.discover([match])
+
+    assert client.finished_dates == ["2026-06-26"]
+    assert discovered == {match.id: "4480129"}
 
 
 def _add_match(

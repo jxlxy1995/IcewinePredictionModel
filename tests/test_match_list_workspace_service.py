@@ -10,7 +10,14 @@ from icewine_prediction.match_list_workspace_service import (
     record_sync_run,
     select_match_list_sync_targets,
 )
-from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, OddsSnapshot, Team
+from icewine_prediction.models import (
+    HistoricalOddsSnapshot,
+    League,
+    Match,
+    OddsSnapshot,
+    OddsSourceMatch,
+    Team,
+)
 
 BEIJING = ZoneInfo("Asia/Shanghai")
 
@@ -95,6 +102,63 @@ def test_match_list_workspace_defaults_to_today_through_tomorrow_noon_and_freshn
     assert workspace.matches[0].odds_status_key == "none"
     assert workspace.matches[0].odds_status_label == "\u65e0\u8d54\u7387"
     assert workspace.matches[0].odds_summary.asian_handicap == "\u5ba2\u961f +0.25 @ 1.950"
+
+
+def test_match_list_workspace_marks_unsupported_leagues_and_zqcf918_match_id(session):
+    now = datetime(2026, 5, 30, 10, 0, tzinfo=BEIJING)
+    unsupported_league = League(
+        name="First Division",
+        country_or_region="Ireland",
+        level=2,
+        source_league_id="358",
+    )
+    supported_league = League(
+        name="Premier League",
+        country_or_region="England",
+        level=1,
+        source_league_id="39",
+    )
+    session.add_all([unsupported_league, supported_league])
+    session.flush()
+    missing_zqcf918 = _add_match(
+        session,
+        unsupported_league,
+        "Unsupported Missing",
+        datetime(2026, 5, 30, 13, 0, tzinfo=BEIJING),
+    )
+    ready_zqcf918 = _add_match(
+        session,
+        unsupported_league,
+        "Unsupported Ready",
+        datetime(2026, 5, 30, 14, 0, tzinfo=BEIJING),
+    )
+    supported = _add_match(
+        session,
+        supported_league,
+        "Supported",
+        datetime(2026, 5, 30, 15, 0, tzinfo=BEIJING),
+    )
+    session.add(
+        OddsSourceMatch(
+            match_id=ready_zqcf918.id,
+            source_name="zqcf918",
+            source_fixture_id="4460916",
+            matched_at=datetime(2026, 5, 30, 8, 0, tzinfo=ZoneInfo("UTC")),
+            match_confidence=Decimal("1.0000"),
+            match_reason="manual",
+        )
+    )
+    session.commit()
+
+    workspace = build_match_list_workspace(session, now=now)
+    rows_by_id = {row.match_id: row for row in workspace.matches}
+
+    assert rows_by_id[missing_zqcf918.id].the_odds_api_unsupported is True
+    assert rows_by_id[missing_zqcf918.id].zqcf918_match_id is None
+    assert rows_by_id[ready_zqcf918.id].the_odds_api_unsupported is True
+    assert rows_by_id[ready_zqcf918.id].zqcf918_match_id == "4460916"
+    assert rows_by_id[supported.id].the_odds_api_unsupported is False
+    assert rows_by_id[supported.id].zqcf918_match_id is None
 
 
 def test_match_list_workspace_marks_started_unscored_matches_as_pending_result(session):
@@ -716,9 +780,75 @@ def test_match_detail_execution_timepoint_coverage_prefers_the_odds_api(session)
     coverage = detail.execution_timepoint_coverage
     assert coverage.bookmaker == "pinnacle"
     asian = next(row for row in coverage.rows if row.market_type == "asian_handicap")
-    assert coverage.available_count == 1
-    assert [cell.available for cell in asian.cells] == [False, False, False, False, False, True]
+    assert coverage.available_count == 2
+    assert [cell.available for cell in asian.cells] == [True, False, False, False, False, True]
     assert asian.cells[-1].market_line == "-0.25"
+
+
+def test_match_detail_execution_timepoint_coverage_falls_back_per_market_when_priority_source_is_sparse(session):
+    league = League(name="Urvalsdeild (Iceland)", country_or_region="Iceland", level=1)
+    home = Team(canonical_name="Breidablik")
+    away = Team(canonical_name="Vikingur Reykjavik")
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 6, 26, 3, 15, tzinfo=BEIJING),
+        status="finished",
+        home_score=1,
+        away_score=4,
+    )
+    session.add_all([league, home, away, match])
+    session.flush()
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("1.50"),
+        target_minutes=60,
+        source_name="oddspapi",
+    )
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("1.50"),
+        target_minutes=30,
+        source_name="zqcf918",
+    )
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="total_goals",
+        market_line=Decimal("4.00"),
+        target_minutes=60,
+        source_name="zqcf918",
+    )
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="match_winner",
+        market_line=Decimal("0.00"),
+        target_minutes=60,
+        source_name="zqcf918",
+    )
+    session.commit()
+
+    detail = build_match_detail(session, match_id=match.id)
+
+    assert detail is not None
+    coverage = detail.execution_timepoint_coverage
+    asian = next(row for row in coverage.rows if row.market_type == "asian_handicap")
+    total = next(row for row in coverage.rows if row.market_type == "total_goals")
+    winner = next(row for row in coverage.rows if row.market_type == "match_winner")
+    assert coverage.available_count == 5
+    assert [cell.available for cell in asian.cells] == [True, True, True, False, False, False]
+    assert [cell.available for cell in total.cells] == [True, False, False, False, False, False]
+    assert [cell.available for cell in winner.cells] == [True, False, False, False, False, False]
+    first = detail.execution_timepoint_odds_table.rows[0]
+    assert first.asian_handicap.snapshot_time is not None
+    assert first.total_goals.snapshot_time is not None
+    assert first.match_winner.snapshot_time is not None
 
 
 def test_match_detail_execution_timepoint_coverage_reports_sbobet_bookmaker(session):

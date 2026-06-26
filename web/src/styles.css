@@ -1035,6 +1035,30 @@ th {
   gap: 6px;
 }
 
+.league-cell {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.the-odds-api-unsupported-icon {
+  flex: 0 0 auto;
+  opacity: 0.78;
+}
+
+.the-odds-api-unsupported-icon.missing {
+  color: #b45309;
+}
+
+.the-odds-api-unsupported-icon.ready {
+  color: #0f766e;
+}
+
+.the-odds-api-unsupported-icon:hover {
+  opacity: 1;
+}
+
 .team-name-cell img,
 .team-badge img {
   border-radius: 999px;

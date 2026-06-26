@@ -656,6 +656,8 @@ export type MatchListMatch = {
   home_score: number | null;
   away_score: number | null;
   has_odds: boolean;
+  the_odds_api_unsupported: boolean;
+  zqcf918_match_id: string | null;
   odds_status_key: string;
   odds_status_label: string;
   odds_summary: MatchOddsSummary;

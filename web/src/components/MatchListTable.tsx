@@ -1,3 +1,5 @@
+import { CloudCog, CloudOff } from "lucide-react";
+
 import type { MatchListMatch } from "../types";
 import { buildMatchListRows } from "../matchListWorkspace";
 import type { MatchListWorkspace } from "../types";
@@ -44,7 +46,14 @@ export function MatchListTable({
             onClick={() => onOpenMatch(row.match)}
           >
             <td>{row.kickoffTime}</td>
-            <td>{row.league}</td>
+            <td>
+              <span className="league-cell">
+                {row.league}
+                {row.isTheOddsApiUnsupportedLeague && (
+                  <TheOddsApiUnsupportedIcon hasZqcf918MatchId={row.hasZqcf918MatchId} />
+                )}
+              </span>
+            </td>
             <td>
               <TeamName
                 logoUrl={row.match.home_team_logo_url}
@@ -97,6 +106,24 @@ export function MatchListTable({
         ))}
       </tbody>
     </table>
+  );
+}
+
+function TheOddsApiUnsupportedIcon({ hasZqcf918MatchId }: { hasZqcf918MatchId: boolean }) {
+  const Icon = hasZqcf918MatchId ? CloudCog : CloudOff;
+  const label = hasZqcf918MatchId
+    ? "The Odds API 不支持该联赛，已配置足球财富 matchID，可使用备用赔率源"
+    : "The Odds API 不支持该联赛，尚未配置足球财富 matchID";
+  return (
+    <span aria-label={label} title={label}>
+      <Icon
+        aria-hidden="true"
+        className={`the-odds-api-unsupported-icon ${
+          hasZqcf918MatchId ? "ready" : "missing"
+        }`}
+        size={14}
+      />
+    </span>
   );
 }
 

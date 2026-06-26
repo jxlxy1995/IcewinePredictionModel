@@ -1996,7 +1996,12 @@ def test_web_console_api_returns_match_list_workspace_and_detail(tmp_path):
     initialize_database(engine)
     session_factory = create_session_factory(engine)
     with session_factory() as session:
-        league = League(name="J1 League", country_or_region="Japan", level=1)
+        league = League(
+            name="First Division",
+            country_or_region="Ireland",
+            level=2,
+            source_league_id="358",
+        )
         home = Team(canonical_name="Sanfrecce Hiroshima", logo_url="home.png")
         away = Team(canonical_name="Kawasaki Frontale", logo_url="away.png")
         match = Match(
@@ -2010,6 +2015,14 @@ def test_web_console_api_returns_match_list_workspace_and_detail(tmp_path):
         session.flush()
         session.add_all(
             [
+                OddsSourceMatch(
+                    match_id=match.id,
+                    source_name="zqcf918",
+                    source_fixture_id="4460916",
+                    matched_at=datetime(2026, 5, 30, 8, 0, tzinfo=ZoneInfo("UTC")),
+                    match_confidence=Decimal("1.0000"),
+                    match_reason="manual",
+                ),
                 HistoricalOddsSnapshot(
                     match_id=match.id,
                     source_name="oddspapi",
@@ -2059,6 +2072,8 @@ def test_web_console_api_returns_match_list_workspace_and_detail(tmp_path):
     assert payload["filters"]["end_time"] == "2026-05-31T12:00:00+08:00"
     assert payload["total_matches"] == 1
     assert payload["matches"][0]["match_id"] == match_id
+    assert payload["matches"][0]["the_odds_api_unsupported"] is True
+    assert payload["matches"][0]["zqcf918_match_id"] == "4460916"
     assert payload["matches"][0]["odds_summary"]["asian_handicap"] == "客队 +0.50 @ 1.950"
 
     detail_response = client.get(f"/api/matches/{match_id}/detail")

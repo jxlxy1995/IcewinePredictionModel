@@ -49,6 +49,8 @@ const workspace: MatchListWorkspace = {
       away_score: null,
       has_odds: true,
       odds_status_key: "basic",
+      the_odds_api_unsupported: false,
+      zqcf918_match_id: null,
       odds_status_label: "基本覆盖",
       odds_summary: {
         asian_handicap: "Away +0.50 @ 1.950",
@@ -176,7 +178,30 @@ describe("matchListWorkspace", () => {
     expect(buildMatchListRows(workspace)[0]).toMatchObject({
       fixture: "Hiroshima vs Kawasaki",
       league: "J1",
-      oddsAvailability: "基本覆盖"
+      oddsAvailability: "基本覆盖",
+      hasZqcf918MatchId: false,
+      isTheOddsApiUnsupportedLeague: false
+    });
+  });
+
+  it("uses backend flags to mark unsupported leagues and zqcf918 availability", () => {
+    const unsupportedWorkspace: MatchListWorkspace = {
+      ...workspace,
+      matches: [
+        {
+          ...workspace.matches[0],
+          league_name: "Renamed League",
+          the_odds_api_unsupported: true,
+          zqcf918_match_id: "4460916",
+          league_display_name: "爱甲"
+        }
+      ]
+    };
+
+    expect(buildMatchListRows(unsupportedWorkspace)[0]).toMatchObject({
+      league: "爱甲",
+      hasZqcf918MatchId: true,
+      isTheOddsApiUnsupportedLeague: true
     });
   });
 

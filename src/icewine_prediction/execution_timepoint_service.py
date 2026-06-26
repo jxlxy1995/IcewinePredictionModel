@@ -12,6 +12,9 @@ DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES = 5
 BOOKMAKER_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES = {
     "sbobet": 10,
 }
+SOURCE_BOOKMAKER_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES = {
+    ("zqcf918", "pinnacle"): 10,
+}
 
 
 def select_execution_timepoint_pair(
@@ -22,9 +25,11 @@ def select_execution_timepoint_pair(
     tolerance_minutes: int = DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES,
 ) -> _PairedMarketSnapshot | None:
     if pairs:
-        tolerance_minutes = BOOKMAKER_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES.get(
-            pairs[0].bookmaker.lower(),
-            tolerance_minutes,
+        source_name = getattr(pairs[0], "source_name", "").lower()
+        bookmaker = pairs[0].bookmaker.lower()
+        tolerance_minutes = SOURCE_BOOKMAKER_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES.get(
+            (source_name, bookmaker),
+            BOOKMAKER_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES.get(bookmaker, tolerance_minutes),
         )
     kickoff = _comparable_datetime(kickoff_time)
     target_time = kickoff - timedelta(minutes=target_minutes_before_kickoff)

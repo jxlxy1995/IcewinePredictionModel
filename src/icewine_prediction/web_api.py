@@ -1965,6 +1965,8 @@ def build_match_list_row_payload(row) -> dict[str, Any]:
         "home_score": row.home_score,
         "away_score": row.away_score,
         "has_odds": row.has_odds,
+        "the_odds_api_unsupported": row.the_odds_api_unsupported,
+        "zqcf918_match_id": row.zqcf918_match_id,
         "odds_status_key": row.odds_status_key,
         "odds_status_label": row.odds_status_label,
         "odds_summary": asdict(row.odds_summary),

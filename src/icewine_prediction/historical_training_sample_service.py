@@ -79,6 +79,7 @@ class HistoricalMarketTrainingSample:
 @dataclass(frozen=True)
 class _PairedMarketSnapshot:
     snapshot_time: datetime
+    source_name: str
     bookmaker: str
     market_type: str
     market_line: Decimal
@@ -252,15 +253,15 @@ def _pair_market_snapshots(
     market_type: str,
 ) -> list[_PairedMarketSnapshot]:
     sides = _market_sides(market_type)
-    grouped: dict[tuple[datetime, str, Decimal], dict[str, HistoricalOddsSnapshot]] = defaultdict(dict)
+    grouped: dict[tuple[datetime, str, str, Decimal], dict[str, HistoricalOddsSnapshot]] = defaultdict(dict)
     for snapshot in snapshots:
         if snapshot.outcome_side in sides:
-            grouped[(snapshot.snapshot_time, snapshot.bookmaker, snapshot.market_line)][
+            grouped[(snapshot.snapshot_time, snapshot.source_name, snapshot.bookmaker, snapshot.market_line)][
                 snapshot.outcome_side
             ] = snapshot
 
     pairs = []
-    for (snapshot_time, bookmaker, market_line), by_side in grouped.items():
+    for (snapshot_time, source_name, bookmaker, market_line), by_side in grouped.items():
         side_snapshots = [by_side.get(side) for side in sides]
         if any(snapshot is None for snapshot in side_snapshots):
             continue
@@ -272,6 +273,7 @@ def _pair_market_snapshots(
         pairs.append(
             _PairedMarketSnapshot(
                 snapshot_time=snapshot_time,
+                source_name=source_name,
                 bookmaker=bookmaker,
                 market_type=market_type,
                 market_line=market_line,

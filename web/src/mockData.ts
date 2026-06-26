@@ -525,6 +525,8 @@ export const mockMatchListWorkspace: MatchListWorkspace = {
       home_score: null,
       away_score: null,
       has_odds: true,
+      the_odds_api_unsupported: false,
+      zqcf918_match_id: null,
       odds_status_key: "basic",
       odds_status_label: "基本覆盖",
       odds_summary: {
@@ -549,6 +551,8 @@ export const mockMatchListWorkspace: MatchListWorkspace = {
       home_score: null,
       away_score: null,
       has_odds: false,
+      the_odds_api_unsupported: false,
+      zqcf918_match_id: null,
       odds_status_key: "none",
       odds_status_label: "无赔率",
       odds_summary: {

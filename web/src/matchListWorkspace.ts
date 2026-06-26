@@ -15,6 +15,8 @@ export type MatchFreshnessCard = {
 
 export type MatchListDisplayRow = {
   fixture: string;
+  hasZqcf918MatchId: boolean;
+  isTheOddsApiUnsupportedLeague: boolean;
   kickoffTime: string;
   league: string;
   match: MatchListMatch;
@@ -116,6 +118,8 @@ export function buildMatchListRows(workspace: MatchListWorkspace): MatchListDisp
     fixture: `${match.home_team_display_name ?? match.home_team_name} vs ${
       match.away_team_display_name ?? match.away_team_name
     }`,
+    hasZqcf918MatchId: Boolean(match.zqcf918_match_id),
+    isTheOddsApiUnsupportedLeague: match.the_odds_api_unsupported,
     kickoffTime: formatDateTime(match.kickoff_time),
     league: match.league_display_name ?? match.league_name,
     match,

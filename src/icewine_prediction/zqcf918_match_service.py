@@ -80,7 +80,21 @@ class ZQCF918MatchDiscoverer:
 
     def discover(self, matches: list[Match]) -> dict[int, str]:
         candidates = self.client.fetch_score_matches(type_id=1)
-        return _match_candidates(matches, candidates, display_service=self.display_service)
+        matched = _match_candidates(matches, candidates, display_service=self.display_service)
+        remaining_matches = [match for match in matches if match.id not in matched]
+        for match_date in _beijing_match_dates(remaining_matches):
+            finished_candidates = self.client.fetch_finished_score_matches(match_date)
+            matched.update(
+                _match_candidates(
+                    [match for match in remaining_matches if _beijing_match_date(match) == match_date],
+                    finished_candidates,
+                    display_service=self.display_service,
+                )
+            )
+            remaining_matches = [match for match in remaining_matches if match.id not in matched]
+            if not remaining_matches:
+                break
+        return matched
 
 
 def sync_zqcf918_match_ids_for_matches(
@@ -147,9 +161,18 @@ def _match_candidates(
                 continue
             if not _is_same_match_time(match, candidate):
                 continue
-            candidate_home_names = _candidate_team_names(candidate, ("home", "HName", "homeName"))
-            candidate_away_names = _candidate_team_names(candidate, ("away", "GName", "awayName"))
-            candidate_league_names = _candidate_team_names(candidate, ("league", "LName", "leagueName"))
+            candidate_home_names = _candidate_team_names(
+                candidate,
+                ("home", "home_en", "HName", "homeName"),
+            )
+            candidate_away_names = _candidate_team_names(
+                candidate,
+                ("away", "away_en", "GName", "awayName"),
+            )
+            candidate_league_names = _candidate_team_names(
+                candidate,
+                ("league", "league_en", "LName", "leagueName"),
+            )
             if not _names_match(home_names, candidate_home_names):
                 continue
             if not _names_match(away_names, candidate_away_names):
@@ -159,6 +182,20 @@ def _match_candidates(
             matched[match.id] = str(candidate_id)
             break
     return matched
+
+
+def _beijing_match_dates(matches: list[Match]) -> list[str]:
+    values = [_beijing_match_date(match) for match in matches]
+    return list(dict.fromkeys(value for value in values if value is not None))
+
+
+def _beijing_match_date(match: Match) -> str | None:
+    if match.kickoff_time is None:
+        return None
+    kickoff_time = match.kickoff_time
+    if kickoff_time.tzinfo is not None:
+        kickoff_time = kickoff_time.astimezone(BEIJING)
+    return kickoff_time.date().isoformat()
 
 
 def _candidate_text(candidate: dict[str, Any]) -> str:

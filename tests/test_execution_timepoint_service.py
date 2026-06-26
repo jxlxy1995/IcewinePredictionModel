@@ -67,16 +67,47 @@ def test_select_execution_timepoint_pair_keeps_default_tolerance_for_pinnacle():
     assert selected is None
 
 
+def test_select_execution_timepoint_pair_uses_wider_tolerance_for_zqcf918_pinnacle():
+    kickoff_time = datetime(2026, 6, 25, 19, 15)
+    snapshot_time = kickoff_time - timedelta(minutes=52, seconds=29)
+    snapshots = [
+        _snapshot(
+            snapshot_time,
+            Decimal("1.00"),
+            "home",
+            Decimal("1.840"),
+            source_name="zqcf918",
+        ),
+        _snapshot(
+            snapshot_time,
+            Decimal("1.00"),
+            "away",
+            Decimal("1.980"),
+            source_name="zqcf918",
+        ),
+    ]
+
+    selected = select_execution_timepoint_pair(
+        _pair_market_snapshots(snapshots, market_type="asian_handicap"),
+        kickoff_time=kickoff_time,
+        target_minutes_before_kickoff=60,
+    )
+
+    assert selected is not None
+    assert selected.snapshot_time == snapshot_time
+
+
 def _snapshot(
     snapshot_time: datetime,
     line: Decimal,
     side: str,
     odds: Decimal,
     bookmaker: str = "pinnacle",
+    source_name: str = "oddspapi",
 ) -> HistoricalOddsSnapshot:
     return HistoricalOddsSnapshot(
         match_id=1,
-        source_name="oddspapi",
+        source_name=source_name,
         source_fixture_id="fixture-1",
         bookmaker=bookmaker,
         market_type="asian_handicap",

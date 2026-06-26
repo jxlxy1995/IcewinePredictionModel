@@ -80,6 +80,21 @@ class ZQCF918Client:
             return [item for item in data["list"] if isinstance(item, dict)]
         return _collect_rows(data, ("data1", "data2"))
 
+    def fetch_finished_score_matches(self, match_date: str) -> list[dict[str, Any]]:
+        payload = self._post_json(
+            "/new/website/end/time/getEndGame",
+            body={"params": {"time": str(match_date)}},
+            referer=f"{self.base_url}/finishScore",
+        )
+        data = payload.get("data")
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        if not isinstance(data, dict):
+            raise ZQCF918ClientError(str(payload.get("msg") or "zqcf918 finished score list failed"))
+        if isinstance(data.get("list"), list):
+            return [item for item in data["list"] if isinstance(item, dict)]
+        return _collect_rows(data, ("data1", "data2", "data3", "data4"))
+
     def _post_json(self, endpoint: str, *, body: dict[str, Any], referer: str) -> dict[str, Any]:
         response = self.session.post(
             f"{self.base_url}{endpoint}",

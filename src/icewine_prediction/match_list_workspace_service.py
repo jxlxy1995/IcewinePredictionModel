@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+from functools import lru_cache
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import yaml
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
@@ -19,12 +22,14 @@ from icewine_prediction.models import (
     DataSyncRun,
     HistoricalOddsSnapshot,
     Match,
+    OddsSourceMatch,
     OddsSnapshot,
     PaperRecommendationRecord,
     RecommendationRecord,
 )
 from icewine_prediction.odds_provider_selection_service import (
     TRUSTED_SNAPSHOT_PRIORITY,
+    ZQCF918_SOURCE_NAME,
     filter_priority_trusted_snapshots,
 )
 from icewine_prediction.zqcf918_match_service import get_zqcf918_match_id, zqcf918_match_url
@@ -33,6 +38,7 @@ TRUSTED_SOURCE_NAMES = tuple({source_name for source_name, _bookmaker in TRUSTED
 TRUSTED_BOOKMAKERS = tuple({bookmaker for _source_name, bookmaker in TRUSTED_SNAPSHOT_PRIORITY})
 
 EXECUTION_TIMEPOINT_TARGETS = (60, 30, 25, 20, 15, 10)
+THE_ODDS_API_UNSUPPORTED_LEAGUES_PATH = Path("config/the_odds_api_unsupported_leagues.yaml")
 EXECUTION_TIMEPOINT_MARKETS = (
     ("asian_handicap", "亚盘"),
     ("total_goals", "大小球"),
@@ -101,6 +107,8 @@ class MatchListRow:
     home_score: int | None
     away_score: int | None
     has_odds: bool
+    the_odds_api_unsupported: bool
+    zqcf918_match_id: str | None
     odds_status_key: str
     odds_status_label: str
     odds_summary: MatchOddsSummary
@@ -304,6 +312,10 @@ def build_match_list_workspace(
     matches = _filter_matches_by_odds_status(matches, selected_statuses=selected_odds_statuses, odds_status_by_match_id=odds_status_by_match_id)
     visible_matches = matches[:limit]
     odds_summary_by_match_id = _odds_summaries_by_match_id(session, [match.id for match in visible_matches])
+    zqcf918_match_ids_by_match_id = _zqcf918_match_ids_by_match_id(
+        session,
+        [match.id for match in visible_matches],
+    )
     return MatchListWorkspace(
         filters=MatchListFilters(
             start_time=_format_local_beijing_datetime(start),
@@ -323,12 +335,12 @@ def build_match_list_workspace(
         total_matches=len(matches),
         matches=[
             _match_row(
-                session,
                 match,
                 now=now,
                 has_odds=match.id in odds_status_facts.odds_match_ids,
                 odds_status=odds_status_by_match_id.get(match.id, MATCH_ODDS_STATUS_NONE),
                 odds_summary=odds_summary_by_match_id.get(match.id, EMPTY_ODDS_SUMMARY),
+                zqcf918_match_ids_by_match_id=zqcf918_match_ids_by_match_id,
                 display_name_service=display_name_service,
             )
             for match in visible_matches
@@ -390,12 +402,12 @@ def build_match_detail(
         return None
     odds_status_facts = _odds_status_facts(session, [match])
     row = _match_row(
-        session,
         match,
         now=datetime.now(ZoneInfo(BEIJING_TIMEZONE)),
         has_odds=match.id in odds_status_facts.odds_match_ids,
         odds_status=_odds_status(match, facts=odds_status_facts),
         odds_summary=_odds_summary(session, match.id),
+        zqcf918_match_ids_by_match_id=_zqcf918_match_ids_by_match_id(session, [match.id]),
         display_name_service=display_name_service,
     )
     paper_count = (
@@ -460,7 +472,7 @@ def _trusted_execution_timepoint_snapshots(
     session: Session,
     match: Match,
 ) -> list[HistoricalOddsSnapshot]:
-    snapshots = (
+    return (
         session.query(HistoricalOddsSnapshot)
         .filter(HistoricalOddsSnapshot.match_id == match.id)
         .filter(HistoricalOddsSnapshot.source_name.in_(TRUSTED_SOURCE_NAMES))
@@ -468,7 +480,6 @@ def _trusted_execution_timepoint_snapshots(
         .order_by(HistoricalOddsSnapshot.snapshot_time.asc())
         .all()
     )
-    return filter_priority_trusted_snapshots(snapshots)
 
 
 def _execution_timepoint_coverage(
@@ -486,7 +497,7 @@ def _execution_timepoint_coverage(
         )
         cells = []
         for target in EXECUTION_TIMEPOINT_TARGETS:
-            selected = select_execution_timepoint_pair(
+            selected = _select_priority_execution_timepoint_pair(
                 pairs,
                 kickoff_time=kickoff_time,
                 target_minutes_before_kickoff=target,
@@ -543,7 +554,7 @@ def _execution_timepoint_odds_table(
     rows: list[ExecutionTimepointOddsTableRow] = []
     for target in EXECUTION_TIMEPOINT_TARGETS:
         selected = {
-            market_type: select_execution_timepoint_pair(
+            market_type: _select_priority_execution_timepoint_pair(
                 pairs,
                 kickoff_time=kickoff_time,
                 target_minutes_before_kickoff=target,
@@ -560,6 +571,27 @@ def _execution_timepoint_odds_table(
             )
         )
     return ExecutionTimepointOddsTable(rows=rows)
+
+
+def _select_priority_execution_timepoint_pair(
+    pairs,
+    *,
+    kickoff_time: datetime,
+    target_minutes_before_kickoff: int,
+):
+    for source_name, bookmaker in TRUSTED_SNAPSHOT_PRIORITY:
+        candidate = select_execution_timepoint_pair(
+            [
+                pair
+                for pair in pairs
+                if pair.source_name == source_name and pair.bookmaker.lower() == bookmaker
+            ],
+            kickoff_time=kickoff_time,
+            target_minutes_before_kickoff=target_minutes_before_kickoff,
+        )
+        if candidate is not None:
+            return candidate
+    return None
 
 
 def _format_asian_handicap_timepoint_odds(pair) -> ExecutionTimepointAsianHandicapOdds:
@@ -670,13 +702,13 @@ def _match_list_filtered_query(
 
 
 def _match_row(
-    session: Session,
     match: Match,
     *,
     now: datetime,
     has_odds: bool,
     odds_status: MatchOddsStatus,
     odds_summary: MatchOddsSummary,
+    zqcf918_match_ids_by_match_id: dict[int, str],
     display_name_service: DisplayNameService,
 ) -> MatchListRow:
     display_status = _display_status(match, now=now)
@@ -696,9 +728,42 @@ def _match_row(
         home_score=match.home_score,
         away_score=match.away_score,
         has_odds=has_odds,
+        the_odds_api_unsupported=_is_the_odds_api_unsupported_league(match),
+        zqcf918_match_id=zqcf918_match_ids_by_match_id.get(match.id),
         odds_status_key=odds_status.key,
         odds_status_label=odds_status.label,
         odds_summary=odds_summary,
+    )
+
+
+def _is_the_odds_api_unsupported_league(match: Match) -> bool:
+    league_id = getattr(match.league, "source_league_id", None)
+    return str(league_id) in _the_odds_api_unsupported_league_ids() if league_id is not None else False
+
+
+def _zqcf918_match_ids_by_match_id(session: Session, match_ids: list[int]) -> dict[int, str]:
+    if not match_ids:
+        return {}
+    rows = (
+        session.query(OddsSourceMatch.match_id, OddsSourceMatch.source_fixture_id)
+        .filter(OddsSourceMatch.match_id.in_(match_ids))
+        .filter(OddsSourceMatch.source_name == ZQCF918_SOURCE_NAME)
+        .all()
+    )
+    return {match_id: source_fixture_id for match_id, source_fixture_id in rows}
+
+
+@lru_cache(maxsize=1)
+def _the_odds_api_unsupported_league_ids(
+    config_path: Path = THE_ODDS_API_UNSUPPORTED_LEAGUES_PATH,
+) -> frozenset[str]:
+    if not config_path.exists():
+        return frozenset()
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    return frozenset(
+        str(entry["api_football_id"])
+        for entry in payload.get("unsupported_leagues", [])
+        if entry.get("api_football_id") is not None
     )
 
 
@@ -813,7 +878,6 @@ def _standard_coverage_counts_by_match_id(session: Session, matches: list[Match]
         .filter(HistoricalOddsSnapshot.snapshot_time <= latest_kickoff_utc)
         .all()
     )
-    snapshots = filter_priority_trusted_snapshots(snapshots)
     snapshots_by_match_id: dict[int, list[HistoricalOddsSnapshot]] = {}
     for snapshot in snapshots:
         snapshots_by_match_id.setdefault(snapshot.match_id, []).append(snapshot)

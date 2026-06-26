@@ -1987,6 +1987,7 @@ def _build_match_sync_report(
         "failed_count": len(failed),
         "skipped_count": len(skipped),
         "requests_used": normalized["requests"],
+        "credits_used": normalized["credits"],
         "success": success,
         "failed": failed,
         "skipped": skipped,
@@ -2001,12 +2002,14 @@ def _normalize_match_sync_report_result(result: dict[str, Any] | str) -> dict[st
             "failed": [],
             "skipped": [],
             "requests": parsed["requests"],
+            "credits": parsed.get("credits", 0),
         }
     return {
         "success": list(result.get("success") or []),
         "failed": list(result.get("failed") or []),
         "skipped": list(result.get("skipped") or []),
         "requests": int(result.get("requests", result.get("requests_used", 0)) or 0),
+        "credits": int(result.get("credits", result.get("credits_used", 0)) or 0),
     }
 
 
@@ -3010,7 +3013,7 @@ def _open_session_for_web_sync():
 
 
 def _parse_sync_summary(summary: str) -> dict[str, int]:
-    values = {"created": 0, "updated": 0, "skipped": 0, "requests": 0}
+    values = {"created": 0, "updated": 0, "skipped": 0, "requests": 0, "credits": 0}
     for part in summary.replace(",", "").split():
         if "=" not in part:
             continue

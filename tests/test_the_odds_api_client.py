@@ -10,9 +10,10 @@ from icewine_prediction.sources.the_odds_api_client import (
 
 
 class FakeResponse:
-    def __init__(self, payload, status_code=200):
+    def __init__(self, payload, status_code=200, headers=None):
         self._payload = payload
         self.status_code = status_code
+        self.headers = headers or {}
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -49,6 +50,43 @@ def test_the_odds_api_client_adds_api_key_and_counts_requests():
     assert session.calls[0][1]["apiKey"] == "secret"
     assert session.calls[0][1]["regions"] == "eu"
     assert session.calls[0][2] == 12
+
+
+def test_the_odds_api_client_tracks_credit_headers_alongside_request_count():
+    session = FakeSession(
+        [
+            FakeResponse(
+                {"ok": True},
+                headers={
+                    "x-requests-last": "30",
+                    "x-requests-used": "130",
+                    "x-requests-remaining": "870",
+                },
+            ),
+            FakeResponse(
+                {"ok": True},
+                headers={
+                    "x-requests-last": "5",
+                    "x-requests-used": "135",
+                    "x-requests-remaining": "865",
+                },
+            ),
+        ]
+    )
+    client = TheOddsApiClient(
+        api_key="secret",
+        request_budget=2,
+        session=session,
+    )
+
+    client.get("historical/sports/soccer_epl/odds")
+    client.get("sports/soccer_epl/odds")
+
+    assert client.request_count == 2
+    assert client.credit_count == 35
+    assert client.last_credit_count == 5
+    assert client.provider_requests_used == 135
+    assert client.provider_requests_remaining == 865
 
 
 def test_the_odds_api_client_default_session_ignores_environment_proxy():

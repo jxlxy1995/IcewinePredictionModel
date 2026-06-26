@@ -36,7 +36,7 @@ def run_match_odds_sync_for_session(
     oddspapi_syncer: Callable[..., Any] = run_oddspapi_sync_result,
 ) -> SyncResultPayload:
     if not match_ids:
-        return {"success": [], "failed": [], "skipped": [], "requests": 0}
+        return {"success": [], "failed": [], "skipped": [], "requests": 0, "credits": 0}
 
     matches = session.query(Match).filter(Match.id.in_(match_ids)).all()
     matches_by_id = {match.id: match for match in matches}
@@ -52,11 +52,12 @@ def run_match_odds_sync_for_session(
         if match.season is None
     )
     if not seasons:
-        return {"success": [], "failed": [], "skipped": skipped, "requests": 0}
+        return {"success": [], "failed": [], "skipped": skipped, "requests": 0, "credits": 0}
 
     selected_provider = MatchOddsSyncProvider(provider)
     the_odds_api_syncer = the_odds_api_syncer or run_default_the_odds_api_sync_for_session
     requests_used = 0
+    credits_used = 0
     run_errors: dict[int, str] = {}
     for season in seasons:
         season_match_ids = {
@@ -76,6 +77,7 @@ def run_match_odds_sync_for_session(
                 oddspapi_syncer=oddspapi_syncer,
             )
             requests_used += int(getattr(result, "requests_used", 0) or 0)
+            credits_used += int(getattr(result, "credits_used", 0) or 0)
             error_message = getattr(result, "error_message", None)
             if error_message:
                 for match_id in season_match_ids:
@@ -90,6 +92,7 @@ def run_match_odds_sync_for_session(
                         oddspapi_syncer=oddspapi_syncer,
                     )
                     requests_used += int(getattr(fallback_result, "requests_used", 0) or 0)
+                    credits_used += int(getattr(fallback_result, "credits_used", 0) or 0)
                     fallback_error_message = getattr(fallback_result, "error_message", None)
                     if fallback_error_message:
                         for match_id in fallback_match_ids:
@@ -122,6 +125,7 @@ def run_match_odds_sync_for_session(
         ],
         "skipped": skipped,
         "requests": requests_used,
+        "credits": credits_used,
     }
 
 

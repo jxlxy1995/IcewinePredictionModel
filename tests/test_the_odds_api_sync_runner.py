@@ -27,10 +27,14 @@ from icewine_prediction.the_odds_api_sync_runner import (
 
 
 class FakeTheOddsApiClient:
-    def __init__(self, payloads):
+    def __init__(self, payloads, *, credit_count=0):
         self.payloads = payloads
         self.calls = []
         self.request_count = 0
+        self.credit_count = credit_count
+        self.last_credit_count = 0
+        self.provider_requests_used = None
+        self.provider_requests_remaining = None
 
     def get(self, endpoint, params=None):
         self.calls.append((endpoint, params or {}))
@@ -217,7 +221,7 @@ def test_run_the_odds_api_sync_stores_snapshots_under_distinct_source(session):
     assert status.historical_odds_status == "success"
 
 
-def test_run_the_odds_api_sync_stores_raw_neighbor_summary_for_alternate_markets(session):
+def test_run_the_odds_api_sync_does_not_fetch_alternate_markets_by_default(session):
     match = _add_match(session, home_team_name="Arsenal", away_team_name="Chelsea")
     client = TheOddsApiSyncClient(
         FakeTheOddsApiClient(
@@ -225,9 +229,6 @@ def test_run_the_odds_api_sync_stores_raw_neighbor_summary_for_alternate_markets
                 "sports/soccer_epl/odds": [
                     _featured_event_payload("2026-06-26T18:45:00Z"),
                 ],
-                "sports/soccer_epl/events/event-1/odds": _alternate_event_payload(
-                    "2026-06-26T18:45:00Z"
-                ),
             }
         )
     )
@@ -247,6 +248,52 @@ def test_run_the_odds_api_sync_stores_raw_neighbor_summary_for_alternate_markets
         .filter(HistoricalOddsSnapshot.market_type == "total_goals")
         .all()
     }
+    called_endpoints = [call[0] for call in client.client.calls]
+    raw_total_count = (
+        session.query(HistoricalOddsRawSnapshot)
+        .filter(HistoricalOddsRawSnapshot.match_id == match.id)
+        .filter(HistoricalOddsRawSnapshot.source_name == THE_ODDS_API_SOURCE_NAME)
+        .filter(HistoricalOddsRawSnapshot.market_type == "total_goals")
+        .count()
+    )
+
+    assert result.inserted_snapshot_count == 7
+    assert main_lines == {Decimal("2.5")}
+    assert "sports/soccer_epl/events/event-1/odds" not in called_endpoints
+    assert raw_total_count == 2
+    assert (
+        session.query(HistoricalOddsRawSnapshot)
+        .filter(HistoricalOddsRawSnapshot.match_id == match.id)
+        .filter(HistoricalOddsRawSnapshot.source_name == "oddspapi")
+        .count()
+        == 0
+    )
+
+
+def test_run_the_odds_api_sync_can_fetch_alternate_markets_when_enabled(session):
+    match = _add_match(session, home_team_name="Arsenal", away_team_name="Chelsea")
+    client = TheOddsApiSyncClient(
+        FakeTheOddsApiClient(
+            {
+                "sports/soccer_epl/odds": [
+                    _featured_event_payload("2026-06-26T18:45:00Z"),
+                ],
+                "sports/soccer_epl/events/event-1/odds": _alternate_event_payload(
+                    "2026-06-26T18:45:00Z"
+                ),
+            }
+        ),
+        fetch_alternate_markets=True,
+    )
+
+    run_the_odds_api_sync_for_session(
+        session=session,
+        client=client,
+        season=2026,
+        max_matches=5,
+        now=datetime(2026, 6, 25, 0, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
     raw_lines = {
         row.market_line
         for row in session.query(HistoricalOddsRawSnapshot)
@@ -256,16 +303,7 @@ def test_run_the_odds_api_sync_stores_raw_neighbor_summary_for_alternate_markets
         .all()
     }
 
-    assert result.inserted_snapshot_count == 7
-    assert main_lines == {Decimal("2.5")}
     assert raw_lines == {Decimal("2.25"), Decimal("2.5"), Decimal("2.75")}
-    assert (
-        session.query(HistoricalOddsRawSnapshot)
-        .filter(HistoricalOddsRawSnapshot.match_id == match.id)
-        .filter(HistoricalOddsRawSnapshot.source_name == "oddspapi")
-        .count()
-        == 0
-    )
 
 
 def test_the_odds_api_sync_client_fetches_historical_odds_with_date():
@@ -336,6 +374,7 @@ def test_run_the_odds_api_sync_uses_standard_historical_timepoints_for_passed_ki
 
     assert result.processed_match_count == 1
     assert result.inserted_snapshot_count == 18
+    assert result.requests_used == 6
     assert [call[0] for call in client.client.calls if call[0] == "historical/sports/soccer_epl/odds"] == [
         "historical/sports/soccer_epl/odds",
         "historical/sports/soccer_epl/odds",
@@ -366,6 +405,74 @@ def test_run_the_odds_api_sync_uses_standard_historical_timepoints_for_passed_ki
         "2026-06-26T18:45:00Z",
         "2026-06-26T18:50:00Z",
     }
+
+
+def test_run_the_odds_api_sync_reuses_historical_sport_requests_within_batch(session):
+    first = _add_match(
+        session,
+        home_team_name="Arsenal",
+        away_team_name="Chelsea",
+        kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC")),
+        status="finished",
+    )
+    home = Team(canonical_name="Tottenham")
+    away = Team(canonical_name="Everton")
+    session.add_all([home, away])
+    session.flush()
+    second = Match(
+        league=first.league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC")),
+        season=2026,
+        status="finished",
+        source_name="api_football",
+        source_match_id="1002",
+    )
+    session.add(second)
+    session.commit()
+    client = TheOddsApiSyncClient(
+        FakeTheOddsApiClient(
+            {
+                "historical/sports/soccer_epl/odds": {
+                    "data": [
+                        _historical_event_payload(
+                            "2026-06-26T18:50:00Z",
+                            event_id="historical-event-1",
+                            home_team="Arsenal",
+                            away_team="Chelsea",
+                        ),
+                        _historical_event_payload(
+                            "2026-06-26T18:50:00Z",
+                            event_id="historical-event-2",
+                            home_team="Tottenham",
+                            away_team="Everton",
+                        ),
+                    ],
+                },
+            },
+            credit_count=180,
+        )
+    )
+
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=client,
+        season=2026,
+        max_matches=5,
+        match_ids={first.id, second.id},
+        now=datetime(2026, 6, 27, 0, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
+    historical_calls = [
+        call for call in client.client.calls if call[0] == "historical/sports/soccer_epl/odds"
+    ]
+
+    assert result.processed_match_count == 2
+    assert result.inserted_snapshot_count == 36
+    assert result.requests_used == 6
+    assert result.credits_used == 180
+    assert len(historical_calls) == 6
 
 
 def test_run_the_odds_api_sync_uses_elapsed_historical_timepoints_before_kickoff(session):

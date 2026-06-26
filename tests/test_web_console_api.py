@@ -2279,6 +2279,7 @@ def test_web_console_api_default_odds_syncer_uses_match_odds_sync_service(tmp_pa
             "failed": [],
             "skipped": [],
             "requests": 2,
+            "credits": 60,
         }
 
     monkeypatch.setattr(
@@ -2302,6 +2303,8 @@ def test_web_console_api_default_odds_syncer_uses_match_odds_sync_service(tmp_pa
     assert calls
     assert calls[0]["match_ids"] == [match_id]
     assert response.json()["sync_run"]["requests_used"] == 2
+    assert response.json()["report"]["requests_used"] == 2
+    assert response.json()["report"]["credits_used"] == 60
 
 
 def test_web_console_api_match_list_sync_uses_filtered_match_targets(tmp_path):
@@ -2909,6 +2912,17 @@ def test_match_list_odds_sync_does_not_use_api_football_live_odds_fallback_by_de
         "now_beijing",
         lambda: datetime(2026, 5, 31, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
     )
+    monkeypatch.setattr(
+        web_api,
+        "run_match_odds_sync_for_session",
+        lambda **kwargs: {
+            "failed": [{"match_id": match_id, "message": "未获取到可用赔率"}],
+            "success": [],
+            "skipped": [],
+            "requests": 0,
+            "credits": 0,
+        },
+    )
 
     result = web_api._run_match_list_odds_sync([match_id])
 
@@ -2966,6 +2980,17 @@ def test_match_list_odds_sync_does_not_fetch_live_odds_when_historical_exists(mo
         match_id = match.id
 
     monkeypatch.setattr(web_api, "_open_session_for_web_sync", lambda: session_factory())
+    monkeypatch.setattr(
+        web_api,
+        "run_match_odds_sync_for_session",
+        lambda **kwargs: {
+            "success": [{"match_id": match_id, "message": "赔率已刷新"}],
+            "failed": [],
+            "skipped": [],
+            "requests": 0,
+            "credits": 0,
+        },
+    )
 
     result = web_api._run_match_list_odds_sync([match_id])
 
@@ -3011,6 +3036,17 @@ def test_match_list_odds_sync_does_not_fetch_live_odds_after_kickoff(monkeypatch
         web_api,
         "now_beijing",
         lambda: datetime(2026, 5, 31, 19, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+    monkeypatch.setattr(
+        web_api,
+        "run_match_odds_sync_for_session",
+        lambda **kwargs: {
+            "success": [],
+            "failed": [{"match_id": match_id, "message": "未获取到可用赔率"}],
+            "skipped": [],
+            "requests": 0,
+            "credits": 0,
+        },
     )
 
     result = web_api._run_match_list_odds_sync([match_id])

@@ -126,6 +126,9 @@ class TheOddsApiSyncResult:
     total_goals_count: int
     match_winner_count: int
     requests_used: int
+    credits_used: int = 0
+    provider_requests_used: int | None = None
+    provider_requests_remaining: int | None = None
     error_message: str | None = None
 
 
@@ -137,15 +140,29 @@ class TheOddsApiSyncClient:
         bookmaker: str = PINNACLE_BOOKMAKER,
         region: str = DEFAULT_REGION,
         markets: tuple[str, ...] = DEFAULT_MARKETS,
+        fetch_alternate_markets: bool = False,
     ) -> None:
         self.client = client
         self.bookmaker = bookmaker
         self.region = region
         self.markets = markets
+        self.fetch_alternate_markets = fetch_alternate_markets
 
     @property
     def request_count(self) -> int:
         return getattr(self.client, "request_count", 0)
+
+    @property
+    def credit_count(self) -> int:
+        return getattr(self.client, "credit_count", 0)
+
+    @property
+    def provider_requests_used(self) -> int | None:
+        return getattr(self.client, "provider_requests_used", None)
+
+    @property
+    def provider_requests_remaining(self) -> int | None:
+        return getattr(self.client, "provider_requests_remaining", None)
 
     def fetch_current_odds(self, sport_key: str) -> list[dict[str, Any]]:
         payload = self.client.get(
@@ -284,6 +301,7 @@ def run_the_odds_api_sync_for_session(
     error_message = None
     now_utc = _as_utc(now or now_beijing())
     team_aliases = _load_team_aliases(session)
+    historical_odds_cache: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] = {}
     for match in matches:
         sport_key = API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS[str(match.league.source_league_id)]
         try:
@@ -293,6 +311,7 @@ def run_the_odds_api_sync_for_session(
                     sport_key=sport_key,
                     match=match,
                     team_aliases=team_aliases,
+                    cache=historical_odds_cache,
                 )
                 candidate = _historical_candidate_from_snapshots(match, snapshots)
             else:
@@ -302,6 +321,7 @@ def run_the_odds_api_sync_for_session(
                     match=match,
                     now_utc=now_utc,
                     team_aliases=team_aliases,
+                    cache=historical_odds_cache,
                 )
                 candidate = _historical_candidate_from_snapshots(match, snapshots)
                 if candidate is None:
@@ -323,7 +343,7 @@ def run_the_odds_api_sync_for_session(
                         else []
                     )
                     raw_source_snapshots = list(snapshots)
-                    if candidate is not None:
+                    if candidate is not None and client.fetch_alternate_markets:
                         raw_source_snapshots.extend(
                             _fetch_current_alternate_snapshots(
                                 client=client,
@@ -392,6 +412,9 @@ def run_the_odds_api_sync_for_session(
         total_goals_count=totals,
         match_winner_count=winners,
         requests_used=client.request_count,
+        credits_used=client.credit_count,
+        provider_requests_used=client.provider_requests_used,
+        provider_requests_remaining=client.provider_requests_remaining,
         error_message=error_message,
     )
 
@@ -596,6 +619,9 @@ def format_the_odds_api_sync_result(result: TheOddsApiSyncResult) -> str:
             f"total_goals={result.total_goals_count}",
             f"match_winner={result.match_winner_count}",
             f"requests_used={result.requests_used}",
+            f"credits_used={result.credits_used}",
+            f"provider_requests_used={result.provider_requests_used}",
+            f"provider_requests_remaining={result.provider_requests_remaining}",
         ]
     )
 
@@ -734,6 +760,7 @@ def _fetch_passed_kickoff_historical_snapshots(
     sport_key: str,
     match: Match,
     team_aliases: list[ExternalAliasInput] | None = None,
+    cache: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] | None = None,
 ) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
     return _fetch_historical_snapshots_at_times(
         client=client,
@@ -741,6 +768,7 @@ def _fetch_passed_kickoff_historical_snapshots(
         match=match,
         snapshot_times=_standard_pre_kickoff_historical_snapshot_times(match.kickoff_time),
         team_aliases=team_aliases,
+        cache=cache,
     )
 
 
@@ -751,12 +779,13 @@ def _fetch_historical_snapshots_at_times(
     match: Match,
     snapshot_times: tuple[datetime, ...],
     team_aliases: list[ExternalAliasInput] | None = None,
+    cache: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] | None = None,
 ) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
     snapshots: list[HistoricalOddsSnapshotInput] = []
     raw_source_snapshots: list[HistoricalOddsSnapshotInput] = []
     seen_keys: set[tuple] = set()
     for snapshot_time in snapshot_times:
-        events = client.fetch_historical_odds(sport_key, snapshot_time)
+        events = _fetch_historical_odds_cached(client, sport_key, snapshot_time, cache)
         candidate = find_best_the_odds_api_event_match(
             match,
             events,
@@ -784,15 +813,16 @@ def _fetch_historical_snapshots_at_times(
                 continue
             seen_keys.add(key)
             snapshots.append(snapshot)
-        raw_source_snapshots.extend(
-            _fetch_historical_alternate_snapshots(
-                client=client,
-                sport_key=sport_key,
-                match=match,
-                event_id=candidate.event_id,
-                snapshot_time=snapshot_time,
+        if client.fetch_alternate_markets:
+            raw_source_snapshots.extend(
+                _fetch_historical_alternate_snapshots(
+                    client=client,
+                    sport_key=sport_key,
+                    match=match,
+                    event_id=candidate.event_id,
+                    snapshot_time=snapshot_time,
+                )
             )
-        )
     return snapshots, raw_source_snapshots
 
 
@@ -803,6 +833,7 @@ def _fetch_pre_kickoff_elapsed_historical_snapshots(
     match: Match,
     now_utc: datetime,
     team_aliases: list[ExternalAliasInput] | None = None,
+    cache: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] | None = None,
 ) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
     elapsed_snapshot_times = tuple(
         snapshot_time
@@ -817,7 +848,28 @@ def _fetch_pre_kickoff_elapsed_historical_snapshots(
         match=match,
         snapshot_times=elapsed_snapshot_times,
         team_aliases=team_aliases,
+        cache=cache,
     )
+
+
+def _fetch_historical_odds_cached(
+    client: TheOddsApiSyncClient,
+    sport_key: str,
+    snapshot_time: datetime,
+    cache: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] | None,
+) -> list[dict[str, Any]]:
+    if cache is None:
+        return client.fetch_historical_odds(sport_key, snapshot_time)
+    key = (
+        sport_key,
+        _format_the_odds_api_datetime(snapshot_time),
+        client.region,
+        client.bookmaker,
+        ",".join(client.markets),
+    )
+    if key not in cache:
+        cache[key] = client.fetch_historical_odds(sport_key, snapshot_time)
+    return cache[key]
 
 
 def _fetch_current_alternate_snapshots(

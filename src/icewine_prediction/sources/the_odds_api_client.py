@@ -37,6 +37,10 @@ class TheOddsApiClient:
         self.request_budget = request_budget
         self.session = session or _build_default_session()
         self.request_count = 0
+        self.credit_count = 0
+        self.last_credit_count = 0
+        self.provider_requests_used: int | None = None
+        self.provider_requests_remaining: int | None = None
 
     def get(self, endpoint: str, params: dict[str, Any] | None = None) -> Any:
         if self.request_count >= self.request_budget:
@@ -70,6 +74,7 @@ class TheOddsApiClient:
                 status_code=status_code if isinstance(status_code, int) else None,
             ) from None
         payload = response.json()
+        self._record_credit_headers(response)
         if isinstance(payload, dict) and payload.get("message"):
             raise TheOddsApiApiError(f"The Odds API returned error: {payload['message']}")
         return payload
@@ -79,6 +84,19 @@ class TheOddsApiClient:
         if callable(close):
             close()
         self.session = _build_default_session()
+
+    def _record_credit_headers(self, response: Any) -> None:
+        headers = getattr(response, "headers", {}) or {}
+        last = _int_header(headers, "x-requests-last")
+        if last is not None:
+            self.last_credit_count = last
+            self.credit_count += last
+        used = _int_header(headers, "x-requests-used")
+        if used is not None:
+            self.provider_requests_used = used
+        remaining = _int_header(headers, "x-requests-remaining")
+        if remaining is not None:
+            self.provider_requests_remaining = remaining
 
 
 def _build_default_session() -> requests.Session:
@@ -97,3 +115,15 @@ def _response_error_message(response: Any) -> str | None:
         if message:
             return str(message)
     return None
+
+
+def _int_header(headers: Any, name: str) -> int | None:
+    value = None
+    if hasattr(headers, "get"):
+        value = headers.get(name) or headers.get(name.upper())
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

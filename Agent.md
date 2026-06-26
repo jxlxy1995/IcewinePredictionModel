@@ -51,6 +51,7 @@ C:\ProgramData\anaconda3\python.exe -m icewine_cli odds-source oddspapi-worker-s
 - Use `rg` for search.
 - Use `apply_patch` for manual file edits.
 - Before committing, run focused tests for the touched area.
+- `C:\ProgramData\anaconda3\python.exe -m ruff` is not available in the current environment (`No module named ruff`). Do not repeatedly try Ruff as a required verification step unless it has been installed.
 - Do not revert user changes.
 - Keep commits focused and explain what was verified.
 - Avoid adding temporary scripts to git unless they are deliberately productized.

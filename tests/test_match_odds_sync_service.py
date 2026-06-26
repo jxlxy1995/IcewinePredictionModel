@@ -29,7 +29,11 @@ def test_run_match_odds_sync_defaults_to_the_odds_api_and_reports_success(sessio
             )
         )
         session.commit()
-        return _the_odds_api_result(requests_used=3, inserted_snapshot_count=1)
+        return _the_odds_api_result(
+            requests_used=3,
+            credits_used=90,
+            inserted_snapshot_count=1,
+        )
 
     result = run_match_odds_sync_for_session(
         session=session,
@@ -43,6 +47,7 @@ def test_run_match_odds_sync_defaults_to_the_odds_api_and_reports_success(sessio
     assert result["failed"] == []
     assert result["skipped"] == []
     assert result["requests"] == 3
+    assert result["credits"] == 90
 
 
 def test_run_match_odds_sync_does_not_overwrite_legacy_oddspapi_snapshots(session):
@@ -59,7 +64,7 @@ def test_run_match_odds_sync_does_not_overwrite_legacy_oddspapi_snapshots(sessio
             )
         )
         session.commit()
-        return _the_odds_api_result(requests_used=1, inserted_snapshot_count=1)
+        return _the_odds_api_result(requests_used=1, credits_used=30, inserted_snapshot_count=1)
 
     result = run_match_odds_sync_for_session(
         session=session,
@@ -132,7 +137,7 @@ def test_run_match_odds_sync_falls_back_to_sbobet_for_verified_fallback_league(s
 
     def fake_the_odds_api_sync(**kwargs):
         the_odds_api_calls.append(kwargs)
-        return _the_odds_api_result(requests_used=2, inserted_snapshot_count=0)
+        return _the_odds_api_result(requests_used=2, credits_used=60, inserted_snapshot_count=0)
 
     def fake_oddspapi_sync(**kwargs):
         oddspapi_calls.append(kwargs)
@@ -159,6 +164,7 @@ def test_run_match_odds_sync_falls_back_to_sbobet_for_verified_fallback_league(s
     assert oddspapi_calls[0]["match_ids"] == {match.id}
     assert oddspapi_calls[0]["bookmaker"] == "sbobet"
     assert result["requests"] == 7
+    assert result["credits"] == 60
     assert _success_match_ids(result) == [match.id]
 
 
@@ -167,7 +173,7 @@ def test_run_match_odds_sync_does_not_fallback_to_sbobet_for_non_fallback_league
     oddspapi_calls = []
 
     def fake_the_odds_api_sync(**kwargs):
-        return _the_odds_api_result(requests_used=2, inserted_snapshot_count=0)
+        return _the_odds_api_result(requests_used=2, credits_used=60, inserted_snapshot_count=0)
 
     def fake_oddspapi_sync(**kwargs):
         oddspapi_calls.append(kwargs)
@@ -182,6 +188,7 @@ def test_run_match_odds_sync_does_not_fallback_to_sbobet_for_non_fallback_league
 
     assert oddspapi_calls == []
     assert result["requests"] == 2
+    assert result["credits"] == 60
     assert _success_match_ids(result) == []
     assert [item["match_id"] for item in result["failed"]] == [match.id]
 
@@ -244,7 +251,12 @@ def _snapshot(
     )
 
 
-def _the_odds_api_result(*, requests_used: int, inserted_snapshot_count: int) -> TheOddsApiSyncResult:
+def _the_odds_api_result(
+    *,
+    requests_used: int,
+    inserted_snapshot_count: int,
+    credits_used: int = 0,
+) -> TheOddsApiSyncResult:
     return TheOddsApiSyncResult(
         processed_match_count=1,
         matched_count=1 if inserted_snapshot_count else 0,
@@ -256,6 +268,7 @@ def _the_odds_api_result(*, requests_used: int, inserted_snapshot_count: int) ->
         total_goals_count=0,
         match_winner_count=0,
         requests_used=requests_used,
+        credits_used=credits_used,
     )
 
 

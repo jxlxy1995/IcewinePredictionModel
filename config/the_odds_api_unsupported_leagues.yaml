@@ -1,0 +1,37 @@
+unsupported_leagues:
+  - api_football_id: 89 # 荷乙
+    name: Eerste Divisie
+    country: Netherlands
+    reason: no_the_odds_api_sport_key
+  - api_football_id: 283 # 罗甲
+    name: Liga I
+    country: Romania
+    reason: no_the_odds_api_sport_key
+  - api_football_id: 293 # 韩K2联
+    name: K League 2
+    country: South-Korea
+    reason: no_the_odds_api_sport_key
+  - api_football_id: 104 # 挪甲
+    name: 1. Division
+    country: Norway
+    reason: no_the_odds_api_sport_key
+  - api_football_id: 1087 # 芬甲
+    name: Ykkosliiga
+    country: Finland
+    reason: no_the_odds_api_sport_key
+  - api_football_id: 358 # 爱甲
+    name: First Division
+    country: Ireland
+    reason: no_the_odds_api_sport_key
+  - api_football_id: 164 # 冰岛超
+    name: Urvalsdeild
+    country: Iceland
+    reason: no_the_odds_api_sport_key
+  - api_football_id: 274 # 印尼超
+    name: Liga 1
+    country: Indonesia
+    reason: no_the_odds_api_sport_key
+  - api_football_id: 120 # 丹麦甲
+    name: 1. Division
+    country: Denmark
+    reason: no_the_odds_api_sport_key

@@ -1,6 +1,9 @@
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import yaml
 
 from icewine_prediction.models import (
     ExternalAlias,
@@ -46,6 +49,7 @@ def test_sport_key_mapping_covers_the_odds_api_supported_whitelist_leagues():
         "2": "soccer_uefa_champs_league",
         "3": "soccer_uefa_europa_league",
         "848": "soccer_uefa_europa_conference_league",
+        "357": "soccer_league_of_ireland",
         "141": "soccer_spain_segunda_division",
         "144": "soccer_belgium_first_div",
         "203": "soccer_turkey_super_league",
@@ -68,7 +72,22 @@ def test_sport_key_mapping_covers_the_odds_api_supported_whitelist_leagues():
 
     for league_id, sport_key in expected_mappings.items():
         assert API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS[league_id] == sport_key
-    assert len(API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS) >= 40
+    assert len(API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS) >= 41
+
+
+def test_the_odds_api_unsupported_leagues_config_matches_enabled_whitelist():
+    config_dir = Path("config")
+    leagues = yaml.safe_load((config_dir / "leagues.yaml").read_text(encoding="utf-8"))["leagues"]
+    unsupported = yaml.safe_load(
+        (config_dir / "the_odds_api_unsupported_leagues.yaml").read_text(encoding="utf-8")
+    )["unsupported_leagues"]
+
+    enabled_ids = {str(item["api_football_id"]) for item in leagues if item["enabled"]}
+    expected_unsupported_ids = enabled_ids - set(API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS)
+    configured_unsupported_ids = {str(item["api_football_id"]) for item in unsupported}
+
+    assert configured_unsupported_ids == expected_unsupported_ids
+    assert "357" not in configured_unsupported_ids
 
 
 def test_find_best_the_odds_api_event_match_uses_time_and_team_names(session):

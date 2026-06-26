@@ -82,6 +82,7 @@ API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS = {
     "265": "soccer_chile_campeonato",
     "292": "soccer_korea_kleague1",
     "307": "soccer_saudi_arabia_pro_league",
+    "357": "soccer_league_of_ireland",
     "848": "soccer_uefa_europa_conference_league",
 }
 

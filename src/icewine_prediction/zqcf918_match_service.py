@@ -140,16 +140,21 @@ def _match_candidates(
     for match in matches:
         home_names = _team_name_candidates(match.home_team.canonical_name, display_service)
         away_names = _team_name_candidates(match.away_team.canonical_name, display_service)
+        league_names = _league_name_candidates(match.league.name, display_service)
         for candidate in candidates:
             candidate_id = candidate.get("ID") or candidate.get("id") or candidate.get("matchId")
             if candidate_id is None:
                 continue
             if not _is_same_match_time(match, candidate):
                 continue
-            candidate_text = _candidate_text(candidate)
-            if not any(home_name in candidate_text for home_name in home_names):
+            candidate_home_names = _candidate_team_names(candidate, ("home", "HName", "homeName"))
+            candidate_away_names = _candidate_team_names(candidate, ("away", "GName", "awayName"))
+            candidate_league_names = _candidate_team_names(candidate, ("league", "LName", "leagueName"))
+            if not _names_match(home_names, candidate_home_names):
                 continue
-            if not any(away_name in candidate_text for away_name in away_names):
+            if not _names_match(away_names, candidate_away_names):
+                continue
+            if candidate_league_names and not _names_match(league_names, candidate_league_names):
                 continue
             matched[match.id] = str(candidate_id)
             break
@@ -179,6 +184,54 @@ def _normalized_team(value: str) -> str:
 def _team_name_candidates(name: str, display_service: DisplayNameService) -> list[str]:
     values = [name, display_service.display_team(name)]
     return list(dict.fromkeys(_normalized_team(value) for value in values if value))
+
+
+def _league_name_candidates(name: str, display_service: DisplayNameService) -> list[str]:
+    values = [name, display_service.display_league(name)]
+    return list(dict.fromkeys(_normalized_team(value) for value in values if value))
+
+
+def _candidate_team_names(candidate: dict[str, Any], keys: tuple[str, ...]) -> list[str]:
+    values = [candidate.get(key) for key in keys]
+    return list(dict.fromkeys(_normalized_team(value) for value in values if isinstance(value, str) and value))
+
+
+def _names_match(left_values: list[str], right_values: list[str]) -> bool:
+    return any(_name_matches(left, right) for left in left_values for right in right_values)
+
+
+def _name_matches(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    if left in right or right in left:
+        return True
+    return _similarity(left, right) >= 0.75
+
+
+def _similarity(left: str, right: str) -> float:
+    max_length = max(len(left), len(right))
+    if max_length == 0:
+        return 1.0
+    return 1 - (_levenshtein_distance(left, right) / max_length)
+
+
+def _levenshtein_distance(left: str, right: str) -> int:
+    if left == right:
+        return 0
+    if not left:
+        return len(right)
+    if not right:
+        return len(left)
+    previous = list(range(len(right) + 1))
+    for left_index, left_char in enumerate(left, start=1):
+        current = [left_index]
+        for right_index, right_char in enumerate(right, start=1):
+            insertion = current[right_index - 1] + 1
+            deletion = previous[right_index] + 1
+            substitution = previous[right_index - 1] + (left_char != right_char)
+            current.append(min(insertion, deletion, substitution))
+        previous = current
+    return previous[-1]
 
 
 def _is_same_match_time(match: Match, candidate: dict[str, Any]) -> bool:

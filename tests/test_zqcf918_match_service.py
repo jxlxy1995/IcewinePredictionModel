@@ -99,6 +99,26 @@ class FakeClient:
         ]
 
 
+class FakeIrishClient:
+    def fetch_score_matches(self, type_id=1):
+        return [
+            {
+                "ID": "4493692",
+                "league": "爱甲",
+                "home": "凯里FC",
+                "away": "朗福德城",
+                "time": "2026-06-27 02:45:00",
+            },
+            {
+                "ID": "4493693",
+                "league": "爱甲",
+                "home": "都柏林大学",
+                "away": "科布漫步者",
+                "time": "2026-06-27 02:45:00",
+            },
+        ]
+
+
 def test_discoverer_matches_by_chinese_display_names(session):
     first = _add_match(
         session,
@@ -133,6 +153,42 @@ def test_discoverer_matches_by_chinese_display_names(session):
     discovered = discoverer.discover([first, second])
 
     assert discovered == {first.id: "4477378", second.id: "4477379"}
+
+
+def test_discoverer_allows_close_chinese_display_name_variants(session):
+    first = _add_match(
+        session,
+        league_name="First Division Ireland",
+        home_name="UCD",
+        away_name="Cobh Ramblers",
+        kickoff_time=datetime(2026, 6, 26, 18, 45, tzinfo=ZoneInfo("UTC")),
+    )
+    second = _add_match(
+        session,
+        league_name="First Division Ireland Second",
+        home_name="Kerry",
+        away_name="Longford Town",
+        kickoff_time=datetime(2026, 6, 26, 18, 45, tzinfo=ZoneInfo("UTC")),
+    )
+    discoverer = ZQCF918MatchDiscoverer(
+        client=FakeIrishClient(),
+        display_names=DisplayNames(
+            leagues={
+                "First Division Ireland": "爱甲",
+                "First Division Ireland Second": "爱甲",
+            },
+            teams={
+                "UCD": "都柏林大学",
+                "Cobh Ramblers": "科布漫游者",
+                "Kerry": "凯里FC",
+                "Longford Town": "郎福德城",
+            },
+        ),
+    )
+
+    discovered = discoverer.discover([first, second])
+
+    assert discovered == {first.id: "4493693", second.id: "4493692"}
 
 
 def _add_match(

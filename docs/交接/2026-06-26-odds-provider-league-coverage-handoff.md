@@ -166,6 +166,16 @@ the standardized main table has Pinnacle rows or no selected rows for the same m
 Treat raw as source evidence and `historical_odds_snapshots` as the current model/display
 main table.
 
+## Default Sync Fallback Behavior
+
+The default match odds sync path first tries The Odds API/Pinnacle. If the match still has
+no trusted historical odds and its API-Football league id is in
+`SBOBET_FALLBACK_API_FOOTBALL_LEAGUE_IDS`, the same sync request runs an Oddspapi/SBOBet
+fallback for that match.
+
+This applies to the shared match odds sync service used by single-match sync, match-list
+batch sync, and automation tasks that call the same service.
+
 ## Verification
 
 Tests added/updated:

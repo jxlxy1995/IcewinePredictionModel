@@ -5,7 +5,10 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from icewine_prediction.models import HistoricalOddsSnapshot, Match
-from icewine_prediction.oddspapi_sync_runner import run_oddspapi_sync_result
+from icewine_prediction.oddspapi_sync_runner import (
+    SBOBET_FALLBACK_API_FOOTBALL_LEAGUE_IDS,
+    run_oddspapi_sync_result,
+)
 from icewine_prediction.odds_provider_selection_service import (
     THE_ODDS_API_SOURCE_NAME,
     TRUSTED_SNAPSHOT_PRIORITY,
@@ -77,6 +80,20 @@ def run_match_odds_sync_for_session(
             if error_message:
                 for match_id in season_match_ids:
                     run_errors[match_id] = str(error_message)
+            if selected_provider == MatchOddsSyncProvider.THE_ODDS_API:
+                fallback_match_ids = _sbobet_fallback_match_ids(session, matches, season_match_ids)
+                if fallback_match_ids:
+                    fallback_result = _run_sbobet_fallback_sync(
+                        session=session,
+                        season=season,
+                        match_ids=fallback_match_ids,
+                        oddspapi_syncer=oddspapi_syncer,
+                    )
+                    requests_used += int(getattr(fallback_result, "requests_used", 0) or 0)
+                    fallback_error_message = getattr(fallback_result, "error_message", None)
+                    if fallback_error_message:
+                        for match_id in fallback_match_ids:
+                            run_errors[match_id] = str(fallback_error_message)
         except Exception as exc:
             for match_id in season_match_ids:
                 run_errors[match_id] = str(exc)
@@ -164,4 +181,41 @@ def _run_provider_sync(
         match_ids=match_ids,
         historical_odds_cooldown_seconds=7.5,
         refresh_pre_kickoff_existing=True,
+    )
+
+
+def _sbobet_fallback_match_ids(
+    session: Session,
+    matches: list[Match],
+    season_match_ids: set[int],
+) -> set[int]:
+    fallback_ids = set()
+    for match in matches:
+        if match.id not in season_match_ids:
+            continue
+        if has_trusted_historical_odds(session, match.id):
+            continue
+        league_id = getattr(match.league, "source_league_id", None)
+        if str(league_id) in SBOBET_FALLBACK_API_FOOTBALL_LEAGUE_IDS:
+            fallback_ids.add(match.id)
+    return fallback_ids
+
+
+def _run_sbobet_fallback_sync(
+    *,
+    session: Session,
+    season: int,
+    match_ids: set[int],
+    oddspapi_syncer: Callable[..., Any],
+) -> Any:
+    return oddspapi_syncer(
+        season=season,
+        max_matches=len(match_ids),
+        request_budget=max(50, len(match_ids) * 20),
+        timeout_seconds=40,
+        max_snapshots_per_match=151,
+        match_ids=match_ids,
+        historical_odds_cooldown_seconds=7.5,
+        refresh_pre_kickoff_existing=True,
+        bookmaker="sbobet",
     )

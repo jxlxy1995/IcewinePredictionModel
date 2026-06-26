@@ -2,10 +2,12 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+from icewine_prediction.display_service import DisplayNames
 from icewine_prediction.models import League, Match, OddsSourceMatch, Team
 from icewine_prediction.odds_provider_selection_service import ZQCF918_SOURCE_NAME
 from icewine_prediction.zqcf918_match_service import (
     ZQCF918MatchIdUpdate,
+    ZQCF918MatchDiscoverer,
     get_zqcf918_match_id,
     sync_zqcf918_match_ids_for_matches,
     upsert_zqcf918_match_id,
@@ -77,12 +79,69 @@ def test_sync_zqcf918_match_ids_only_targets_missing_mappings(session):
     assert get_zqcf918_match_id(session, first.id).source_fixture_id == "4460916"
 
 
+class FakeClient:
+    def fetch_score_matches(self, type_id=1):
+        return [
+            {
+                "ID": "4477378",
+                "league": "芬甲",
+                "home": "克鲁比04",
+                "away": "SJK学院",
+                "time": "2026-06-27 00:00:00",
+            },
+            {
+                "ID": "4477379",
+                "league": "芬甲",
+                "home": "PK35万塔",
+                "away": "MP米可力",
+                "time": "2026-06-27 00:00:00",
+            },
+        ]
+
+
+def test_discoverer_matches_by_chinese_display_names(session):
+    first = _add_match(
+        session,
+        league_name="Ykkosliiga Finland",
+        home_name="Klubi-04",
+        away_name="SJK Akatemia",
+        kickoff_time=datetime(2026, 6, 26, 16, 0, tzinfo=ZoneInfo("UTC")),
+    )
+    second = _add_match(
+        session,
+        league_name="Ykkosliiga Finland Second",
+        home_name="PK-35",
+        away_name="MP",
+        kickoff_time=datetime(2026, 6, 26, 16, 0, tzinfo=ZoneInfo("UTC")),
+    )
+    discoverer = ZQCF918MatchDiscoverer(
+        client=FakeClient(),
+        display_names=DisplayNames(
+            leagues={
+                "Ykkosliiga Finland": "芬甲",
+                "Ykkosliiga Finland Second": "芬甲",
+            },
+            teams={
+                "Klubi-04": "克鲁比04",
+                "SJK Akatemia": "SJK学院",
+                "PK-35": "PK35万塔",
+                "MP": "MP米可力",
+            },
+        ),
+    )
+
+    discovered = discoverer.discover([first, second])
+
+    assert discovered == {first.id: "4477378", second.id: "4477379"}
+
+
 def _add_match(
     session,
     *,
     league_name: str = "J1 League",
     home_name: str = "Home",
     away_name: str = "Away",
+    kickoff_time: datetime | None = None,
 ):
     league = League(name=league_name, country_or_region="Japan", level=1)
     home = Team(canonical_name=home_name)
@@ -93,7 +152,7 @@ def _add_match(
         league=league,
         home_team=home,
         away_team=away,
-        kickoff_time=datetime(2026, 6, 26, 12, 0, tzinfo=ZoneInfo("UTC")),
+        kickoff_time=kickoff_time or datetime(2026, 6, 26, 12, 0, tzinfo=ZoneInfo("UTC")),
         status="scheduled",
     )
     session.add(match)

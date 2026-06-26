@@ -83,7 +83,7 @@ def test_non_success_response_raises_client_error():
         client.fetch_asian_timeline("4460916")
 
 
-def test_fetch_realtime_matches_reads_score_list_candidates():
+def test_fetch_realtime_matches_reads_competition_candidates():
     fake_session = FakeSession(
         {
             "code": 1,
@@ -115,5 +115,5 @@ def test_fetch_realtime_matches_reads_score_list_candidates():
             "MatchTime": "2026-06-26 04:00:00",
         }
     ]
-    assert fake_session.calls[0]["url"] == "https://example.test/new/website/real/time/getYPDX"
+    assert fake_session.calls[0]["url"] == "https://example.test/new/website/real/time/competition"
     assert fake_session.calls[0]["json"] == {"params": {"type": 1}}

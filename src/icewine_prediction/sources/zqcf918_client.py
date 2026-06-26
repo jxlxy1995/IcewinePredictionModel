@@ -69,13 +69,15 @@ class ZQCF918Client:
 
     def fetch_score_matches(self, *, type_id: int = 1) -> list[dict[str, Any]]:
         payload = self._post_json(
-            "/new/website/real/time/getYPDX",
+            "/new/website/real/time/competition",
             body={"params": {"type": type_id}},
             referer=f"{self.base_url}/score",
         )
         data = payload.get("data")
         if not isinstance(data, dict):
             raise ZQCF918ClientError(str(payload.get("msg") or "zqcf918 score list failed"))
+        if isinstance(data.get("list"), list):
+            return [item for item in data["list"] if isinstance(item, dict)]
         return _collect_rows(data, ("data1", "data2"))
 
     def _post_json(self, endpoint: str, *, body: dict[str, Any], referer: str) -> dict[str, Any]:

@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+from icewine_prediction.display_service import DisplayNameService, DisplayNames
 from icewine_prediction.models import Match, OddsSourceMatch
 from icewine_prediction.odds_provider_selection_service import ZQCF918_SOURCE_NAME
 from icewine_prediction.sources.zqcf918_client import (
@@ -16,6 +17,7 @@ from icewine_prediction.sources.zqcf918_client import (
 
 
 UTC = ZoneInfo("UTC")
+BEIJING = ZoneInfo("Asia/Shanghai")
 
 
 @dataclass(frozen=True)
@@ -68,12 +70,17 @@ def upsert_zqcf918_match_id(session: Session, update: ZQCF918MatchIdUpdate) -> O
 
 
 class ZQCF918MatchDiscoverer:
-    def __init__(self, client: ZQCF918Client | None = None) -> None:
+    def __init__(
+        self,
+        client: ZQCF918Client | None = None,
+        display_names: DisplayNames | None = None,
+    ) -> None:
         self.client = client or ZQCF918Client()
+        self.display_service = DisplayNameService(display_names)
 
     def discover(self, matches: list[Match]) -> dict[int, str]:
         candidates = self.client.fetch_score_matches(type_id=1)
-        return _match_candidates(matches, candidates)
+        return _match_candidates(matches, candidates, display_service=self.display_service)
 
 
 def sync_zqcf918_match_ids_for_matches(
@@ -123,17 +130,26 @@ def sync_zqcf918_match_ids_for_matches(
     }
 
 
-def _match_candidates(matches: list[Match], candidates: list[dict[str, Any]]) -> dict[int, str]:
+def _match_candidates(
+    matches: list[Match],
+    candidates: list[dict[str, Any]],
+    *,
+    display_service: DisplayNameService,
+) -> dict[int, str]:
     matched: dict[int, str] = {}
     for match in matches:
-        home_name = _normalized_team(match.home_team.canonical_name)
-        away_name = _normalized_team(match.away_team.canonical_name)
+        home_names = _team_name_candidates(match.home_team.canonical_name, display_service)
+        away_names = _team_name_candidates(match.away_team.canonical_name, display_service)
         for candidate in candidates:
             candidate_id = candidate.get("ID") or candidate.get("id") or candidate.get("matchId")
             if candidate_id is None:
                 continue
+            if not _is_same_match_time(match, candidate):
+                continue
             candidate_text = _candidate_text(candidate)
-            if home_name not in candidate_text or away_name not in candidate_text:
+            if not any(home_name in candidate_text for home_name in home_names):
+                continue
+            if not any(away_name in candidate_text for away_name in away_names):
                 continue
             matched[match.id] = str(candidate_id)
             break
@@ -149,4 +165,39 @@ def _candidate_text(candidate: dict[str, Any]) -> str:
 
 
 def _normalized_team(value: str) -> str:
-    return value.lower().replace(" ", "")
+    return (
+        value.lower()
+        .replace(" ", "")
+        .replace("-", "")
+        .replace("_", "")
+        .replace(".", "")
+        .replace("'", "")
+        .replace("’", "")
+    )
+
+
+def _team_name_candidates(name: str, display_service: DisplayNameService) -> list[str]:
+    values = [name, display_service.display_team(name)]
+    return list(dict.fromkeys(_normalized_team(value) for value in values if value))
+
+
+def _is_same_match_time(match: Match, candidate: dict[str, Any]) -> bool:
+    candidate_time = _parse_candidate_time(candidate)
+    if candidate_time is None or match.kickoff_time is None:
+        return True
+    kickoff_time = match.kickoff_time
+    if kickoff_time.tzinfo is not None:
+        kickoff_time = kickoff_time.astimezone(BEIJING).replace(tzinfo=None)
+    return abs((kickoff_time - candidate_time).total_seconds()) <= 3600
+
+
+def _parse_candidate_time(candidate: dict[str, Any]) -> datetime | None:
+    value = candidate.get("time") or candidate.get("MatchTime") or candidate.get("matchTime")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(value.strip(), fmt)
+        except ValueError:
+            continue
+    return None

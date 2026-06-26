@@ -562,6 +562,8 @@ export const mockMatchListWorkspace: MatchListWorkspace = {
 
 export const mockMatchDetail: MatchDetail = {
   ...mockMatchListWorkspace.matches[0],
+  zqcf918_match_id: null,
+  zqcf918_match_url: null,
   team_data_note: "待接入",
   execution_timepoint_coverage: {
     targets: ["T-60", "T-30", "T-25", "T-20", "T-15", "T-10"],

@@ -116,6 +116,7 @@ from icewine_prediction.training_orchestration_service import (
     get_latest_training_run,
     run_training_full_refresh,
 )
+from icewine_prediction.zqcf918_match_service import ZQCF918MatchIdUpdate, upsert_zqcf918_match_id
 
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,8 @@ def create_web_app(
     match_list_fixtures_results_syncer: Callable[[list[int]], dict[str, Any] | str] | None = None,
     match_list_fixture_range_syncer: Callable[[datetime, datetime, str | None], dict[str, Any] | str] | None = None,
     match_list_odds_syncer: Callable[[list[int]], dict[str, Any] | str] | None = None,
+    zqcf918_match_id_syncer: Callable[[list[int]], dict[str, Any] | str] | None = None,
+    zqcf918_odds_syncer: Callable[[list[int]], dict[str, Any] | str] | None = None,
     training_full_refresh_runner: Callable[[int], None] | None = None,
     start_paper_automation_scheduler: bool = True,
     clock: Callable[[], datetime] = now_beijing,
@@ -200,6 +203,8 @@ def create_web_app(
         match_list_fixture_range_syncer or _run_match_list_fixture_range_sync
     )
     match_list_odds_syncer = match_list_odds_syncer or _run_match_list_odds_sync
+    zqcf918_match_id_syncer = zqcf918_match_id_syncer or _run_zqcf918_match_id_sync
+    zqcf918_odds_syncer = zqcf918_odds_syncer or _run_zqcf918_odds_sync
     if training_full_refresh_runner is None:
         training_full_refresh_runner = lambda run_id: _start_training_full_refresh_thread(
             session_factory,
@@ -584,6 +589,102 @@ def create_web_app(
             )
             return {"sync_run": build_data_sync_run_payload(run), "report": report}
 
+    @app.post("/api/match-list/sync/zqcf918-match-ids")
+    def sync_match_list_zqcf918_match_ids(payload: dict[str, Any]) -> dict[str, Any]:
+        started_at = clock()
+        with session_factory() as session:
+            matches = _select_sync_matches_from_payload(session, payload, now=clock())
+            match_ids = [match.id for match in matches]
+            try:
+                report = _build_match_sync_report(
+                    session=session,
+                    sync_type="zqcf918_match_ids",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    matches=matches,
+                    result=zqcf918_match_id_syncer(match_ids),
+                    display_name_service=display_name_service,
+                )
+                sync_result = _sync_run_counts_from_report(report)
+                run = record_sync_run(
+                    session,
+                    sync_type="zqcf918_match_ids",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="success",
+                    days=0,
+                    **sync_result,
+                )
+                _persist_match_sync_run_items(session, run=run, report=report)
+            except Exception as error:
+                run = record_sync_run(
+                    session,
+                    sync_type="zqcf918_match_ids",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="failed",
+                    days=0,
+                    created_count=0,
+                    updated_count=0,
+                    skipped_count=0,
+                    requests_used=0,
+                    error_message=str(error),
+                )
+                raise HTTPException(status_code=500, detail=str(error)) from error
+            clear_cache_prefix("match-list-workspace")
+            return {"sync_run": build_data_sync_run_payload(run), "report": report}
+
+    @app.post("/api/match-list/sync/zqcf918-odds")
+    def sync_match_list_zqcf918_odds(payload: dict[str, Any]) -> dict[str, Any]:
+        started_at = clock()
+        with session_factory() as session:
+            matches = _select_sync_matches_from_payload(session, payload, now=clock())
+            match_ids = [match.id for match in matches]
+            try:
+                report = _build_match_sync_report(
+                    session=session,
+                    sync_type="zqcf918_odds",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    matches=matches,
+                    result=zqcf918_odds_syncer(match_ids),
+                    display_name_service=display_name_service,
+                )
+                sync_result = _sync_run_counts_from_report(report)
+                run = record_sync_run(
+                    session,
+                    sync_type="zqcf918_odds",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="success",
+                    days=0,
+                    **sync_result,
+                )
+                _persist_match_sync_run_items(session, run=run, report=report)
+            except Exception as error:
+                run = record_sync_run(
+                    session,
+                    sync_type="zqcf918_odds",
+                    started_at=started_at,
+                    finished_at=clock(),
+                    status="failed",
+                    days=0,
+                    created_count=0,
+                    updated_count=0,
+                    skipped_count=0,
+                    requests_used=0,
+                    error_message=str(error),
+                )
+                raise HTTPException(status_code=500, detail=str(error)) from error
+            clear_cache_prefix(
+                "dashboard-summary",
+                "league-coverage",
+                "match-list-workspace",
+                "matches-with-odds",
+                "paper-recommendation-workspace",
+            )
+            return {"sync_run": build_data_sync_run_payload(run), "report": report}
+
     @app.post("/api/matches/{match_id}/sync/fixtures-results")
     def sync_match_fixtures_results(match_id: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return _sync_single_match(
@@ -612,6 +713,21 @@ def create_web_app(
                 "match-list-workspace",
                 "matches-with-odds",
                 "oddspapi-backfill-audit",
+                "paper-recommendation-workspace",
+            ),
+        )
+
+    @app.post("/api/matches/{match_id}/sync/zqcf918-odds")
+    def sync_match_zqcf918_odds(match_id: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return _sync_single_match(
+            match_id=match_id,
+            sync_type="zqcf918_odds",
+            syncer=zqcf918_odds_syncer,
+            cache_prefixes=(
+                "dashboard-summary",
+                "league-coverage",
+                "match-list-workspace",
+                "matches-with-odds",
                 "paper-recommendation-workspace",
             ),
         )
@@ -702,6 +818,31 @@ def create_web_app(
             if payload is None:
                 raise HTTPException(status_code=404, detail="比赛不存在")
             return build_match_detail_payload(payload)
+
+    @app.put("/api/matches/{match_id}/zqcf918-match-id")
+    def update_match_zqcf918_match_id(match_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        source_fixture_id = str(payload.get("match_id") or payload.get("source_fixture_id") or "").strip()
+        with session_factory() as session:
+            try:
+                row = upsert_zqcf918_match_id(
+                    session,
+                    ZQCF918MatchIdUpdate(
+                        match_id=match_id,
+                        source_fixture_id=source_fixture_id,
+                        reason="manual:web-detail",
+                    ),
+                )
+            except ValueError as error:
+                status_code = 404 if str(error) == "match not found" else 400
+                raise HTTPException(status_code=status_code, detail=str(error)) from error
+        clear_cache_prefix("match-list-workspace")
+        return {
+            "match_id": row.match_id,
+            "source_name": row.source_name,
+            "source_fixture_id": row.source_fixture_id,
+            "match_confidence": str(row.match_confidence),
+            "match_reason": row.match_reason,
+        }
 
     @app.post("/api/matches/{match_id}/execution-timepoint-odds/manual")
     def create_manual_match_execution_timepoint_odds(
@@ -1850,6 +1991,8 @@ def build_match_detail_payload(detail) -> dict[str, Any]:
         "odds_status_key": detail.odds_status_key,
         "odds_status_label": detail.odds_status_label,
         "team_data_note": detail.team_data_note,
+        "zqcf918_match_id": detail.zqcf918_match_id,
+        "zqcf918_match_url": detail.zqcf918_match_url,
         "odds_summary": asdict(detail.odds_summary),
         "execution_timepoint_coverage": asdict(detail.execution_timepoint_coverage),
         "paper_recommendation_summary": asdict(detail.paper_recommendation_summary),
@@ -2994,6 +3137,21 @@ def _is_live_match_for_result_sync(match: Match, *, now: datetime | None = None)
 def _run_match_list_odds_sync(match_ids: list[int]) -> dict[str, Any]:
     with _open_session_for_web_sync() as session:
         return run_match_odds_sync_for_session(session=session, match_ids=match_ids)
+
+
+def _run_zqcf918_match_id_sync(match_ids: list[int]) -> dict[str, Any]:
+    from icewine_prediction.zqcf918_match_service import sync_zqcf918_match_ids_for_matches
+
+    with _open_session_for_web_sync() as session:
+        matches = session.query(Match).filter(Match.id.in_(match_ids)).all()
+        return sync_zqcf918_match_ids_for_matches(session, matches)
+
+
+def _run_zqcf918_odds_sync(match_ids: list[int]) -> dict[str, Any]:
+    from icewine_prediction.zqcf918_sync_service import run_zqcf918_sync_for_session
+
+    with _open_session_for_web_sync() as session:
+        return run_zqcf918_sync_for_session(session=session, match_ids=match_ids)
 
 
 def _is_not_started_match(match: Match) -> bool:

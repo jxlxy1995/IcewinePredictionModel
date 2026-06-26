@@ -11,6 +11,8 @@ from icewine_prediction.odds_provider_selection_service import (
     filter_priority_trusted_snapshots,
     filter_priority_pinnacle_snapshots,
     source_label_for_snapshots,
+    TRUSTED_SNAPSHOT_PRIORITY,
+    ZQCF918_SOURCE_NAME,
 )
 
 
@@ -81,6 +83,35 @@ def test_filter_priority_trusted_snapshots_prefers_pinnacle_over_sbobet_for_same
 
     assert selected == [pinnacle]
     assert source_label_for_snapshots(selected) == "the_odds_api_pinnacle_historical"
+
+
+def test_trusted_snapshot_priority_places_zqcf918_before_sbobet():
+    assert TRUSTED_SNAPSHOT_PRIORITY == (
+        (THE_ODDS_API_SOURCE_NAME, PINNACLE_BOOKMAKER),
+        (ODDSPAPI_SOURCE_NAME, PINNACLE_BOOKMAKER),
+        (ZQCF918_SOURCE_NAME, PINNACLE_BOOKMAKER),
+        (ODDSPAPI_SOURCE_NAME, SBOBET_BOOKMAKER),
+    )
+
+
+def test_filter_priority_trusted_snapshots_prefers_zqcf918_over_sbobet_for_same_match():
+    sbobet = _snapshot(
+        match_id=5,
+        source_name=ODDSPAPI_SOURCE_NAME,
+        bookmaker=SBOBET_BOOKMAKER,
+        odds=Decimal("1.92"),
+    )
+    zqcf918 = _snapshot(
+        match_id=5,
+        source_name=ZQCF918_SOURCE_NAME,
+        bookmaker=PINNACLE_BOOKMAKER,
+        odds=Decimal("1.94"),
+    )
+
+    selected = filter_priority_trusted_snapshots([sbobet, zqcf918])
+
+    assert selected == [zqcf918]
+    assert source_label_for_snapshots(selected) == "zqcf918_pinnacle_historical"
 
 
 def _snapshot(

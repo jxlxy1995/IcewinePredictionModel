@@ -15,9 +15,13 @@ import {
   loadPaperRecommendationWorkspace,
   loadPaperSnapshotReviewWorkspace,
   recordPaperCandidates,
+  saveZqcf918MatchId,
   startTrainingFullRefresh,
   syncFixtureRange,
   syncFilteredMatchListFixturesResults,
+  syncFilteredZqcf918MatchIds,
+  syncFilteredZqcf918Odds,
+  syncSingleZqcf918Odds,
   syncSingleMatchOdds
 } from "./apiClient";
 
@@ -496,6 +500,74 @@ describe("apiClient", () => {
       body: "{}",
       headers: { "Content-Type": "application/json" },
       method: "POST"
+    });
+  });
+
+  it("syncs filtered zqcf918 match ids with serialized filters", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ report: { target_count: 0 } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncFilteredZqcf918MatchIds({
+      end_time: "2026-06-27T12:00:00+08:00",
+      odds_filter: ["none", "partial"],
+      start_time: "2026-06-26T00:00:00+08:00"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/match-list/sync/zqcf918-match-ids", {
+      body: JSON.stringify({
+        end_time: "2026-06-27T12:00:00+08:00",
+        odds_filter: "none,partial",
+        start_time: "2026-06-26T00:00:00+08:00"
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+  });
+
+  it("syncs filtered zqcf918 odds with serialized filters", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ report: { target_count: 0 } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncFilteredZqcf918Odds({
+      end_time: "2026-06-27T12:00:00+08:00",
+      odds_filter: ["none", "partial"],
+      start_time: "2026-06-26T00:00:00+08:00"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/match-list/sync/zqcf918-odds", {
+      body: JSON.stringify({
+        end_time: "2026-06-27T12:00:00+08:00",
+        odds_filter: "none,partial",
+        start_time: "2026-06-26T00:00:00+08:00"
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+  });
+
+  it("syncs single zqcf918 odds", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ report: { target_count: 1 } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncSingleZqcf918Odds(42);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/matches/42/sync/zqcf918-odds", {
+      body: "{}",
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+  });
+
+  it("saves zqcf918 match id", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ source_fixture_id: "4460916" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await saveZqcf918MatchId(42, "4460916");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/matches/42/zqcf918-match-id", {
+      body: JSON.stringify({ match_id: "4460916" }),
+      headers: { "Content-Type": "application/json" },
+      method: "PUT"
     });
   });
 

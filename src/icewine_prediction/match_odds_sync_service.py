@@ -17,6 +17,7 @@ from icewine_prediction.settings import load_project_settings
 from icewine_prediction.sources.the_odds_api_client import TheOddsApiClient
 from icewine_prediction.the_odds_api_sync_runner import run_the_odds_api_sync_for_session
 from icewine_prediction.the_odds_api_sync_runner import TheOddsApiSyncClient
+from icewine_prediction.zqcf918_sync_service import run_zqcf918_sync_for_session
 
 
 class MatchOddsSyncProvider(StrEnum):
@@ -34,6 +35,7 @@ def run_match_odds_sync_for_session(
     provider: MatchOddsSyncProvider | str = MatchOddsSyncProvider.THE_ODDS_API,
     the_odds_api_syncer: Callable[..., Any] | None = None,
     oddspapi_syncer: Callable[..., Any] = run_oddspapi_sync_result,
+    zqcf918_syncer: Callable[..., Any] = run_zqcf918_sync_for_session,
 ) -> SyncResultPayload:
     if not match_ids:
         return {"success": [], "failed": [], "skipped": [], "requests": 0, "credits": 0}
@@ -83,6 +85,15 @@ def run_match_odds_sync_for_session(
                 for match_id in season_match_ids:
                     run_errors[match_id] = str(error_message)
             if selected_provider == MatchOddsSyncProvider.THE_ODDS_API:
+                zqcf918_match_ids = _zqcf918_fallback_match_ids(session, matches, season_match_ids)
+                if zqcf918_match_ids:
+                    zqcf918_result = zqcf918_syncer(session=session, match_ids=zqcf918_match_ids)
+                    requests_used += int(zqcf918_result.get("requests", 0) or 0)
+                    credits_used += int(zqcf918_result.get("credits", 0) or 0)
+                    for item in zqcf918_result.get("failed", []):
+                        run_errors[int(item["match_id"])] = str(item.get("message") or "zqcf918 failed")
+                    for item in zqcf918_result.get("skipped", []):
+                        run_errors[int(item["match_id"])] = str(item.get("message") or "zqcf918 skipped")
                 fallback_match_ids = _sbobet_fallback_match_ids(session, matches, season_match_ids)
                 if fallback_match_ids:
                     fallback_result = _run_sbobet_fallback_sync(
@@ -202,6 +213,21 @@ def _sbobet_fallback_match_ids(
         league_id = getattr(match.league, "source_league_id", None)
         if str(league_id) in SBOBET_FALLBACK_API_FOOTBALL_LEAGUE_IDS:
             fallback_ids.add(match.id)
+    return fallback_ids
+
+
+def _zqcf918_fallback_match_ids(
+    session: Session,
+    matches: list[Match],
+    season_match_ids: set[int],
+) -> set[int]:
+    fallback_ids = set()
+    for match in matches:
+        if match.id not in season_match_ids:
+            continue
+        if has_trusted_historical_odds(session, match.id):
+            continue
+        fallback_ids.add(match.id)
     return fallback_ids
 
 

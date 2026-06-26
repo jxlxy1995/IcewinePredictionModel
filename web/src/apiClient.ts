@@ -34,7 +34,8 @@ import type {
   TrainingRun,
   TrainingWorkspace,
   UnmatchedMatch,
-  WorkerStatus
+  WorkerStatus,
+  Zqcf918MatchIdUpdateResult
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -304,12 +305,54 @@ export async function syncFilteredMatchListOdds(filters: {
   });
 }
 
+export async function syncFilteredZqcf918MatchIds(filters: {
+  end_time?: string;
+  league_name?: string | null;
+  odds_filter?: string | string[];
+  search?: string | null;
+  start_time?: string;
+  status_filter?: string;
+}): Promise<MatchSyncResponse> {
+  return await postJson<MatchSyncResponse>("/api/match-list/sync/zqcf918-match-ids", {
+    ...filters,
+    odds_filter: serializeOddsFilter(filters.odds_filter)
+  });
+}
+
+export async function syncFilteredZqcf918Odds(filters: {
+  end_time?: string;
+  league_name?: string | null;
+  odds_filter?: string | string[];
+  search?: string | null;
+  start_time?: string;
+  status_filter?: string;
+}): Promise<MatchSyncResponse> {
+  return await postJson<MatchSyncResponse>("/api/match-list/sync/zqcf918-odds", {
+    ...filters,
+    odds_filter: serializeOddsFilter(filters.odds_filter)
+  });
+}
+
 export async function syncSingleMatchFixturesResults(matchId: number): Promise<MatchSyncResponse> {
   return await postJson<MatchSyncResponse>(`/api/matches/${matchId}/sync/fixtures-results`, {});
 }
 
 export async function syncSingleMatchOdds(matchId: number): Promise<MatchSyncResponse> {
   return await postJson<MatchSyncResponse>(`/api/matches/${matchId}/sync/odds`, {});
+}
+
+export async function syncSingleZqcf918Odds(matchId: number): Promise<MatchSyncResponse> {
+  return await postJson<MatchSyncResponse>(`/api/matches/${matchId}/sync/zqcf918-odds`, {});
+}
+
+export async function saveZqcf918MatchId(
+  matchId: number,
+  zqcf918MatchId: string
+): Promise<Zqcf918MatchIdUpdateResult> {
+  return await putJson<Zqcf918MatchIdUpdateResult>(
+    `/api/matches/${matchId}/zqcf918-match-id`,
+    { match_id: zqcf918MatchId }
+  );
 }
 
 export async function createManualExecutionTimepointOdds(
@@ -433,6 +476,18 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
     headers: { "Content-Type": "application/json" },
     method: "POST"
+  });
+  if (!response.ok) {
+    throw new Error(await formatApiError(response, path));
+  }
+  return response.json() as Promise<T>;
+}
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+    method: "PUT"
   });
   if (!response.ok) {
     throw new Error(await formatApiError(response, path));

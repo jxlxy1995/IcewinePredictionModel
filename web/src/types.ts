@@ -719,8 +719,18 @@ export type ClearSbobetExecutionTimepointOddsResult = {
   message: string;
 };
 
+export type Zqcf918MatchIdUpdateResult = {
+  match_id: number;
+  source_name: "zqcf918" | string;
+  source_fixture_id: string;
+  match_confidence: string;
+  match_reason: string;
+};
+
 export type MatchDetail = MatchListMatch & {
   team_data_note: string;
+  zqcf918_match_id: string | null;
+  zqcf918_match_url: string | null;
   execution_timepoint_coverage: ExecutionTimepointCoverage;
   paper_recommendation_summary: RecommendationSummaryPlaceholder;
   formal_recommendation_summary: RecommendationSummaryPlaceholder;

@@ -61,6 +61,8 @@ const workspace: MatchListWorkspace = {
 const detail: MatchDetail = {
   ...workspace.matches[0],
   team_data_note: "Pending",
+  zqcf918_match_id: null,
+  zqcf918_match_url: null,
   execution_timepoint_coverage: {
     targets: ["T-60", "T-30", "T-25", "T-20", "T-15", "T-10"],
     available_count: 2,

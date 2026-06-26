@@ -7,6 +7,7 @@ type MatchListTableProps = {
   onOpenMatch: (match: MatchListMatch) => void;
   onSyncFixturesResults?: (match: MatchListMatch) => void;
   onSyncOdds?: (match: MatchListMatch) => void;
+  onSyncZqcf918Odds?: (match: MatchListMatch) => void;
   workspace: MatchListWorkspace;
 };
 
@@ -15,6 +16,7 @@ export function MatchListTable({
   onOpenMatch,
   onSyncFixturesResults,
   onSyncOdds,
+  onSyncZqcf918Odds,
   workspace
 }: MatchListTableProps) {
   const rows = buildMatchListRows(workspace);
@@ -78,6 +80,16 @@ export function MatchListTable({
                   type="button"
                 >
                   赔率
+                </button>
+                <button
+                  disabled={isBusy}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSyncZqcf918Odds?.(row.match);
+                  }}
+                  type="button"
+                >
+                  财富赔率
                 </button>
               </div>
             </td>

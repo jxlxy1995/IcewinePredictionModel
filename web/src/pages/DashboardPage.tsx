@@ -43,13 +43,17 @@ import {
   editPaperRecord,
   recordPaperCandidates,
   runTrainingWorkflowAction,
+  saveZqcf918MatchId,
   saveTeamDisplayNames,
   settlePaperRecords,
   syncFixtureRange,
   syncFilteredMatchListFixturesResults,
   syncFilteredMatchListOdds,
+  syncFilteredZqcf918MatchIds,
+  syncFilteredZqcf918Odds,
   syncSingleMatchFixturesResults,
   syncSingleMatchOdds,
+  syncSingleZqcf918Odds,
   voidPaperRecord,
   loadTeamDisplayNameWorkspace
 } from "../apiClient";
@@ -696,6 +700,52 @@ export function DashboardPage() {
                 .catch((error) => setMatchListError(formatActionError("赔率同步失败", error)))
                 .finally(() => setMatchListAction(null));
             }}
+            onSyncZqcf918MatchIds={() => {
+              const total = data.matchList.total_matches;
+              if (
+                total > 50 &&
+                !window.confirm(`当前筛选包含 ${total} 场比赛，确认同步足球财富 matchID？`)
+              ) {
+                return;
+              }
+              setMatchListAction("sync-zqcf918-match-ids");
+              setMatchListError(null);
+              setMatchListMessage(null);
+              setMatchListSyncReport(null);
+              setMatchListSyncRunDetail(null);
+              syncFilteredZqcf918MatchIds(matchListFilters)
+                .then((response) => {
+                  setMatchListSyncReport(response.report);
+                  setMatchListSyncRunDetail(response);
+                  return refreshMatchListWorkspace(setData, matchListFilters);
+                })
+                .then(() => setMatchListMessage("足球财富 matchID 同步完成"))
+                .catch((error) => setMatchListError(formatActionError("足球财富 matchID 同步失败", error)))
+                .finally(() => setMatchListAction(null));
+            }}
+            onSyncZqcf918Odds={() => {
+              const total = data.matchList.total_matches;
+              if (
+                total > 50 &&
+                !window.confirm(`当前筛选包含 ${total} 场比赛，确认同步足球财富赔率？`)
+              ) {
+                return;
+              }
+              setMatchListAction("sync-zqcf918-odds");
+              setMatchListError(null);
+              setMatchListMessage(null);
+              setMatchListSyncReport(null);
+              setMatchListSyncRunDetail(null);
+              syncFilteredZqcf918Odds(matchListFilters)
+                .then((response) => {
+                  setMatchListSyncReport(response.report);
+                  setMatchListSyncRunDetail(response);
+                  return refreshMatchListWorkspace(setData, matchListFilters);
+                })
+                .then(() => setMatchListMessage("足球财富赔率同步完成"))
+                .catch((error) => setMatchListError(formatActionError("足球财富赔率同步失败", error)))
+                .finally(() => setMatchListAction(null));
+            }}
             onSyncMatchOdds={(match) => {
               setMatchListAction(`sync-odds-${match.match_id}`);
               setMatchListError(null);
@@ -710,6 +760,22 @@ export function DashboardPage() {
                 })
                 .then(() => setMatchListMessage("赔率同步完成"))
                 .catch((error) => setMatchListError(formatActionError("赔率同步失败", error)))
+                .finally(() => setMatchListAction(null));
+            }}
+            onSyncMatchZqcf918Odds={(match) => {
+              setMatchListAction(`sync-zqcf918-odds-${match.match_id}`);
+              setMatchListError(null);
+              setMatchListMessage(null);
+              setMatchListSyncReport(null);
+              setMatchListSyncRunDetail(null);
+              syncSingleZqcf918Odds(match.match_id)
+                .then((response) => {
+                  setMatchListSyncReport(response.report);
+                  setMatchListSyncRunDetail(response);
+                  return refreshMatchListWorkspace(setData, matchListFilters);
+                })
+                .then(() => setMatchListMessage("足球财富赔率同步完成"))
+                .catch((error) => setMatchListError(formatActionError("足球财富赔率同步失败", error)))
                 .finally(() => setMatchListAction(null));
             }}
           />
@@ -1076,7 +1142,9 @@ function MatchListView({
   onFiltersChange,
   onOpenMatch,
   onSyncFixturesResults,
-  onSyncOdds
+  onSyncOdds,
+  onSyncZqcf918MatchIds,
+  onSyncZqcf918Odds
 }: {
   actionInFlight: string | null;
   data: DashboardData;
@@ -1097,6 +1165,8 @@ function MatchListView({
   onOpenMatch: (match: MatchListMatch) => void;
   onSyncFixturesResults: () => void;
   onSyncOdds: () => void;
+  onSyncZqcf918MatchIds: () => void;
+  onSyncZqcf918Odds: () => void;
 }) {
   if (detail) {
     return (
@@ -1134,6 +1204,12 @@ function MatchListView({
         <div className="sync-action">
           <button disabled={isBusy} onClick={onSyncOdds} type="button">
             同步赔率
+          </button>
+          <button disabled={isBusy} onClick={onSyncZqcf918MatchIds} type="button">
+            同步财富 matchID
+          </button>
+          <button disabled={isBusy} onClick={onSyncZqcf918Odds} type="button">
+            同步财富赔率
           </button>
         </div>
       </section>
@@ -1229,7 +1305,10 @@ function FilteredMatchListView({
   onSyncFixturesResults,
   onSyncMatchFixturesResults,
   onSyncMatchOdds,
-  onSyncOdds
+  onSyncMatchZqcf918Odds,
+  onSyncOdds,
+  onSyncZqcf918MatchIds,
+  onSyncZqcf918Odds
 }: {
   actionInFlight: string | null;
   data: DashboardData;
@@ -1252,7 +1331,10 @@ function FilteredMatchListView({
   onSyncFixturesResults: () => void;
   onSyncMatchFixturesResults: (match: MatchListMatch) => void;
   onSyncMatchOdds: (match: MatchListMatch) => void;
+  onSyncMatchZqcf918Odds: (match: MatchListMatch) => void;
   onSyncOdds: () => void;
+  onSyncZqcf918MatchIds: () => void;
+  onSyncZqcf918Odds: () => void;
 }) {
   if (detail) {
     return (
@@ -1293,6 +1375,14 @@ function FilteredMatchListView({
         <div className="sync-action">
           <button disabled={isBusy} onClick={onSyncOdds} type="button">
             同步赔率
+          </button>
+        </div>
+        <div className="sync-action">
+          <button disabled={isBusy} onClick={onSyncZqcf918MatchIds} type="button">
+            同步财富 matchID
+          </button>
+          <button disabled={isBusy} onClick={onSyncZqcf918Odds} type="button">
+            同步财富赔率
           </button>
         </div>
         <div className="sync-action">
@@ -1379,6 +1469,7 @@ function FilteredMatchListView({
           onOpenMatch={onOpenMatch}
           onSyncFixturesResults={onSyncMatchFixturesResults}
           onSyncOdds={onSyncMatchOdds}
+          onSyncZqcf918Odds={onSyncMatchZqcf918Odds}
           workspace={workspace}
         />
       </Panel>
@@ -1617,6 +1708,14 @@ function MatchDetailView({
           onDetailOddsChanged={onDetailOddsChanged}
         />
       </Panel>
+      <Panel title="足球财富">
+        <Zqcf918MatchIdEditor
+          detail={detail}
+          onSaved={async () => {
+            onDetailUpdated(await loadMatchDetail(detail.match_id));
+          }}
+        />
+      </Panel>
       {detail.has_odds && (
         <Panel title="赔率走势">
           {oddsError && <div className="inline-warning">{oddsError}</div>}
@@ -1628,6 +1727,74 @@ function MatchDetailView({
         </Panel>
       )}
     </section>
+  );
+}
+
+function Zqcf918MatchIdEditor({
+  detail,
+  onSaved
+}: {
+  detail: MatchDetail;
+  onSaved: () => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(detail.zqcf918_match_id ?? "");
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setDraft(detail.zqcf918_match_id ?? "");
+    setMessage(null);
+    setError(null);
+  }, [detail.match_id, detail.zqcf918_match_id]);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextMatchId = draft.trim();
+    if (!nextMatchId) {
+      return;
+    }
+    setIsSaving(true);
+    setMessage(null);
+    setError(null);
+    try {
+      await saveZqcf918MatchId(detail.match_id, nextMatchId);
+      await onSaved();
+      setMessage("足球财富 matchID 已保存");
+    } catch (caught) {
+      setError(formatActionError("保存足球财富 matchID 失败", caught));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <form className="manual-odds-form" onSubmit={submit}>
+      <div className="manual-odds-fields">
+        <label>
+          <span>matchID</span>
+          <input
+            disabled={isSaving}
+            inputMode="numeric"
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="4460916"
+            value={draft}
+          />
+        </label>
+      </div>
+      <div className="manual-odds-actions">
+        <button disabled={isSaving || draft.trim() === ""} type="submit">
+          {isSaving ? "保存中" : "保存"}
+        </button>
+        {detail.zqcf918_match_url && (
+          <a className="inline-action compact-action" href={detail.zqcf918_match_url} rel="noreferrer" target="_blank">
+            打开
+          </a>
+        )}
+      </div>
+      {message && <div className="inline-success compact-message">{message}</div>}
+      {error && <div className="inline-warning compact-message">{error}</div>}
+    </form>
   );
 }
 
@@ -1942,6 +2109,15 @@ function formatMatchListAction(action: string) {
   }
   if (action === "sync-odds") {
     return "同步赔率";
+  }
+  if (action === "sync-zqcf918-match-ids") {
+    return "同步足球财富 matchID";
+  }
+  if (action === "sync-zqcf918-odds") {
+    return "同步足球财富赔率";
+  }
+  if (action.startsWith("sync-zqcf918-odds-")) {
+    return "同步单场足球财富赔率";
   }
   if (action.startsWith("detail-")) {
     return "读取详情";

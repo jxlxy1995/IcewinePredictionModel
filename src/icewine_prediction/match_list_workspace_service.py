@@ -27,6 +27,7 @@ from icewine_prediction.odds_provider_selection_service import (
     TRUSTED_SNAPSHOT_PRIORITY,
     filter_priority_trusted_snapshots,
 )
+from icewine_prediction.zqcf918_match_service import get_zqcf918_match_id, zqcf918_match_url
 
 TRUSTED_SOURCE_NAMES = tuple({source_name for source_name, _bookmaker in TRUSTED_SNAPSHOT_PRIORITY})
 TRUSTED_BOOKMAKERS = tuple({bookmaker for _source_name, bookmaker in TRUSTED_SNAPSHOT_PRIORITY})
@@ -167,6 +168,8 @@ class MatchDetail:
     odds_status_key: str
     odds_status_label: str
     team_data_note: str
+    zqcf918_match_id: str | None
+    zqcf918_match_url: str | None
     odds_summary: MatchOddsSummary
     execution_timepoint_coverage: ExecutionTimepointCoverage
     paper_recommendation_summary: RecommendationSummary
@@ -368,6 +371,12 @@ def build_match_detail(
         .scalar()
         or 0
     )
+    zqcf918_source_match = get_zqcf918_match_id(session, match.id)
+    zqcf918_source_fixture_id = (
+        zqcf918_source_match.source_fixture_id
+        if zqcf918_source_match is not None and zqcf918_source_match.source_fixture_id
+        else None
+    )
     return MatchDetail(
         match_id=row.match_id,
         kickoff_time=row.kickoff_time,
@@ -387,6 +396,12 @@ def build_match_detail(
         odds_status_key=row.odds_status_key,
         odds_status_label=row.odds_status_label,
         team_data_note="待接入",
+        zqcf918_match_id=zqcf918_source_fixture_id,
+        zqcf918_match_url=(
+            zqcf918_match_url(zqcf918_source_fixture_id)
+            if zqcf918_source_fixture_id is not None
+            else None
+        ),
         odds_summary=row.odds_summary,
         execution_timepoint_coverage=_execution_timepoint_coverage(session, match),
         paper_recommendation_summary=RecommendationSummary(

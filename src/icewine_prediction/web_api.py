@@ -116,6 +116,7 @@ from icewine_prediction.training_orchestration_service import (
     get_latest_training_run,
     run_training_full_refresh,
 )
+from icewine_prediction.zqcf918_match_service import ZQCF918MatchIdUpdate, upsert_zqcf918_match_id
 
 
 logger = logging.getLogger(__name__)
@@ -702,6 +703,31 @@ def create_web_app(
             if payload is None:
                 raise HTTPException(status_code=404, detail="比赛不存在")
             return build_match_detail_payload(payload)
+
+    @app.put("/api/matches/{match_id}/zqcf918-match-id")
+    def update_match_zqcf918_match_id(match_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        source_fixture_id = str(payload.get("match_id") or payload.get("source_fixture_id") or "").strip()
+        with session_factory() as session:
+            try:
+                row = upsert_zqcf918_match_id(
+                    session,
+                    ZQCF918MatchIdUpdate(
+                        match_id=match_id,
+                        source_fixture_id=source_fixture_id,
+                        reason="manual:web-detail",
+                    ),
+                )
+            except ValueError as error:
+                status_code = 404 if str(error) == "match not found" else 400
+                raise HTTPException(status_code=status_code, detail=str(error)) from error
+        clear_cache_prefix("match-list-workspace")
+        return {
+            "match_id": row.match_id,
+            "source_name": row.source_name,
+            "source_fixture_id": row.source_fixture_id,
+            "match_confidence": str(row.match_confidence),
+            "match_reason": row.match_reason,
+        }
 
     @app.post("/api/matches/{match_id}/execution-timepoint-odds/manual")
     def create_manual_match_execution_timepoint_odds(
@@ -1850,6 +1876,8 @@ def build_match_detail_payload(detail) -> dict[str, Any]:
         "odds_status_key": detail.odds_status_key,
         "odds_status_label": detail.odds_status_label,
         "team_data_note": detail.team_data_note,
+        "zqcf918_match_id": detail.zqcf918_match_id,
+        "zqcf918_match_url": detail.zqcf918_match_url,
         "odds_summary": asdict(detail.odds_summary),
         "execution_timepoint_coverage": asdict(detail.execution_timepoint_coverage),
         "paper_recommendation_summary": asdict(detail.paper_recommendation_summary),

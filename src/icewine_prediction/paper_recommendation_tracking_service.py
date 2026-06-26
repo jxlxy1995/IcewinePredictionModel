@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+import json
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
 from icewine_prediction.config import BEIJING_TIMEZONE
-from icewine_prediction.models import Match, PaperRecommendationRecord
+from icewine_prediction.models import Match, PaperRecommendationGroupSnapshot, PaperRecommendationRecord
 from icewine_prediction.paper_recommendation_queue_service import PaperQueueRow
 from icewine_prediction.paper_strategy_registry import (
     ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY,
@@ -68,6 +69,13 @@ class PaperTrackingWorkspace:
     by_league: list[PaperTrackingGroupSummary]
     by_line_bucket: list[PaperTrackingGroupSummary]
     by_manual_adjustment: list[PaperTrackingGroupSummary]
+
+
+@dataclass(frozen=True)
+class PaperRecordDeleteResult:
+    deleted_record_id: int
+    deleted_snapshot_count: int
+    message: str = "paper recommendation record deleted"
 
 
 def create_paper_record_from_queue_row(
@@ -207,6 +215,44 @@ def void_paper_record(session: Session, record_id: int) -> PaperRecommendationRe
     record.updated_at = datetime.now(tz=record.created_at.tzinfo)
     session.commit()
     return record
+
+
+def delete_paper_record(session: Session, record_id: int) -> PaperRecordDeleteResult:
+    record = _get_record(session, record_id)
+    snapshot_ids = {
+        snapshot.id
+        for snapshot in session.query(PaperRecommendationGroupSnapshot)
+        .filter(PaperRecommendationGroupSnapshot.signal_record_ids_json.contains(str(record.id)))
+        .all()
+        if record.id in _snapshot_signal_record_ids(snapshot.signal_record_ids_json)
+    }
+    snapshot_ids.update(
+        snapshot_id
+        for (snapshot_id,) in session.query(PaperRecommendationGroupSnapshot.id)
+        .filter(PaperRecommendationGroupSnapshot.representative_record_id == record.id)
+        .all()
+    )
+    deleted_snapshot_count = 0
+    if snapshot_ids:
+        deleted_snapshot_count = (
+            session.query(PaperRecommendationGroupSnapshot)
+            .filter(PaperRecommendationGroupSnapshot.id.in_(snapshot_ids))
+            .delete(synchronize_session=False)
+        )
+    session.delete(record)
+    session.commit()
+    return PaperRecordDeleteResult(
+        deleted_record_id=record_id,
+        deleted_snapshot_count=int(deleted_snapshot_count or 0),
+    )
+
+
+def _snapshot_signal_record_ids(raw_value: str) -> set[int]:
+    try:
+        values = json.loads(raw_value)
+    except (TypeError, json.JSONDecodeError):
+        return set()
+    return {int(value) for value in values if isinstance(value, (int, str)) and str(value).isdigit()}
 
 
 def settle_paper_records(

@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from icewine_prediction.models import League, Match, Team
+from icewine_prediction.models import League, Match, PaperRecommendationGroupSnapshot, Team
 from icewine_prediction.paper_recommendation_queue_service import PaperQueueRow
 from icewine_prediction.paper_strategy_registry import (
     TOTAL_GOALS_DISTRIBUTION_MODEL_NAME,
@@ -19,6 +19,7 @@ from icewine_prediction.paper_recommendation_tracking_service import (
     backfill_paper_record_from_candidate,
     build_paper_tracking_workspace,
     create_paper_record_from_queue_row,
+    delete_paper_record,
     edit_paper_record,
     settle_paper_records,
     void_paper_record,
@@ -363,6 +364,97 @@ def test_void_paper_record_excludes_record_from_settlement_summary(session):
     assert workspace.summary.total_records == 1
     assert workspace.summary.settled_records == 0
     assert workspace.summary.roi == Decimal("0.0000")
+
+
+def test_delete_paper_record_removes_record_and_related_group_snapshots(session):
+    match = _seed_match(session, home_score=2, away_score=0, status="finished")
+    record = create_paper_record_from_queue_row(
+        session,
+        _queue_row(match, status="candidate", line=Decimal("-0.50")),
+        recorded_at=_now(),
+    )
+    sibling = create_paper_record_from_queue_row(
+        session,
+        _queue_row(
+            match,
+            status="candidate",
+            line=Decimal("-0.50"),
+            strategy_key="asian_away_cover_hgb_bucket_v2",
+            strategy_display_name="Asian away bucket",
+            edge=Decimal("0.1500"),
+        ),
+        recorded_at=_now(),
+    )
+    snapshot = PaperRecommendationGroupSnapshot(
+        created_at=_now(),
+        snapshot_source="manual_record",
+        snapshot_version="paper_confidence_v1",
+        group_key=f"{match.id}:asian_handicap:away_cover",
+        match_id=match.id,
+        market_type="asian_handicap",
+        side="away_cover",
+        representative_record_id=record.id,
+        signal_record_ids_json=f"[{record.id}]",
+        triggered_strategy_keys_json=f'["{record.strategy_key}"]',
+        triggered_strategy_display_names_json=f'["{record.strategy_display_name}"]',
+        signal_families_json='["asian_away_hgb"]',
+        confidence_score=60,
+        suggested_stake_units=Decimal("0.75"),
+        stake_cap_reason="single_family_limited_history",
+        recommendation_text="瀹㈤槦 +0.50",
+        representative_market_line=Decimal("-0.50"),
+        representative_odds=Decimal("1.930"),
+        line_bucket="away_underdog",
+        status="pending",
+        settlement_result=None,
+        flat_profit_units=Decimal("0.000"),
+        weighted_profit_units=Decimal("0.000"),
+        is_backfilled=False,
+        source_record_created_at_min=record.created_at,
+        source_record_created_at_max=record.created_at,
+    )
+    sibling_snapshot = PaperRecommendationGroupSnapshot(
+        created_at=_now(),
+        snapshot_source="manual_record",
+        snapshot_version="paper_confidence_v1",
+        group_key=f"{match.id}:asian_handicap:away_cover:sibling",
+        match_id=match.id,
+        market_type="asian_handicap",
+        side="away_cover",
+        representative_record_id=sibling.id,
+        signal_record_ids_json=f"[{record.id}, {sibling.id}]",
+        triggered_strategy_keys_json=f'["{record.strategy_key}", "{sibling.strategy_key}"]',
+        triggered_strategy_display_names_json=(
+            f'["{record.strategy_display_name}", "{sibling.strategy_display_name}"]'
+        ),
+        signal_families_json='["asian_away_hgb"]',
+        confidence_score=70,
+        suggested_stake_units=Decimal("1.00"),
+        stake_cap_reason="none",
+        recommendation_text="瀹㈤槦 +0.50",
+        representative_market_line=Decimal("-0.50"),
+        representative_odds=Decimal("1.930"),
+        line_bucket="away_underdog",
+        status="pending",
+        settlement_result=None,
+        flat_profit_units=Decimal("0.000"),
+        weighted_profit_units=Decimal("0.000"),
+        is_backfilled=False,
+        source_record_created_at_min=record.created_at,
+        source_record_created_at_max=sibling.created_at,
+    )
+    session.add(snapshot)
+    session.add(sibling_snapshot)
+    session.commit()
+
+    result = delete_paper_record(session, record.id)
+    workspace = build_paper_tracking_workspace(session, candidates=[])
+
+    assert result.deleted_record_id == record.id
+    assert result.deleted_snapshot_count == 2
+    assert session.get(type(record), record.id) is None
+    assert session.query(PaperRecommendationGroupSnapshot).count() == 0
+    assert workspace.summary.total_records == 1
 
 
 def test_settle_paper_records_uses_current_line_and_odds(session):

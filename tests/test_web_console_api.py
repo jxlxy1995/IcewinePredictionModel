@@ -1253,6 +1253,89 @@ def test_web_console_api_workspace_confidence_simulation_prefers_snapshots(tmp_p
     assert group["weighted_profit_units"] == "0.465"
 
 
+def test_web_console_api_deletes_paper_record_and_related_snapshots(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="Premier Division", country_or_region="Ireland", level=1)
+        home = Team(canonical_name="Drogheda United")
+        away = Team(canonical_name="Waterford")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 5, 30, 2, 45, tzinfo=BEIJING),
+            status="finished",
+            source_name="api_football",
+            source_match_id="17446",
+            home_score=1,
+            away_score=1,
+        )
+        session.add_all([league, home, away, match])
+        session.flush()
+        record = _paper_snapshot_record(
+            match,
+            strategy_key="asian_away_cover_hgb_edge_v1",
+            strategy_display_name="Asian away edge",
+            edge=Decimal("0.2100"),
+        )
+        session.add(record)
+        session.flush()
+        session.add(
+            PaperRecommendationGroupSnapshot(
+                created_at=datetime(2026, 6, 23, 12, 0, tzinfo=BEIJING),
+                snapshot_source="manual_record",
+                snapshot_version="paper_confidence_v1",
+                group_key=f"{match.id}:asian_handicap:away_cover",
+                match_id=match.id,
+                market_type="asian_handicap",
+                side="away_cover",
+                representative_record_id=record.id,
+                signal_record_ids_json=f"[{record.id}]",
+                triggered_strategy_keys_json=f'["{record.strategy_key}"]',
+                triggered_strategy_display_names_json=f'["{record.strategy_display_name}"]',
+                signal_families_json='["asian_away_hgb"]',
+                confidence_score=55,
+                suggested_stake_units=Decimal("0.50"),
+                stake_cap_reason="snapshot_frozen",
+                recommendation_text="瀹㈤槦 +0.50",
+                representative_market_line=Decimal("-0.50"),
+                representative_odds=Decimal("1.930"),
+                line_bucket="away_underdog",
+                status="settled",
+                settlement_result="win",
+                flat_profit_units=Decimal("0.930"),
+                weighted_profit_units=Decimal("0.465"),
+                is_backfilled=True,
+                source_record_created_at_min=record.created_at,
+                source_record_created_at_max=record.created_at,
+            )
+        )
+        session.commit()
+        record_id = record.id
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            start_paper_automation_scheduler=False,
+        )
+    )
+
+    response = client.delete(f"/api/paper-recommendations/records/{record_id}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "deleted_record_id": record_id,
+        "deleted_snapshot_count": 1,
+        "message": "paper recommendation record deleted",
+    }
+    with session_factory() as session:
+        assert session.get(PaperRecommendationRecord, record_id) is None
+        assert session.query(PaperRecommendationGroupSnapshot).count() == 0
+
+
 def test_web_console_api_paper_snapshot_review_returns_diagnostics(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

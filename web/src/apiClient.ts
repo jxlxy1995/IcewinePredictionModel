@@ -394,6 +394,24 @@ export async function voidPaperRecord(recordId: number): Promise<unknown> {
   return await postJson(`/api/paper-recommendations/records/${recordId}/void`, {});
 }
 
+export async function deletePaperRecord(recordId: number): Promise<{
+  deleted_record_id: number;
+  deleted_snapshot_count: number;
+  message: string;
+}> {
+  const response = await fetch(`${API_BASE_URL}/api/paper-recommendations/records/${recordId}`, {
+    method: "DELETE"
+  });
+  if (!response.ok) {
+    throw new Error(await formatApiError(response, `/api/paper-recommendations/records/${recordId}`));
+  }
+  return response.json() as Promise<{
+    deleted_record_id: number;
+    deleted_snapshot_count: number;
+    message: string;
+  }>;
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`);
   if (!response.ok) {

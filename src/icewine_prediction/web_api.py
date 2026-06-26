@@ -99,6 +99,7 @@ from icewine_prediction.paper_recommendation_tracking_service import (
     backfill_paper_record_from_candidate,
     build_paper_tracking_workspace,
     create_paper_record_from_queue_row,
+    delete_paper_record,
     edit_paper_record,
     settle_paper_records,
     void_paper_record,
@@ -1097,6 +1098,16 @@ def create_web_app(
                 raise HTTPException(status_code=404, detail=str(error)) from error
             clear_cache_prefix("paper-recommendation-workspace")
             return build_paper_record_payload(record)
+
+    @app.delete("/api/paper-recommendations/records/{record_id}")
+    def delete_paper_recommendation_record(record_id: int) -> dict[str, Any]:
+        with session_factory() as session:
+            try:
+                result = delete_paper_record(session, record_id)
+            except ValueError as error:
+                raise HTTPException(status_code=404, detail=str(error)) from error
+            clear_cache_prefix("paper-recommendation-workspace")
+            return asdict(result)
 
     @app.get("/api/training/workspace")
     def training_workspace() -> dict[str, Any]:

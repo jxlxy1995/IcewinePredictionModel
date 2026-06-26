@@ -40,7 +40,7 @@ export type ExecutionTimepointCoverageView = {
   healthClassName: string;
   healthLabel: string;
   bookmaker: string | null;
-  bookmakerLabel: string;
+  bookmakerLabel: string | null;
   canClearSbobet: boolean;
   targets: string[];
   rows: {
@@ -139,14 +139,14 @@ export function buildExecutionTimepointCoverageView(
   };
 }
 
-function formatBookmakerLabel(bookmaker: string | null): string {
+function formatBookmakerLabel(bookmaker: string | null): string | null {
   if (bookmaker === "pinnacle") {
     return "Pinnacle";
   }
   if (bookmaker === "sbobet") {
     return "SBOBet";
   }
-  return "鏈€夋嫨";
+  return null;
 }
 
 export function buildMatchSyncSummary(report: MatchSyncReport): MatchSyncSummary {

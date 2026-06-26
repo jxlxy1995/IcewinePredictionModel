@@ -5,6 +5,7 @@ import {
   createManualExecutionTimepointOdds,
   createPaperAutomationTask,
   cancelPaperAutomationTask,
+  deletePaperRecord,
   loadDashboardData,
   loadLatestTrainingRun,
   loadMatchListWorkspace,
@@ -553,6 +554,24 @@ describe("apiClient", () => {
       }
     );
     expect(result.deleted_count).toBe(2);
+  });
+
+  it("deletes paper recommendation records with record id path", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        deleted_record_id: 42,
+        deleted_snapshot_count: 1,
+        message: "paper recommendation record deleted"
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await deletePaperRecord(42);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/paper-recommendations/records/42", {
+      method: "DELETE"
+    });
+    expect(result.deleted_record_id).toBe(42);
   });
 
   it("loads paper automation tasks", async () => {

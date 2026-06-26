@@ -27,6 +27,7 @@ import {
   clearSbobetExecutionTimepointOdds,
   createPaperAutomationTask,
   createManualExecutionTimepointOdds,
+  deletePaperRecord,
   loadDashboardData,
   loadMatchDetail,
   loadMatchListWorkspace,
@@ -220,6 +221,38 @@ export const dashboardNavItems: NavItem[] = [
 
 export function shouldAutoLoadLazyView(view: ViewKey): boolean {
   return view !== "paperTracking" && view !== "records";
+}
+
+export async function refreshMatchDetailWithOddsTrend({
+  matchId,
+  loadDetail,
+  loadOddsTrend,
+  setDetail,
+  setOddsTrends,
+  setOddsError
+}: {
+  matchId: number;
+  loadDetail: (matchId: number) => Promise<MatchDetail>;
+  loadOddsTrend: (matchId: number) => Promise<MatchOddsTrends>;
+  setDetail: (detail: MatchDetail) => void;
+  setOddsTrends: (trends: MatchOddsTrends | null) => void;
+  setOddsError: (error: string | null) => void;
+}) {
+  const nextDetail = await loadDetail(matchId);
+  setDetail(nextDetail);
+  if (!nextDetail.has_odds) {
+    setOddsTrends(null);
+    setOddsError(null);
+    return;
+  }
+  try {
+    const nextTrends = await loadOddsTrend(matchId);
+    setOddsTrends(nextTrends);
+    setOddsError(null);
+  } catch {
+    setOddsTrends(null);
+    setOddsError("璇诲彇璧旂巼璧板娍澶辫触锛岃绋嶅悗閲嶈瘯");
+  }
 }
 
 const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
@@ -585,6 +618,16 @@ export function DashboardPage() {
             onDetailUpdated={(detail) => {
               setSelectedMatchDetail(detail);
             }}
+            onDetailOddsChanged={(matchId) =>
+              refreshMatchDetailWithOddsTrend({
+                matchId,
+                loadDetail: loadMatchDetail,
+                loadOddsTrend: loadMatchOddsTrend,
+                setDetail: setSelectedMatchDetail,
+                setOddsTrends: setMatchDetailOddsTrends,
+                setOddsError: setMatchDetailOddsError
+              })
+            }
             onDiscoverFixtures={() => {
               setMatchListAction("discover-fixtures");
               setMatchListError(null);
@@ -855,6 +898,20 @@ export function DashboardPage() {
                 .catch(() => setPaperError("批量记录纸面观察失败"))
                 .finally(() => setPaperAction(null));
             }}
+            onDelete={(record) => {
+              const confirmed = window.confirm("确认删除这条纸面推荐记录？删除后不可恢复。");
+              if (!confirmed) {
+                return;
+              }
+              setPaperAction(`delete-${record.id}`);
+              setPaperError(null);
+              setPaperMessage(null);
+              deletePaperRecord(record.id)
+                .then(() => refreshPaperWorkspace(setData, paperFilters))
+                .then(() => setPaperMessage("纸面记录已删除，统计已重算"))
+                .catch(() => setPaperError("删除纸面记录失败"))
+                .finally(() => setPaperAction(null));
+            }}
             onEdit={(record, payload) => {
               setPaperAction(`edit-${record.id}`);
               setPaperError(null);
@@ -1048,6 +1105,9 @@ function MatchListView({
         oddsError={null}
         oddsTrends={null}
         onDetailUpdated={onDetailUpdated}
+        onDetailOddsChanged={async (matchId) => {
+          onDetailUpdated(await loadMatchDetail(matchId));
+        }}
         onBack={onBackToList}
       />
     );
@@ -1161,6 +1221,7 @@ function FilteredMatchListView({
   onBackToList,
   onCreateAutomationTask,
   onDiscoverFixtures,
+  onDetailOddsChanged,
   onDetailUpdated,
   onFiltersChange,
   onLoadSyncRunDetail,
@@ -1183,6 +1244,7 @@ function FilteredMatchListView({
   onBackToList: () => void;
   onCreateAutomationTask: () => void;
   onDiscoverFixtures: () => void;
+  onDetailOddsChanged: (matchId: number) => Promise<void>;
   onDetailUpdated: (detail: MatchDetail) => void;
   onFiltersChange: (filters: Partial<MatchListFilterState>) => void;
   onLoadSyncRunDetail: (runId: number) => void;
@@ -1201,6 +1263,7 @@ function FilteredMatchListView({
         onDetailUpdated={(nextDetail) => {
           onDetailUpdated(nextDetail);
         }}
+        onDetailOddsChanged={onDetailOddsChanged}
         onBack={onBackToList}
       />
     );
@@ -1490,12 +1553,14 @@ function MatchDetailView({
   detail,
   oddsError,
   oddsTrends,
+  onDetailOddsChanged,
   onDetailUpdated,
   onBack
 }: {
   detail: MatchDetail;
   oddsError: string | null;
   oddsTrends: MatchOddsTrends | null;
+  onDetailOddsChanged: (matchId: number) => Promise<void>;
   onDetailUpdated: (detail: MatchDetail) => void;
   onBack: () => void;
 }) {
@@ -1547,7 +1612,10 @@ function MatchDetailView({
             <strong>{detail.odds_summary.match_winner ?? "-"}</strong>
           </div>
         </div>
-        <ExecutionTimepointCoverageMatrix detail={detail} onDetailUpdated={onDetailUpdated} />
+        <ExecutionTimepointCoverageMatrix
+          detail={detail}
+          onDetailOddsChanged={onDetailOddsChanged}
+        />
       </Panel>
       {detail.has_odds && (
         <Panel title="赔率走势">
@@ -1565,10 +1633,10 @@ function MatchDetailView({
 
 function ExecutionTimepointCoverageMatrix({
   detail,
-  onDetailUpdated
+  onDetailOddsChanged
 }: {
   detail: MatchDetail;
-  onDetailUpdated: (detail: MatchDetail) => void;
+  onDetailOddsChanged: (matchId: number) => Promise<void>;
 }) {
   const coverage = buildExecutionTimepointCoverageView(detail.execution_timepoint_coverage);
   const [selected, setSelected] = useState<ManualOddsSelection | null>(null);
@@ -1606,8 +1674,7 @@ function ExecutionTimepointCoverageMatrix({
           ? "该标准时点已存在赔率，未覆盖原记录"
           : `已补录 ${result.inserted_count} 条赔率`
       );
-      const nextDetail = await loadMatchDetail(detail.match_id);
-      onDetailUpdated(nextDetail);
+      await onDetailOddsChanged(detail.match_id);
       if (result.status === "created") {
         setSelected(null);
         setDraft(createManualOddsDraft());
@@ -1632,8 +1699,7 @@ function ExecutionTimepointCoverageMatrix({
       setMessage(`已清除 SBOBet 赔率 ${result.deleted_count} 条`);
       setSelected(null);
       setDraft(createManualOddsDraft());
-      const nextDetail = await loadMatchDetail(detail.match_id);
-      onDetailUpdated(nextDetail);
+      await onDetailOddsChanged(detail.match_id);
     } catch (caught) {
       setError(formatActionError("清除 SBOBet 赔率组失败", caught));
     } finally {
@@ -1645,7 +1711,7 @@ function ExecutionTimepointCoverageMatrix({
     <div className="execution-coverage">
       <div className="execution-coverage-header">
         <span>标准时点覆盖</span>
-        <span>{coverage.bookmakerLabel}</span>
+        {coverage.bookmakerLabel && <span>{coverage.bookmakerLabel}</span>}
         {coverage.canClearSbobet && (
           <button
             className="inline-action compact-action"
@@ -2703,6 +2769,7 @@ function PaperTrackingView({
   filters,
   messageText,
   onBatchRecord,
+  onDelete,
   onEdit,
   onFiltersChange,
   onRecord,
@@ -2716,6 +2783,7 @@ function PaperTrackingView({
   filters: PaperFilterState;
   messageText: string | null;
   onBatchRecord: (candidates: PaperCandidate[]) => void;
+  onDelete: (record: PaperRecord) => void;
   onEdit: (
     record: PaperRecord,
     payload: { current_market_line: string; current_odds: string; manual_note: string }
@@ -2792,7 +2860,11 @@ function PaperTrackingView({
             <MetricCard key={card.label} label={card.label} value={card.value} />
           ))}
         </section>
-        <PaperConfidenceSimulationTable workspace={workspace} />
+        <PaperConfidenceSimulationTable
+          isBusy={isBusy}
+          onDelete={onDelete}
+          workspace={workspace}
+        />
       </Panel>
       <section className="grid">
         <Panel title="按策略">

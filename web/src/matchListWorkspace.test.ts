@@ -205,6 +205,28 @@ describe("matchListWorkspace", () => {
     expect(view.rows[0].cells[1].canCreateManualOdds).toBe(false);
   });
 
+  it("does not show a bookmaker label before odds data exists", () => {
+    const emptyCoverage = {
+      ...detail.execution_timepoint_coverage,
+      available_count: 0,
+      bookmaker: null,
+      rows: detail.execution_timepoint_coverage.rows.map((row) => ({
+        ...row,
+        cells: row.cells.map((cell) => ({
+          ...cell,
+          available: false,
+          snapshot_time: null,
+          market_line: null
+        }))
+      }))
+    };
+
+    const view = buildExecutionTimepointCoverageView(emptyCoverage);
+
+    expect(view.bookmakerLabel).toBeNull();
+    expect(view.canClearSbobet).toBe(false);
+  });
+
   it("builds match sync summary labels", () => {
     expect(
       buildMatchSyncSummary({

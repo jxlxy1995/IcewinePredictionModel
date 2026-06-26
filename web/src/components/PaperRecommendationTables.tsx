@@ -1,4 +1,5 @@
 import { Fragment, useState } from "react";
+import { Trash2 } from "lucide-react";
 
 import type { PaperCandidate, PaperRecord } from "../types";
 import {
@@ -36,6 +37,9 @@ type PaperRecordTableProps = {
 };
 
 type PaperConfidenceSimulationTableProps = {
+  defaultExpandedGroupKeys?: string[];
+  isBusy?: boolean;
+  onDelete?: (record: PaperRecord) => void;
   workspace: PaperRecommendationWorkspace;
 };
 
@@ -363,9 +367,14 @@ export function PaperRecordTable({ isBusy, onEdit, onVoid, records }: PaperRecor
 }
 
 export function PaperConfidenceSimulationTable({
+  defaultExpandedGroupKeys = [],
+  isBusy = false,
+  onDelete,
   workspace
 }: PaperConfidenceSimulationTableProps) {
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(defaultExpandedGroupKeys)
+  );
   const rows = buildPaperConfidenceSimulationRows(workspace);
   const { pageRecords, pagination, setPage } = useSortedPaginatedRecords(rows, 20);
   if (rows.length === 0) {
@@ -405,6 +414,7 @@ export function PaperConfidenceSimulationTable({
             const signalRecords = row.signalRecordIds
               .map((recordId) => recordsById.get(recordId))
               .filter((record): record is PaperRecord => record !== undefined);
+            const representativeRecord = recordsById.get(row.group.representative_record_id);
             return (
               <Fragment key={row.group.group_key}>
                 <tr>
@@ -434,7 +444,19 @@ export function PaperConfidenceSimulationTable({
                   <td>
                     <ProfitCell value={row.weightedProfitUnits} />
                   </td>
-                  <td>
+                  <td className="paper-row-actions-cell">
+                    {onDelete && representativeRecord && (
+                      <button
+                        aria-label={`delete paper record #${representativeRecord.id}`}
+                        className="paper-delete-button"
+                        disabled={isBusy}
+                        onClick={() => onDelete(representativeRecord)}
+                        title="delete paper record"
+                        type="button"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                     <button
                       className="inline-action"
                       onClick={() => toggleExpanded(row.group.group_key)}
@@ -447,7 +469,7 @@ export function PaperConfidenceSimulationTable({
                 {isExpanded && (
                   <tr className="paper-candidate-signal-row">
                     <td />
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <table className="nested-table">
                         <thead>
                           <tr>
@@ -455,6 +477,7 @@ export function PaperConfidenceSimulationTable({
                             <th>盘口</th>
                             <th>赔率</th>
                             <th>Edge</th>
+                            <th>操作</th>
                             <th>结算</th>
                             <th>1手收益</th>
                           </tr>
@@ -469,6 +492,20 @@ export function PaperConfidenceSimulationTable({
                               <td>{record.recommended_handicap}</td>
                               <td>{record.current_odds}</td>
                               <td>{record.edge}</td>
+                              <td>
+                                {onDelete && (
+                                  <button
+                                    aria-label={`delete paper record #${record.id}`}
+                                    className="paper-delete-button"
+                                    disabled={isBusy}
+                                    onClick={() => onDelete(record)}
+                                    title="delete paper record"
+                                    type="button"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </td>
                               <td>
                                 <SettlementBadge
                                   label={formatPaperSettlementResult(record.settlement_result)}

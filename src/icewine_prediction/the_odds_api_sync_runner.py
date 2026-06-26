@@ -287,29 +287,37 @@ def run_the_odds_api_sync_for_session(
                 )
                 candidate = _historical_candidate_from_snapshots(match, snapshots)
             else:
-                if sport_key not in events_by_sport_key:
-                    events_by_sport_key[sport_key] = client.fetch_current_odds(sport_key)
-                events = events_by_sport_key[sport_key]
-                candidate = find_best_the_odds_api_event_match(match, events)
-                snapshots = (
-                    map_the_odds_api_event_odds(
-                        match_id=match.id,
-                        event=candidate.event,
-                        bookmaker=client.bookmaker,
-                    )
-                    if candidate is not None
-                    else []
+                snapshots, raw_source_snapshots = _fetch_pre_kickoff_elapsed_historical_snapshots(
+                    client=client,
+                    sport_key=sport_key,
+                    match=match,
+                    now_utc=now_utc,
                 )
-                raw_source_snapshots = list(snapshots)
-                if candidate is not None:
-                    raw_source_snapshots.extend(
-                        _fetch_current_alternate_snapshots(
-                            client=client,
-                            sport_key=sport_key,
-                            match=match,
-                            event_id=candidate.event_id,
+                candidate = _historical_candidate_from_snapshots(match, snapshots)
+                if candidate is None:
+                    if sport_key not in events_by_sport_key:
+                        events_by_sport_key[sport_key] = client.fetch_current_odds(sport_key)
+                    events = events_by_sport_key[sport_key]
+                    candidate = find_best_the_odds_api_event_match(match, events)
+                    snapshots = (
+                        map_the_odds_api_event_odds(
+                            match_id=match.id,
+                            event=candidate.event,
+                            bookmaker=client.bookmaker,
                         )
+                        if candidate is not None
+                        else []
                     )
+                    raw_source_snapshots = list(snapshots)
+                    if candidate is not None:
+                        raw_source_snapshots.extend(
+                            _fetch_current_alternate_snapshots(
+                                client=client,
+                                sport_key=sport_key,
+                                match=match,
+                                event_id=candidate.event_id,
+                            )
+                        )
             if candidate is None:
                 _store_source_match_status(
                     session,
@@ -649,10 +657,25 @@ def _fetch_passed_kickoff_historical_snapshots(
     sport_key: str,
     match: Match,
 ) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
+    return _fetch_historical_snapshots_at_times(
+        client=client,
+        sport_key=sport_key,
+        match=match,
+        snapshot_times=_standard_pre_kickoff_historical_snapshot_times(match.kickoff_time),
+    )
+
+
+def _fetch_historical_snapshots_at_times(
+    *,
+    client: TheOddsApiSyncClient,
+    sport_key: str,
+    match: Match,
+    snapshot_times: tuple[datetime, ...],
+) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
     snapshots: list[HistoricalOddsSnapshotInput] = []
     raw_source_snapshots: list[HistoricalOddsSnapshotInput] = []
     seen_keys: set[tuple] = set()
-    for snapshot_time in _standard_pre_kickoff_historical_snapshot_times(match.kickoff_time):
+    for snapshot_time in snapshot_times:
         events = client.fetch_historical_odds(sport_key, snapshot_time)
         candidate = find_best_the_odds_api_event_match(match, events)
         if candidate is None:
@@ -687,6 +710,28 @@ def _fetch_passed_kickoff_historical_snapshots(
             )
         )
     return snapshots, raw_source_snapshots
+
+
+def _fetch_pre_kickoff_elapsed_historical_snapshots(
+    *,
+    client: TheOddsApiSyncClient,
+    sport_key: str,
+    match: Match,
+    now_utc: datetime,
+) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
+    elapsed_snapshot_times = tuple(
+        snapshot_time
+        for snapshot_time in _standard_pre_kickoff_historical_snapshot_times(match.kickoff_time)
+        if snapshot_time <= now_utc
+    )
+    if not elapsed_snapshot_times:
+        return [], []
+    return _fetch_historical_snapshots_at_times(
+        client=client,
+        sport_key=sport_key,
+        match=match,
+        snapshot_times=elapsed_snapshot_times,
+    )
 
 
 def _fetch_current_alternate_snapshots(

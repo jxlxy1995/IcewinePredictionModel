@@ -6,12 +6,18 @@ from icewine_prediction.models import HistoricalOddsSnapshot
 
 ODDSPAPI_SOURCE_NAME = "oddspapi"
 THE_ODDS_API_SOURCE_NAME = "the_odds_api"
+ZQCF918_SOURCE_NAME = "zqcf918"
 PINNACLE_BOOKMAKER = "pinnacle"
 SBOBET_BOOKMAKER = "sbobet"
-PINNACLE_SOURCE_PRIORITY = (THE_ODDS_API_SOURCE_NAME, ODDSPAPI_SOURCE_NAME)
+PINNACLE_SOURCE_PRIORITY = (
+    THE_ODDS_API_SOURCE_NAME,
+    ODDSPAPI_SOURCE_NAME,
+    ZQCF918_SOURCE_NAME,
+)
 TRUSTED_SNAPSHOT_PRIORITY = (
     (THE_ODDS_API_SOURCE_NAME, PINNACLE_BOOKMAKER),
     (ODDSPAPI_SOURCE_NAME, PINNACLE_BOOKMAKER),
+    (ZQCF918_SOURCE_NAME, PINNACLE_BOOKMAKER),
     (ODDSPAPI_SOURCE_NAME, SBOBET_BOOKMAKER),
 )
 
@@ -81,6 +87,8 @@ def source_label_for_snapshots(snapshots: Iterable[HistoricalOddsSnapshot]) -> s
         return "the_odds_api_pinnacle_historical"
     if (ODDSPAPI_SOURCE_NAME, PINNACLE_BOOKMAKER) in source_bookmakers:
         return "oddspapi_pinnacle_historical"
+    if (ZQCF918_SOURCE_NAME, PINNACLE_BOOKMAKER) in source_bookmakers:
+        return "zqcf918_pinnacle_historical"
     if (ODDSPAPI_SOURCE_NAME, SBOBET_BOOKMAKER) in source_bookmakers:
         return "oddspapi_sbobet_historical"
     source_names = {source_name for source_name, _bookmaker in source_bookmakers}
@@ -88,6 +96,8 @@ def source_label_for_snapshots(snapshots: Iterable[HistoricalOddsSnapshot]) -> s
         return "the_odds_api_historical"
     if ODDSPAPI_SOURCE_NAME in source_names:
         return "oddspapi_historical"
+    if ZQCF918_SOURCE_NAME in source_names:
+        return "zqcf918_historical"
     return "historical"
 
 

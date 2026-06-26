@@ -608,6 +608,30 @@ export const mockMatchDetail: MatchDetail = {
       }
     ]
   },
+  execution_timepoint_odds_table: {
+    rows: ["T-60", "T-30", "T-25", "T-20", "T-15", "T-10"].map((label) => ({
+      target_minutes: Number(label.slice(2)),
+      label,
+      asian_handicap: {
+        snapshot_time: null,
+        market_line: null,
+        home_odds: null,
+        away_odds: null
+      },
+      total_goals: {
+        snapshot_time: null,
+        market_line: null,
+        over_odds: null,
+        under_odds: null
+      },
+      match_winner: {
+        snapshot_time: null,
+        home_odds: null,
+        draw_odds: null,
+        away_odds: null
+      }
+    }))
+  },
   paper_recommendation_summary: { count: 0, label: "暂无纸面推荐记录" },
   formal_recommendation_summary: { count: 0, label: "暂无正式推荐记录" }
 };

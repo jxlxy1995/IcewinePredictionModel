@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildExecutionTimepointOddsTableView,
   buildExecutionTimepointCoverageView,
   buildMatchFreshnessCards,
   buildMatchListRows,
@@ -109,6 +110,54 @@ const detail: MatchDetail = {
       }
     ]
   },
+  execution_timepoint_odds_table: {
+    rows: [
+      {
+        target_minutes: 60,
+        label: "T-60",
+        asian_handicap: {
+          snapshot_time: "2026-05-30T12:00:00+08:00",
+          market_line: "0.00",
+          home_odds: "1.900",
+          away_odds: "1.910"
+        },
+        total_goals: {
+          snapshot_time: "2026-05-30T12:01:00+08:00",
+          market_line: "2.50",
+          over_odds: "1.950",
+          under_odds: "1.850"
+        },
+        match_winner: {
+          snapshot_time: "2026-05-30T12:02:00+08:00",
+          home_odds: "2.890",
+          draw_odds: "3.930",
+          away_odds: "2.280"
+        }
+      },
+      {
+        target_minutes: 30,
+        label: "T-30",
+        asian_handicap: {
+          snapshot_time: "2026-05-30T12:30:00+08:00",
+          market_line: "-0.25",
+          home_odds: "1.800",
+          away_odds: "2.020"
+        },
+        total_goals: {
+          snapshot_time: null,
+          market_line: null,
+          over_odds: null,
+          under_odds: null
+        },
+        match_winner: {
+          snapshot_time: null,
+          home_odds: null,
+          draw_odds: null,
+          away_odds: null
+        }
+      }
+    ]
+  },
   paper_recommendation_summary: { count: 0, label: "No paper records" },
   formal_recommendation_summary: { count: 0, label: "No formal records" }
 };
@@ -191,6 +240,42 @@ describe("matchListWorkspace", () => {
       marketType: "asian_handicap",
       targetMinutes: 30,
       title: "T-30 · 缺失"
+    });
+  });
+
+  it("builds execution timepoint odds table rows for manual review", () => {
+    const view = buildExecutionTimepointOddsTableView(detail.execution_timepoint_odds_table);
+
+    expect(view.rows[0]).toEqual({
+      label: "T-60",
+      asianHandicap: {
+        time: "05-30 12:00",
+        line: "0.00",
+        home: "1.900",
+        away: "1.910",
+        isMissing: false
+      },
+      totalGoals: {
+        time: "05-30 12:01",
+        line: "2.50",
+        over: "1.950",
+        under: "1.850",
+        isMissing: false
+      },
+      matchWinner: {
+        time: "05-30 12:02",
+        home: "2.890",
+        draw: "3.930",
+        away: "2.280",
+        isMissing: false
+      }
+    });
+    expect(view.rows[1].totalGoals).toMatchObject({
+      time: "-",
+      line: "-",
+      over: "-",
+      under: "-",
+      isMissing: true
     });
   });
 

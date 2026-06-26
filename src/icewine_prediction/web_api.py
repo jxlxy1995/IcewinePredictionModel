@@ -1995,6 +1995,7 @@ def build_match_detail_payload(detail) -> dict[str, Any]:
         "zqcf918_match_url": detail.zqcf918_match_url,
         "odds_summary": asdict(detail.odds_summary),
         "execution_timepoint_coverage": asdict(detail.execution_timepoint_coverage),
+        "execution_timepoint_odds_table": asdict(detail.execution_timepoint_odds_table),
         "paper_recommendation_summary": asdict(detail.paper_recommendation_summary),
         "formal_recommendation_summary": asdict(detail.formal_recommendation_summary),
     }

@@ -1,5 +1,6 @@
 import type {
   ExecutionTimepointCoverage,
+  ExecutionTimepointOddsTable,
   MatchDetail,
   MatchListMatch,
   MatchListWorkspace,
@@ -55,6 +56,33 @@ export type ExecutionTimepointCoverageView = {
       targetMinutes: number;
       title: string;
     }[];
+  }[];
+};
+
+export type ExecutionTimepointOddsTableView = {
+  rows: {
+    label: string;
+    asianHandicap: {
+      time: string;
+      line: string;
+      home: string;
+      away: string;
+      isMissing: boolean;
+    };
+    totalGoals: {
+      time: string;
+      line: string;
+      over: string;
+      under: string;
+      isMissing: boolean;
+    };
+    matchWinner: {
+      time: string;
+      home: string;
+      draw: string;
+      away: string;
+      isMissing: boolean;
+    };
   }[];
 };
 
@@ -135,6 +163,37 @@ export function buildExecutionTimepointCoverageView(
           ? `${cell.label} · ${formatDateTime(cell.snapshot_time)} · 盘口 ${cell.market_line ?? "-"}`
           : `${cell.label} · 缺失`
       }))
+    }))
+  };
+}
+
+export function buildExecutionTimepointOddsTableView(
+  table: ExecutionTimepointOddsTable
+): ExecutionTimepointOddsTableView {
+  return {
+    rows: table.rows.map((row) => ({
+      label: row.label,
+      asianHandicap: {
+        time: formatCompactDateTime(row.asian_handicap.snapshot_time),
+        line: row.asian_handicap.market_line ?? "-",
+        home: row.asian_handicap.home_odds ?? "-",
+        away: row.asian_handicap.away_odds ?? "-",
+        isMissing: row.asian_handicap.snapshot_time == null
+      },
+      totalGoals: {
+        time: formatCompactDateTime(row.total_goals.snapshot_time),
+        line: row.total_goals.market_line ?? "-",
+        over: row.total_goals.over_odds ?? "-",
+        under: row.total_goals.under_odds ?? "-",
+        isMissing: row.total_goals.snapshot_time == null
+      },
+      matchWinner: {
+        time: formatCompactDateTime(row.match_winner.snapshot_time),
+        home: row.match_winner.home_odds ?? "-",
+        draw: row.match_winner.draw_odds ?? "-",
+        away: row.match_winner.away_odds ?? "-",
+        isMissing: row.match_winner.snapshot_time == null
+      }
     }))
   };
 }
@@ -245,4 +304,12 @@ function formatDateTime(value: string | null): string {
   const hour = `${parsed.getHours()}`.padStart(2, "0");
   const minute = `${parsed.getMinutes()}`.padStart(2, "0");
   return `${year}-${month}-${day} ${hour}:${minute}`;
+}
+
+function formatCompactDateTime(value: string | null): string {
+  const formatted = formatDateTime(value);
+  if (formatted === "-") {
+    return "-";
+  }
+  return formatted.slice(5);
 }

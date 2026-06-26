@@ -1376,6 +1376,66 @@ th {
   color: #0369a1;
 }
 
+.execution-odds-table-wrap {
+  display: grid;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.execution-odds-table-title {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.execution-odds-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 920px;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.execution-odds-table th,
+.execution-odds-table td {
+  border: 1px solid #e2e8f0;
+  padding: 6px 7px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.execution-odds-table thead th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+}
+
+.execution-odds-table tbody th {
+  background: #ffffff;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.execution-odds-table .timepoint-label {
+  width: 52px;
+}
+
+.execution-odds-table .numeric {
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.execution-odds-table .missing {
+  color: #cbd5e1;
+}
+
+.execution-odds-table th:nth-child(6),
+.execution-odds-table td:nth-child(6),
+.execution-odds-table th:nth-child(10),
+.execution-odds-table td:nth-child(10) {
+  border-left-color: #cbd5e1;
+}
+
 .manual-odds-form {
   background: #f8fafc;
   border: 1px solid #e2e8f0;

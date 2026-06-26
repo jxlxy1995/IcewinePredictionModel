@@ -149,6 +149,44 @@ class ExecutionTimepointCoverage:
 
 
 @dataclass(frozen=True)
+class ExecutionTimepointAsianHandicapOdds:
+    snapshot_time: str | None
+    market_line: str | None
+    home_odds: str | None
+    away_odds: str | None
+
+
+@dataclass(frozen=True)
+class ExecutionTimepointTotalGoalsOdds:
+    snapshot_time: str | None
+    market_line: str | None
+    over_odds: str | None
+    under_odds: str | None
+
+
+@dataclass(frozen=True)
+class ExecutionTimepointMatchWinnerOdds:
+    snapshot_time: str | None
+    home_odds: str | None
+    draw_odds: str | None
+    away_odds: str | None
+
+
+@dataclass(frozen=True)
+class ExecutionTimepointOddsTableRow:
+    target_minutes: int
+    label: str
+    asian_handicap: ExecutionTimepointAsianHandicapOdds
+    total_goals: ExecutionTimepointTotalGoalsOdds
+    match_winner: ExecutionTimepointMatchWinnerOdds
+
+
+@dataclass(frozen=True)
+class ExecutionTimepointOddsTable:
+    rows: list[ExecutionTimepointOddsTableRow]
+
+
+@dataclass(frozen=True)
 class MatchDetail:
     match_id: int
     kickoff_time: str
@@ -172,6 +210,7 @@ class MatchDetail:
     zqcf918_match_url: str | None
     odds_summary: MatchOddsSummary
     execution_timepoint_coverage: ExecutionTimepointCoverage
+    execution_timepoint_odds_table: ExecutionTimepointOddsTable
     paper_recommendation_summary: RecommendationSummary
     formal_recommendation_summary: RecommendationSummary
 
@@ -377,6 +416,7 @@ def build_match_detail(
         if zqcf918_source_match is not None and zqcf918_source_match.source_fixture_id
         else None
     )
+    execution_timepoint_snapshots = _trusted_execution_timepoint_snapshots(session, match)
     return MatchDetail(
         match_id=row.match_id,
         kickoff_time=row.kickoff_time,
@@ -403,7 +443,8 @@ def build_match_detail(
             else None
         ),
         odds_summary=row.odds_summary,
-        execution_timepoint_coverage=_execution_timepoint_coverage(session, match),
+        execution_timepoint_coverage=_execution_timepoint_coverage(match, execution_timepoint_snapshots),
+        execution_timepoint_odds_table=_execution_timepoint_odds_table(match, execution_timepoint_snapshots),
         paper_recommendation_summary=RecommendationSummary(
             count=paper_count,
             label=f"纸面推荐 {paper_count} 条" if paper_count else "暂无纸面推荐记录",
@@ -415,10 +456,10 @@ def build_match_detail(
     )
 
 
-def _execution_timepoint_coverage(
+def _trusted_execution_timepoint_snapshots(
     session: Session,
     match: Match,
-) -> ExecutionTimepointCoverage:
+) -> list[HistoricalOddsSnapshot]:
     snapshots = (
         session.query(HistoricalOddsSnapshot)
         .filter(HistoricalOddsSnapshot.match_id == match.id)
@@ -427,7 +468,13 @@ def _execution_timepoint_coverage(
         .order_by(HistoricalOddsSnapshot.snapshot_time.asc())
         .all()
     )
-    snapshots = filter_priority_trusted_snapshots(snapshots)
+    return filter_priority_trusted_snapshots(snapshots)
+
+
+def _execution_timepoint_coverage(
+    match: Match,
+    snapshots: list[HistoricalOddsSnapshot],
+) -> ExecutionTimepointCoverage:
     bookmaker = _selected_bookmaker(snapshots)
     kickoff_time = _snapshot_timeline_kickoff_time(match)
     rows: list[ExecutionTimepointCoverageRow] = []
@@ -478,6 +525,88 @@ def _execution_timepoint_coverage(
         health_key=health_key,
         health_label=health_label,
         bookmaker=bookmaker,
+    )
+
+
+def _execution_timepoint_odds_table(
+    match: Match,
+    snapshots: list[HistoricalOddsSnapshot],
+) -> ExecutionTimepointOddsTable:
+    pairs_by_market = {
+        market_type: _pair_market_snapshots(
+            [snapshot for snapshot in snapshots if snapshot.market_type == market_type],
+            market_type=market_type,
+        )
+        for market_type, _market_label in EXECUTION_TIMEPOINT_MARKETS
+    }
+    kickoff_time = _snapshot_timeline_kickoff_time(match)
+    rows: list[ExecutionTimepointOddsTableRow] = []
+    for target in EXECUTION_TIMEPOINT_TARGETS:
+        selected = {
+            market_type: select_execution_timepoint_pair(
+                pairs,
+                kickoff_time=kickoff_time,
+                target_minutes_before_kickoff=target,
+            )
+            for market_type, pairs in pairs_by_market.items()
+        }
+        rows.append(
+            ExecutionTimepointOddsTableRow(
+                target_minutes=target,
+                label=f"T-{target}",
+                asian_handicap=_format_asian_handicap_timepoint_odds(selected["asian_handicap"]),
+                total_goals=_format_total_goals_timepoint_odds(selected["total_goals"]),
+                match_winner=_format_match_winner_timepoint_odds(selected["match_winner"]),
+            )
+        )
+    return ExecutionTimepointOddsTable(rows=rows)
+
+
+def _format_asian_handicap_timepoint_odds(pair) -> ExecutionTimepointAsianHandicapOdds:
+    if pair is None:
+        return ExecutionTimepointAsianHandicapOdds(
+            snapshot_time=None,
+            market_line=None,
+            home_odds=None,
+            away_odds=None,
+        )
+    return ExecutionTimepointAsianHandicapOdds(
+        snapshot_time=_format_utc_beijing_datetime(pair.snapshot_time),
+        market_line=f"{pair.market_line:.2f}",
+        home_odds=_format_odds(pair.side_a_odds),
+        away_odds=_format_odds(pair.side_b_odds),
+    )
+
+
+def _format_total_goals_timepoint_odds(pair) -> ExecutionTimepointTotalGoalsOdds:
+    if pair is None:
+        return ExecutionTimepointTotalGoalsOdds(
+            snapshot_time=None,
+            market_line=None,
+            over_odds=None,
+            under_odds=None,
+        )
+    return ExecutionTimepointTotalGoalsOdds(
+        snapshot_time=_format_utc_beijing_datetime(pair.snapshot_time),
+        market_line=f"{pair.market_line:.2f}",
+        over_odds=_format_odds(pair.side_a_odds),
+        under_odds=_format_odds(pair.side_b_odds),
+    )
+
+
+def _format_match_winner_timepoint_odds(pair) -> ExecutionTimepointMatchWinnerOdds:
+    if pair is None:
+        return ExecutionTimepointMatchWinnerOdds(
+            snapshot_time=None,
+            home_odds=None,
+            draw_odds=None,
+            away_odds=None,
+        )
+    return ExecutionTimepointMatchWinnerOdds(
+        snapshot_time=_format_utc_beijing_datetime(pair.snapshot_time),
+        home_odds=_format_odds(pair.side_a_odds),
+        draw_odds=_format_odds(pair.side_b_odds),
+        away_odds=_format_odds(pair.side_c_odds) if pair.side_c_odds is not None else None,
     )
 
 

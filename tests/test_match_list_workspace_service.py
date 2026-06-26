@@ -602,6 +602,83 @@ def test_match_detail_includes_standard_execution_timepoint_coverage(session):
     assert [cell.available for cell in winner.cells] == [False, False, False, False, False, False]
 
 
+def test_match_detail_includes_standard_execution_timepoint_odds_table(session):
+    league = League(name="J1 League", country_or_region="Japan", level=1)
+    home = Team(canonical_name="Sanfrecce Hiroshima")
+    away = Team(canonical_name="Kawasaki Frontale")
+    match = Match(
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 5, 30, 13, 0, tzinfo=BEIJING),
+        status="scheduled",
+    )
+    session.add_all([league, home, away, match])
+    session.flush()
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("0.00"),
+        target_minutes=60,
+        side_odds={"home": Decimal("1.900"), "away": Decimal("1.910")},
+    )
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="total_goals",
+        market_line=Decimal("2.50"),
+        target_minutes=60,
+        side_odds={"over": Decimal("1.950"), "under": Decimal("1.850")},
+    )
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="match_winner",
+        market_line=Decimal("0.00"),
+        target_minutes=60,
+        side_odds={"home": Decimal("2.890"), "draw": Decimal("3.930"), "away": Decimal("2.280")},
+    )
+    _add_historical_market_pair_at_target(
+        session,
+        match,
+        market_type="asian_handicap",
+        market_line=Decimal("-0.25"),
+        target_minutes=30,
+        side_odds={"home": Decimal("1.800"), "away": Decimal("2.020")},
+    )
+    session.commit()
+
+    detail = build_match_detail(session, match_id=match.id)
+
+    assert detail is not None
+    assert [row.label for row in detail.execution_timepoint_odds_table.rows] == [
+        "T-60",
+        "T-30",
+        "T-25",
+        "T-20",
+        "T-15",
+        "T-10",
+    ]
+    first = detail.execution_timepoint_odds_table.rows[0]
+    assert first.asian_handicap.snapshot_time == "2026-05-30T12:00:00+08:00"
+    assert first.asian_handicap.market_line == "0.00"
+    assert first.asian_handicap.home_odds == "1.900"
+    assert first.asian_handicap.away_odds == "1.910"
+    assert first.total_goals.snapshot_time == "2026-05-30T12:00:00+08:00"
+    assert first.total_goals.market_line == "2.50"
+    assert first.total_goals.over_odds == "1.950"
+    assert first.total_goals.under_odds == "1.850"
+    assert first.match_winner.snapshot_time == "2026-05-30T12:00:00+08:00"
+    assert first.match_winner.home_odds == "2.890"
+    assert first.match_winner.draw_odds == "3.930"
+    assert first.match_winner.away_odds == "2.280"
+    second = detail.execution_timepoint_odds_table.rows[1]
+    assert second.asian_handicap.market_line == "-0.25"
+    assert second.total_goals.snapshot_time is None
+    assert second.match_winner.snapshot_time is None
+
+
 def test_match_detail_execution_timepoint_coverage_prefers_the_odds_api(session):
     league = League(name="J1 League", country_or_region="Japan", level=1)
     home = Team(canonical_name="Sanfrecce Hiroshima")
@@ -723,6 +800,7 @@ def _add_historical_market_pair_at_target(
     target_minutes: int,
     source_name: str = "oddspapi",
     bookmaker: str = "pinnacle",
+    side_odds: dict[str, Decimal] | None = None,
 ) -> None:
     sides = {
         "asian_handicap": ("home", "away"),
@@ -742,7 +820,7 @@ def _add_historical_market_pair_at_target(
                 market_name=market_type,
                 market_line=market_line,
                 outcome_side=side,
-                odds=Decimal("1.900"),
+                odds=(side_odds or {}).get(side, Decimal("1.900")),
                 snapshot_time=snapshot_time,
                 period="fulltime",
             )

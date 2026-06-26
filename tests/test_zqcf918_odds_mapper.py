@@ -44,8 +44,16 @@ def test_maps_asian_total_and_match_winner_rows():
     assert asian_home.source_name == ZQCF918_SOURCE_NAME
     assert asian_home.bookmaker == PINNACLE_BOOKMAKER
     assert asian_home.market_line == Decimal("-0.50")
-    assert asian_home.odds == Decimal("1.910")
+    assert asian_home.odds == Decimal("2.910")
     assert asian_home.snapshot_time == datetime(2026, 6, 26, 10, 0, tzinfo=ZoneInfo("UTC"))
+    total_over = next(
+        row for row in snapshots if row.market_type == "total_goals" and row.outcome_side == "over"
+    )
+    assert total_over.odds == Decimal("2.880")
+    match_winner_home = next(
+        row for row in snapshots if row.market_type == "match_winner" and row.outcome_side == "home"
+    )
+    assert match_winner_home.odds == Decimal("2.400")
 
 
 def test_skips_sealed_and_malformed_rows():

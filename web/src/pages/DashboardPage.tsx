@@ -118,6 +118,7 @@ import {
 } from "../paperAutomationWorkspace";
 import { updateDraftFromTriggerTime } from "../paperAutomationDraft";
 import {
+  buildExecutionTimepointOddsTableView,
   buildExecutionTimepointCoverageView,
   buildMatchFreshnessCards,
   buildMatchSyncSummary,
@@ -1929,6 +1930,7 @@ function ExecutionTimepointCoverageMatrix({
           </div>
         ))}
       </div>
+      <ExecutionTimepointOddsTable detail={detail} />
       {message && <div className="inline-success compact-message">{message}</div>}
       {error && <div className="inline-warning compact-message">{error}</div>}
       {selected && (
@@ -1987,6 +1989,58 @@ function ExecutionTimepointCoverageMatrix({
           </div>
         </form>
       )}
+    </div>
+  );
+}
+
+function ExecutionTimepointOddsTable({ detail }: { detail: MatchDetail }) {
+  const table = buildExecutionTimepointOddsTableView(detail.execution_timepoint_odds_table);
+  return (
+    <div className="execution-odds-table-wrap">
+      <div className="execution-odds-table-title">标准时点赔率详表</div>
+      <table className="execution-odds-table">
+        <thead>
+          <tr>
+            <th rowSpan={2}>时点</th>
+            <th colSpan={4}>亚盘</th>
+            <th colSpan={4}>大小球</th>
+            <th colSpan={4}>胜平负</th>
+          </tr>
+          <tr>
+            <th>时间</th>
+            <th>盘口</th>
+            <th>主</th>
+            <th>客</th>
+            <th>时间</th>
+            <th>盘口</th>
+            <th>大</th>
+            <th>小</th>
+            <th>时间</th>
+            <th>胜</th>
+            <th>平</th>
+            <th>负</th>
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row) => (
+            <tr key={row.label}>
+              <th className="timepoint-label">{row.label}</th>
+              <td className={row.asianHandicap.isMissing ? "missing" : ""}>{row.asianHandicap.time}</td>
+              <td className={row.asianHandicap.isMissing ? "missing numeric" : "numeric"}>{row.asianHandicap.line}</td>
+              <td className={row.asianHandicap.isMissing ? "missing numeric" : "numeric"}>{row.asianHandicap.home}</td>
+              <td className={row.asianHandicap.isMissing ? "missing numeric" : "numeric"}>{row.asianHandicap.away}</td>
+              <td className={row.totalGoals.isMissing ? "missing" : ""}>{row.totalGoals.time}</td>
+              <td className={row.totalGoals.isMissing ? "missing numeric" : "numeric"}>{row.totalGoals.line}</td>
+              <td className={row.totalGoals.isMissing ? "missing numeric" : "numeric"}>{row.totalGoals.over}</td>
+              <td className={row.totalGoals.isMissing ? "missing numeric" : "numeric"}>{row.totalGoals.under}</td>
+              <td className={row.matchWinner.isMissing ? "missing" : ""}>{row.matchWinner.time}</td>
+              <td className={row.matchWinner.isMissing ? "missing numeric" : "numeric"}>{row.matchWinner.home}</td>
+              <td className={row.matchWinner.isMissing ? "missing numeric" : "numeric"}>{row.matchWinner.draw}</td>
+              <td className={row.matchWinner.isMissing ? "missing numeric" : "numeric"}>{row.matchWinner.away}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

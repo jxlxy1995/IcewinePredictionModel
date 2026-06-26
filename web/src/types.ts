@@ -698,6 +698,39 @@ export type ExecutionTimepointCoverage = {
   bookmaker: string | null;
 };
 
+export type ExecutionTimepointAsianHandicapOdds = {
+  snapshot_time: string | null;
+  market_line: string | null;
+  home_odds: string | null;
+  away_odds: string | null;
+};
+
+export type ExecutionTimepointTotalGoalsOdds = {
+  snapshot_time: string | null;
+  market_line: string | null;
+  over_odds: string | null;
+  under_odds: string | null;
+};
+
+export type ExecutionTimepointMatchWinnerOdds = {
+  snapshot_time: string | null;
+  home_odds: string | null;
+  draw_odds: string | null;
+  away_odds: string | null;
+};
+
+export type ExecutionTimepointOddsTableRow = {
+  target_minutes: number;
+  label: string;
+  asian_handicap: ExecutionTimepointAsianHandicapOdds;
+  total_goals: ExecutionTimepointTotalGoalsOdds;
+  match_winner: ExecutionTimepointMatchWinnerOdds;
+};
+
+export type ExecutionTimepointOddsTable = {
+  rows: ExecutionTimepointOddsTableRow[];
+};
+
 export type ManualExecutionTimepointOddsPayload = {
   target_minutes_before_kickoff: number;
   market_type: "asian_handicap" | "total_goals" | "match_winner" | string;
@@ -732,6 +765,7 @@ export type MatchDetail = MatchListMatch & {
   zqcf918_match_id: string | null;
   zqcf918_match_url: string | null;
   execution_timepoint_coverage: ExecutionTimepointCoverage;
+  execution_timepoint_odds_table: ExecutionTimepointOddsTable;
   paper_recommendation_summary: RecommendationSummaryPlaceholder;
   formal_recommendation_summary: RecommendationSummaryPlaceholder;
 };

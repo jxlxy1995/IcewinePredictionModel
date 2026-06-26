@@ -68,6 +68,8 @@ def _map_two_way(
     snapshot_time = _parse_time(row)
     if line is None or left_odds is None or right_odds is None or snapshot_time is None:
         return []
+    left_odds = _net_odds_to_decimal_odds(left_odds)
+    right_odds = _net_odds_to_decimal_odds(right_odds)
     return [
         _snapshot(
             match_id,
@@ -167,6 +169,10 @@ def _decimal(value: Any, *, places: str) -> Decimal | None:
         return Decimal(str(value)).quantize(Decimal(places), rounding=ROUND_HALF_UP)
     except (InvalidOperation, TypeError, ValueError):
         return None
+
+
+def _net_odds_to_decimal_odds(value: Decimal) -> Decimal:
+    return (value + Decimal("1")).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
 
 def _parse_time(row: dict[str, Any]) -> datetime | None:

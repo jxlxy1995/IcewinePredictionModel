@@ -11,6 +11,7 @@ from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, Tea
 from icewine_prediction.odds_provider_selection_service import (
     ODDSPAPI_SOURCE_NAME,
     THE_ODDS_API_SOURCE_NAME,
+    ZQCF918_SOURCE_NAME,
 )
 from icewine_prediction.the_odds_api_sync_runner import TheOddsApiSyncResult
 
@@ -191,6 +192,93 @@ def test_run_match_odds_sync_does_not_fallback_to_sbobet_for_non_fallback_league
     assert result["credits"] == 60
     assert _success_match_ids(result) == []
     assert [item["match_id"] for item in result["failed"]] == [match.id]
+
+
+def test_run_match_odds_sync_falls_back_to_zqcf918_before_sbobet(session):
+    match = _add_match(
+        session,
+        league_name="Urvalsdeild",
+        country_or_region="Iceland",
+        source_league_id="164",
+    )
+    zqcf918_calls = []
+    oddspapi_calls = []
+
+    def fake_the_odds_api_sync(**kwargs):
+        return _the_odds_api_result(requests_used=2, credits_used=60, inserted_snapshot_count=0)
+
+    def fake_zqcf918_sync(**kwargs):
+        zqcf918_calls.append(kwargs)
+        session.add(_snapshot(match_id=match.id, source_name=ZQCF918_SOURCE_NAME, odds=Decimal("1.91")))
+        session.commit()
+        return {"success": [{"match_id": match.id}], "failed": [], "skipped": [], "requests": 3, "credits": 0}
+
+    def fake_oddspapi_sync(**kwargs):
+        oddspapi_calls.append(kwargs)
+        return type("FallbackResult", (), {"requests_used": 5})()
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id],
+        the_odds_api_syncer=fake_the_odds_api_sync,
+        oddspapi_syncer=fake_oddspapi_sync,
+        zqcf918_syncer=fake_zqcf918_sync,
+    )
+
+    assert zqcf918_calls
+    assert zqcf918_calls[0]["match_ids"] == {match.id}
+    assert oddspapi_calls == []
+    assert result["requests"] == 5
+    assert result["credits"] == 60
+    assert _success_match_ids(result) == [match.id]
+
+
+def test_run_match_odds_sync_uses_sbobet_when_zqcf918_has_no_odds(session):
+    match = _add_match(
+        session,
+        league_name="Urvalsdeild",
+        country_or_region="Iceland",
+        source_league_id="164",
+    )
+    oddspapi_calls = []
+
+    def fake_the_odds_api_sync(**kwargs):
+        return _the_odds_api_result(requests_used=2, credits_used=60, inserted_snapshot_count=0)
+
+    def fake_zqcf918_sync(**kwargs):
+        return {
+            "success": [],
+            "failed": [{"match_id": match.id, "message": "empty"}],
+            "skipped": [],
+            "requests": 3,
+            "credits": 0,
+        }
+
+    def fake_oddspapi_sync(**kwargs):
+        oddspapi_calls.append(kwargs)
+        session.add(
+            _snapshot(
+                match_id=match.id,
+                source_name=ODDSPAPI_SOURCE_NAME,
+                bookmaker="sbobet",
+                odds=Decimal("1.90"),
+            )
+        )
+        session.commit()
+        return type("FallbackResult", (), {"requests_used": 5})()
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id],
+        the_odds_api_syncer=fake_the_odds_api_sync,
+        oddspapi_syncer=fake_oddspapi_sync,
+        zqcf918_syncer=fake_zqcf918_sync,
+    )
+
+    assert oddspapi_calls
+    assert oddspapi_calls[0]["bookmaker"] == "sbobet"
+    assert result["requests"] == 10
+    assert _success_match_ids(result) == [match.id]
 
 
 def _add_match(

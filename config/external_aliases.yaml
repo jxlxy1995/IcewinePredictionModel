@@ -1,5 +1,9 @@
 aliases:
   - entity_type: team
+    source_name: the_odds_api
+    canonical_name: Türkiye
+    alias_name: Turkey
+  - entity_type: team
     source_name: oddspapi
     canonical_name: Wolves
     alias_name: Wolverhampton Wanderers

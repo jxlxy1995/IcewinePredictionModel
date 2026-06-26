@@ -3,6 +3,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from icewine_prediction.models import (
+    ExternalAlias,
     HistoricalOddsRawSnapshot,
     HistoricalOddsSnapshot,
     League,
@@ -10,6 +11,7 @@ from icewine_prediction.models import (
     OddsSourceMatch,
     Team,
 )
+from icewine_prediction.odds_source_match_service import ExternalAliasInput
 from icewine_prediction.odds_provider_selection_service import THE_ODDS_API_SOURCE_NAME
 from icewine_prediction.the_odds_api_sync_runner import (
     API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS,
@@ -17,6 +19,7 @@ from icewine_prediction.the_odds_api_sync_runner import (
     build_the_odds_api_sync_plan_for_session,
     find_best_the_odds_api_event_match,
     run_the_odds_api_sync_for_session,
+    _load_team_aliases,
 )
 
 
@@ -90,6 +93,76 @@ def test_find_best_the_odds_api_event_match_uses_time_and_team_names(session):
     assert candidate is not None
     assert candidate.event_id == "event-1"
     assert candidate.confidence == Decimal("1.0000")
+
+
+def test_find_best_the_odds_api_event_match_uses_external_team_aliases(session):
+    match = _add_match(session, home_team_name="Türkiye", away_team_name="USA")
+    events = [
+        {
+            "id": "world-cup-turkey-usa",
+            "home_team": "Turkey",
+            "away_team": "USA",
+            "commence_time": "2026-06-26T19:00:00Z",
+        },
+    ]
+
+    candidate = find_best_the_odds_api_event_match(
+        match,
+        events,
+        team_aliases=[
+            ExternalAliasInput(
+                canonical_name="Türkiye",
+                alias_name="Turkey",
+            )
+        ],
+    )
+
+    assert candidate is not None
+    assert candidate.event_id == "world-cup-turkey-usa"
+    assert candidate.confidence == Decimal("1.0000")
+
+
+def test_load_the_odds_api_team_aliases_includes_config_and_database_aliases(
+    session,
+    tmp_path,
+    monkeypatch,
+):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "external_aliases.yaml").write_text(
+        "\n".join(
+            [
+                "aliases:",
+                "  - entity_type: team",
+                "    source_name: the_odds_api",
+                "    canonical_name: Türkiye",
+                "    alias_name: Turkey",
+                "  - entity_type: team",
+                "    source_name: oddspapi",
+                "    canonical_name: Wolves",
+                "    alias_name: Wolverhampton Wanderers",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    session.add(
+        ExternalAlias(
+            entity_type="team",
+            source_name=THE_ODDS_API_SOURCE_NAME,
+            canonical_name="USA",
+            alias_name="United States",
+            normalized_alias="united states",
+            created_at=datetime(2026, 6, 26, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+    )
+    session.commit()
+
+    aliases = _load_team_aliases(session)
+
+    assert ExternalAliasInput(canonical_name="Türkiye", alias_name="Turkey") in aliases
+    assert ExternalAliasInput(canonical_name="USA", alias_name="United States") in aliases
+    assert ExternalAliasInput(canonical_name="Wolves", alias_name="Wolverhampton Wanderers") not in aliases
 
 
 def test_run_the_odds_api_sync_stores_snapshots_under_distinct_source(session):
@@ -319,6 +392,76 @@ def test_run_the_odds_api_sync_uses_elapsed_historical_timepoints_before_kickoff
     ]
 
 
+def test_run_the_odds_api_sync_uses_configured_team_aliases_for_historical_match(
+    session,
+    tmp_path,
+    monkeypatch,
+):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "external_aliases.yaml").write_text(
+        "\n".join(
+            [
+                "aliases:",
+                "  - entity_type: team",
+                "    source_name: the_odds_api",
+                "    canonical_name: Türkiye",
+                "    alias_name: Turkey",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    match = _add_match(
+        session,
+        home_team_name="Türkiye",
+        away_team_name="USA",
+        kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC")),
+        status="finished",
+    )
+    client = TheOddsApiSyncClient(
+        FakeTheOddsApiClient(
+            {
+                "historical/sports/soccer_epl/odds": {
+                    "data": [
+                        _historical_event_payload(
+                            "2026-06-26T18:50:00Z",
+                            event_id="world-cup-turkey-usa",
+                            home_team="Turkey",
+                            away_team="USA",
+                        ),
+                    ],
+                },
+                "historical/sports/soccer_epl/events/world-cup-turkey-usa/odds": {
+                    "data": _empty_alternate_event_payload(
+                        "world-cup-turkey-usa",
+                        home_team="Turkey",
+                        away_team="USA",
+                    ),
+                },
+            }
+        )
+    )
+
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=client,
+        season=2026,
+        max_matches=5,
+        now=datetime(2026, 6, 27, 0, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
+    assert result.processed_match_count == 1
+    assert result.matched_count == 1
+    assert result.inserted_snapshot_count == 18
+    assert {
+        row.source_fixture_id
+        for row in session.query(HistoricalOddsSnapshot)
+        .filter(HistoricalOddsSnapshot.match_id == match.id)
+        .all()
+    } == {"world-cup-turkey-usa"}
+
+
 def test_build_the_odds_api_sync_plan_skips_matches_with_existing_source_snapshots(session):
     match = _add_match(session, home_team_name="Arsenal", away_team_name="Chelsea")
     session.add(
@@ -381,11 +524,17 @@ def _add_match(
     return match
 
 
-def _historical_event_payload(last_update: str) -> dict:
+def _historical_event_payload(
+    last_update: str,
+    *,
+    event_id: str = "historical-event-1",
+    home_team: str = "Arsenal",
+    away_team: str = "Chelsea",
+) -> dict:
     return {
-        "id": "historical-event-1",
-        "home_team": "Arsenal",
-        "away_team": "Chelsea",
+        "id": event_id,
+        "home_team": home_team,
+        "away_team": away_team,
         "commence_time": "2026-06-26T19:00:00Z",
         "bookmakers": [
             {
@@ -395,9 +544,9 @@ def _historical_event_payload(last_update: str) -> dict:
                     {
                         "key": "h2h",
                         "outcomes": [
-                            {"name": "Arsenal", "price": 2.10},
+                            {"name": home_team, "price": 2.10},
                             {"name": "Draw", "price": 3.30},
-                            {"name": "Chelsea", "price": 3.40},
+                            {"name": away_team, "price": 3.40},
                         ],
                     },
                 ],
@@ -477,11 +626,16 @@ def _alternate_event_payload(last_update: str) -> dict:
     }
 
 
-def _empty_alternate_event_payload(event_id: str) -> dict:
+def _empty_alternate_event_payload(
+    event_id: str,
+    *,
+    home_team: str = "Arsenal",
+    away_team: str = "Chelsea",
+) -> dict:
     return {
         "id": event_id,
-        "home_team": "Arsenal",
-        "away_team": "Chelsea",
+        "home_team": home_team,
+        "away_team": away_team,
         "commence_time": "2026-06-26T19:00:00Z",
         "bookmakers": [],
     }

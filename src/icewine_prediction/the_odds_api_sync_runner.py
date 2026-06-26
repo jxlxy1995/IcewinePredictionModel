@@ -1,11 +1,14 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import yaml
 from sqlalchemy.orm import Session, joinedload
 
+from icewine_prediction.alias_service import list_external_aliases
 from icewine_prediction.dynamic_main_market_service import (
     build_dynamic_main_market_snapshots,
     build_dynamic_neighbor_market_snapshots,
@@ -21,7 +24,10 @@ from icewine_prediction.odds_provider_selection_service import (
     PINNACLE_BOOKMAKER,
     THE_ODDS_API_SOURCE_NAME,
 )
-from icewine_prediction.odds_source_match_service import normalize_team_name
+from icewine_prediction.odds_source_match_service import (
+    ExternalAliasInput,
+    normalize_team_name,
+)
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.sources.the_odds_api_client import (
     TheOddsApiApiError,
@@ -276,6 +282,7 @@ def run_the_odds_api_sync_for_session(
     asian = totals = winners = 0
     error_message = None
     now_utc = _as_utc(now or now_beijing())
+    team_aliases = _load_team_aliases(session)
     for match in matches:
         sport_key = API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS[str(match.league.source_league_id)]
         try:
@@ -284,6 +291,7 @@ def run_the_odds_api_sync_for_session(
                     client=client,
                     sport_key=sport_key,
                     match=match,
+                    team_aliases=team_aliases,
                 )
                 candidate = _historical_candidate_from_snapshots(match, snapshots)
             else:
@@ -292,13 +300,18 @@ def run_the_odds_api_sync_for_session(
                     sport_key=sport_key,
                     match=match,
                     now_utc=now_utc,
+                    team_aliases=team_aliases,
                 )
                 candidate = _historical_candidate_from_snapshots(match, snapshots)
                 if candidate is None:
                     if sport_key not in events_by_sport_key:
                         events_by_sport_key[sport_key] = client.fetch_current_odds(sport_key)
                     events = events_by_sport_key[sport_key]
-                    candidate = find_best_the_odds_api_event_match(match, events)
+                    candidate = find_best_the_odds_api_event_match(
+                        match,
+                        events,
+                        team_aliases=team_aliases,
+                    )
                     snapshots = (
                         map_the_odds_api_event_odds(
                             match_id=match.id,
@@ -387,9 +400,11 @@ def find_best_the_odds_api_event_match(
     events: list[dict[str, Any]],
     *,
     max_time_delta_seconds: int = 7200,
+    team_aliases: list[ExternalAliasInput] | None = None,
 ) -> TheOddsApiEventMatchCandidate | None:
     candidates = []
     kickoff = _as_utc(match.kickoff_time)
+    team_aliases = team_aliases or []
     for event in events:
         commence_time = _parse_time(event.get("commence_time"))
         if commence_time is None:
@@ -397,8 +412,16 @@ def find_best_the_odds_api_event_match(
         time_delta = abs((kickoff - commence_time).total_seconds())
         if time_delta > max_time_delta_seconds:
             continue
-        home_score = _team_similarity(match.home_team.canonical_name, str(event.get("home_team") or ""))
-        away_score = _team_similarity(match.away_team.canonical_name, str(event.get("away_team") or ""))
+        home_score = _best_team_similarity(
+            match.home_team.canonical_name,
+            str(event.get("home_team") or ""),
+            team_aliases,
+        )
+        away_score = _best_team_similarity(
+            match.away_team.canonical_name,
+            str(event.get("away_team") or ""),
+            team_aliases,
+        )
         if home_score == Decimal("0") or away_score == Decimal("0"):
             continue
         candidates.append(
@@ -639,6 +662,59 @@ def _team_similarity(left: str, right: str) -> Decimal:
     return Decimal(len(overlap)) / Decimal(max(len(left_tokens), len(right_tokens)))
 
 
+def _best_team_similarity(
+    canonical_name: str,
+    external_name: str,
+    aliases: list[ExternalAliasInput],
+) -> Decimal:
+    candidate_names = [canonical_name]
+    candidate_names.extend(
+        alias.alias_name
+        for alias in aliases
+        if alias.canonical_name == canonical_name
+    )
+    return max(_team_similarity(name, external_name) for name in candidate_names)
+
+
+def _load_team_aliases(session: Session) -> list[ExternalAliasInput]:
+    db_aliases = [
+        ExternalAliasInput(
+            canonical_name=alias.canonical_name,
+            alias_name=alias.alias_name,
+        )
+        for alias in list_external_aliases(
+            session,
+            source_name=THE_ODDS_API_SOURCE_NAME,
+            entity_type="team",
+        )
+    ]
+    config_aliases = _load_configured_team_aliases()
+    return list(dict.fromkeys([*config_aliases, *db_aliases]))
+
+
+def _load_configured_team_aliases(
+    config_path: Path = Path("config/external_aliases.yaml"),
+) -> list[ExternalAliasInput]:
+    if not config_path.exists():
+        return []
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    aliases = []
+    for item in payload.get("aliases", []):
+        if item.get("entity_type") != "team" or item.get("source_name") != THE_ODDS_API_SOURCE_NAME:
+            continue
+        canonical_name = item.get("canonical_name")
+        alias_name = item.get("alias_name")
+        if not canonical_name or not alias_name:
+            continue
+        aliases.append(
+            ExternalAliasInput(
+                canonical_name=str(canonical_name),
+                alias_name=str(alias_name),
+            )
+        )
+    return aliases
+
+
 def _parse_time(value: Any) -> datetime | None:
     if not value:
         return None
@@ -656,12 +732,14 @@ def _fetch_passed_kickoff_historical_snapshots(
     client: TheOddsApiSyncClient,
     sport_key: str,
     match: Match,
+    team_aliases: list[ExternalAliasInput] | None = None,
 ) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
     return _fetch_historical_snapshots_at_times(
         client=client,
         sport_key=sport_key,
         match=match,
         snapshot_times=_standard_pre_kickoff_historical_snapshot_times(match.kickoff_time),
+        team_aliases=team_aliases,
     )
 
 
@@ -671,13 +749,18 @@ def _fetch_historical_snapshots_at_times(
     sport_key: str,
     match: Match,
     snapshot_times: tuple[datetime, ...],
+    team_aliases: list[ExternalAliasInput] | None = None,
 ) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
     snapshots: list[HistoricalOddsSnapshotInput] = []
     raw_source_snapshots: list[HistoricalOddsSnapshotInput] = []
     seen_keys: set[tuple] = set()
     for snapshot_time in snapshot_times:
         events = client.fetch_historical_odds(sport_key, snapshot_time)
-        candidate = find_best_the_odds_api_event_match(match, events)
+        candidate = find_best_the_odds_api_event_match(
+            match,
+            events,
+            team_aliases=team_aliases,
+        )
         if candidate is None:
             continue
         for snapshot in map_the_odds_api_event_odds(
@@ -718,6 +801,7 @@ def _fetch_pre_kickoff_elapsed_historical_snapshots(
     sport_key: str,
     match: Match,
     now_utc: datetime,
+    team_aliases: list[ExternalAliasInput] | None = None,
 ) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
     elapsed_snapshot_times = tuple(
         snapshot_time
@@ -731,6 +815,7 @@ def _fetch_pre_kickoff_elapsed_historical_snapshots(
         sport_key=sport_key,
         match=match,
         snapshot_times=elapsed_snapshot_times,
+        team_aliases=team_aliases,
     )
 
 

@@ -2161,6 +2161,90 @@ def test_web_console_api_syncs_filtered_zqcf918_match_ids(tmp_path):
     assert response.json()["report"]["sync_type"] == "zqcf918_match_ids"
 
 
+def test_web_console_api_syncs_single_zqcf918_odds(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="J1 League", country_or_region="Japan", level=1)
+        home = Team(canonical_name="Home")
+        away = Team(canonical_name="Away")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 6, 26, 12, 0, tzinfo=ZoneInfo("UTC")),
+            status="scheduled",
+        )
+        session.add_all([league, home, away, match])
+        session.commit()
+        match_id = match.id
+
+    calls = []
+
+    def fake_zqcf918_syncer(match_ids):
+        calls.append(match_ids)
+        return {"success": [{"match_id": match_id, "message": "ok"}], "failed": [], "skipped": [], "requests": 3, "credits": 0}
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            zqcf918_odds_syncer=fake_zqcf918_syncer,
+        )
+    )
+
+    response = client.post(f"/api/matches/{match_id}/sync/zqcf918-odds", json={})
+
+    assert response.status_code == 200
+    assert calls == [[match_id]]
+    assert response.json()["report"]["sync_type"] == "zqcf918_odds"
+
+
+def test_web_console_api_syncs_filtered_zqcf918_odds(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        league = League(name="J1 League", country_or_region="Japan", level=1)
+        home = Team(canonical_name="Home")
+        away = Team(canonical_name="Away")
+        match = Match(
+            league=league,
+            home_team=home,
+            away_team=away,
+            kickoff_time=datetime(2026, 6, 26, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            status="scheduled",
+        )
+        session.add_all([league, home, away, match])
+        session.commit()
+        match_id = match.id
+
+    calls = []
+
+    def fake_zqcf918_syncer(match_ids):
+        calls.append(match_ids)
+        return {"success": [{"match_id": match_id, "message": "ok"}], "failed": [], "skipped": [], "requests": 3, "credits": 0}
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            clock=lambda: datetime(2026, 6, 26, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            zqcf918_odds_syncer=fake_zqcf918_syncer,
+        )
+    )
+
+    response = client.post(
+        "/api/match-list/sync/zqcf918-odds",
+        json={"start_time": "2026-06-26T00:00:00+08:00", "end_time": "2026-06-27T12:00:00+08:00"},
+    )
+
+    assert response.status_code == 200
+    assert calls == [[match_id]]
+    assert response.json()["report"]["target_count"] == 1
+
+
 def test_web_console_api_creates_manual_execution_timepoint_odds(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

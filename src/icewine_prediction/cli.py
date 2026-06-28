@@ -2625,7 +2625,7 @@ def samples_baseline_dataset(
         "2026-01-15",
         "--eligible-start",
     ),
-    source_name: str = typer.Option("oddspapi", "--source-name"),
+    source_name: str | None = typer.Option(None, "--source-name"),
     bookmaker: str = typer.Option("pinnacle", "--bookmaker"),
 ):
     engine = create_database_engine()

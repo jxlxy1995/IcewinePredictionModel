@@ -90,6 +90,7 @@ def test_format_baseline_training_dataset_report_summarizes_counts(session):
     assert "baseline training dataset" in text
     assert "eligible matches: 1" in text
     assert "complete three-market rows: 1" in text
+    assert "source/bookmaker: any/pinnacle" in text
     assert "coverage: 1.0000" in text
     assert "Premier League" in text
 
@@ -140,6 +141,55 @@ def test_build_baseline_training_dataset_excludes_world_cup_from_training_rows(s
     assert [row["league_source_id"] for row in dataset.rows] == ["39"]
 
 
+def test_build_baseline_training_dataset_accepts_pinnacle_from_any_source(session):
+    the_odds_api_match = _add_match(
+        session,
+        league_name="Veikkausliiga",
+        source_league_id="244",
+    )
+    _add_complete_three_market_close_snapshots(
+        session,
+        the_odds_api_match,
+        source_name="the_odds_api",
+    )
+    zqcf918_match = _add_match(
+        session,
+        league_name="Premier Division",
+        source_league_id="357",
+        kickoff_time=datetime(2026, 5, 20, 21, 0, tzinfo=UTC),
+    )
+    _add_complete_three_market_close_snapshots(
+        session,
+        zqcf918_match,
+        source_name="zqcf918",
+    )
+    non_pinnacle_match = _add_match(
+        session,
+        league_name="First Division",
+        source_league_id="358",
+        kickoff_time=datetime(2026, 5, 20, 22, 0, tzinfo=UTC),
+    )
+    _add_complete_three_market_close_snapshots(
+        session,
+        non_pinnacle_match,
+        source_name="the_odds_api",
+        bookmaker="sbobet",
+    )
+    session.commit()
+
+    dataset = build_baseline_training_dataset(
+        session,
+        eligible_start=datetime(2026, 1, 15, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+
+    assert dataset.audit.eligible_match_count == 3
+    assert dataset.audit.complete_match_count == 2
+    assert [row["match_id"] for row in dataset.rows] == [
+        str(the_odds_api_match.id),
+        str(zqcf918_match.id),
+    ]
+
+
 def _add_match(
     session,
     *,
@@ -177,7 +227,13 @@ def _add_match(
     return match
 
 
-def _add_complete_three_market_close_snapshots(session, match: Match) -> None:
+def _add_complete_three_market_close_snapshots(
+    session,
+    match: Match,
+    *,
+    source_name: str = "oddspapi",
+    bookmaker: str = "pinnacle",
+) -> None:
     _add_pair(
         session,
         match,
@@ -187,6 +243,8 @@ def _add_complete_three_market_close_snapshots(session, match: Match) -> None:
         side_b="away",
         side_a_odds=Decimal("1.910"),
         side_b_odds=Decimal("1.970"),
+        source_name=source_name,
+        bookmaker=bookmaker,
     )
     _add_pair(
         session,
@@ -197,6 +255,8 @@ def _add_complete_three_market_close_snapshots(session, match: Match) -> None:
         side_b="under",
         side_a_odds=Decimal("1.880"),
         side_b_odds=Decimal("2.000"),
+        source_name=source_name,
+        bookmaker=bookmaker,
     )
     for side, odds in [
         ("home", Decimal("2.100")),
@@ -210,6 +270,8 @@ def _add_complete_three_market_close_snapshots(session, match: Match) -> None:
             market_line=Decimal("0.00"),
             side=side,
             odds=odds,
+            source_name=source_name,
+            bookmaker=bookmaker,
         )
 
 
@@ -223,6 +285,8 @@ def _add_pair(
     side_b: str,
     side_a_odds: Decimal,
     side_b_odds: Decimal,
+    source_name: str = "oddspapi",
+    bookmaker: str = "pinnacle",
 ) -> None:
     _add_snapshot(
         session,
@@ -231,6 +295,8 @@ def _add_pair(
         market_line=market_line,
         side=side_a,
         odds=side_a_odds,
+        source_name=source_name,
+        bookmaker=bookmaker,
     )
     _add_snapshot(
         session,
@@ -239,6 +305,8 @@ def _add_pair(
         market_line=market_line,
         side=side_b,
         odds=side_b_odds,
+        source_name=source_name,
+        bookmaker=bookmaker,
     )
 
 
@@ -250,13 +318,15 @@ def _add_snapshot(
     market_line: Decimal,
     side: str,
     odds: Decimal,
+    source_name: str = "oddspapi",
+    bookmaker: str = "pinnacle",
 ) -> None:
     session.add(
         HistoricalOddsSnapshot(
             match_id=match.id,
-            source_name="oddspapi",
+            source_name=source_name,
             source_fixture_id=f"odds-{match.id}",
-            bookmaker="pinnacle",
+            bookmaker=bookmaker,
             market_type=market_type,
             market_id=f"{market_type}-{market_line}",
             market_name=market_type,

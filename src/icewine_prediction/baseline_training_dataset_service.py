@@ -72,7 +72,7 @@ CSV_FIELDNAMES = (
 @dataclass(frozen=True)
 class BaselineTrainingDatasetAudit:
     eligible_start: datetime
-    source_name: str
+    source_name: str | None
     bookmaker: str
     eligible_match_count: int
     complete_match_count: int
@@ -93,7 +93,7 @@ def build_baseline_training_dataset(
     session: Session,
     *,
     eligible_start: datetime | None = None,
-    source_name: str = "oddspapi",
+    source_name: str | None = None,
     bookmaker: str = "pinnacle",
 ) -> BaselineTrainingDataset:
     normalized_start = _normalize_eligible_start(eligible_start)
@@ -165,7 +165,7 @@ def format_baseline_training_dataset_report(audit: BaselineTrainingDatasetAudit)
     lines = [
         "baseline training dataset",
         f"eligible start: {audit.eligible_start.astimezone(BEIJING):%Y-%m-%d %H:%M} {BEIJING_TIMEZONE}",
-        f"source/bookmaker: {audit.source_name}/{audit.bookmaker}",
+        f"source/bookmaker: {audit.source_name or 'any'}/{audit.bookmaker}",
         f"eligible matches: {audit.eligible_match_count}",
         f"complete three-market rows: {audit.complete_match_count}",
         f"coverage: {audit.coverage_ratio}",

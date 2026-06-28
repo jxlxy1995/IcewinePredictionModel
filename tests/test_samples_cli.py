@@ -460,7 +460,7 @@ def test_samples_baseline_dataset_command_writes_dataset_and_report(monkeypatch)
     )
 
     assert result.exit_code == 0
-    assert captured["source_name"] == "oddspapi"
+    assert captured["source_name"] is None
     assert captured["bookmaker"] == "pinnacle"
     assert captured["eligible_start"].strftime("%Y-%m-%d %H:%M") == "2026-01-15 00:00"
     assert captured["dataset_path"].endswith("local_data\\training\\test.csv")

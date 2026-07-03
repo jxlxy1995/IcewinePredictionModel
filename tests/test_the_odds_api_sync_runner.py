@@ -407,6 +407,110 @@ def test_run_the_odds_api_sync_uses_standard_historical_timepoints_for_passed_ki
     }
 
 
+def test_run_the_odds_api_sync_selects_main_markets_from_each_historical_timepoint(session):
+    match = _add_match(
+        session,
+        home_team_name="Arsenal",
+        away_team_name="Chelsea",
+        kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC")),
+        status="finished",
+    )
+
+    class DateAwareHistoricalClient(FakeTheOddsApiClient):
+        def get(self, endpoint, params=None):
+            params = params or {}
+            self.calls.append((endpoint, params))
+            self.request_count += 1
+            request_date = params.get("date")
+            if request_date == "2026-06-26T18:00:00Z":
+                return {
+                    "data": [
+                        _historical_event_payload_with_markets(
+                            "2026-06-26T17:55:00Z",
+                            asian_line="-1.00",
+                            asian_home_price="1.95",
+                            asian_away_price="1.92",
+                            total_line="3.00",
+                            over_price="1.95",
+                            under_price="1.92",
+                            h2h_home_price="1.58",
+                            h2h_draw_price="4.30",
+                            h2h_away_price="5.40",
+                        )
+                    ]
+                }
+            return {
+                "data": [
+                    _historical_event_payload_with_markets(
+                        "2026-06-26T18:25:00Z",
+                        asian_line="-0.75",
+                        asian_home_price="1.84",
+                        asian_away_price="2.04",
+                        total_line="2.75",
+                        over_price="1.84",
+                        under_price="2.04",
+                        h2h_home_price="1.67",
+                        h2h_draw_price="4.25",
+                        h2h_away_price="4.70",
+                    )
+                ]
+            }
+
+    client = TheOddsApiSyncClient(DateAwareHistoricalClient({}))
+
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=client,
+        season=2026,
+        max_matches=5,
+        from_date=datetime(2026, 6, 1, tzinfo=ZoneInfo("UTC")),
+        now=datetime(2026, 6, 27, 0, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
+    assert result.inserted_snapshot_count == 42
+    t30 = datetime(2026, 6, 26, 18, 30, tzinfo=ZoneInfo("UTC"))
+    saved_t30 = (
+        session.query(HistoricalOddsSnapshot)
+        .filter(HistoricalOddsSnapshot.match_id == match.id)
+        .filter(HistoricalOddsSnapshot.snapshot_time == t30)
+        .all()
+    )
+    raw_t30 = (
+        session.query(HistoricalOddsRawSnapshot)
+        .filter(HistoricalOddsRawSnapshot.match_id == match.id)
+        .filter(HistoricalOddsRawSnapshot.snapshot_time == t30)
+        .all()
+    )
+
+    assert {
+        (row.market_type, row.market_line, row.outcome_side, row.odds)
+        for row in saved_t30
+        if row.market_type in {"asian_handicap", "total_goals"}
+    } == {
+        ("asian_handicap", Decimal("-0.75"), "home", Decimal("1.840")),
+        ("asian_handicap", Decimal("-0.75"), "away", Decimal("2.040")),
+        ("total_goals", Decimal("2.75"), "over", Decimal("1.840")),
+        ("total_goals", Decimal("2.75"), "under", Decimal("2.040")),
+    }
+    assert {
+        (row.market_type, row.market_line)
+        for row in raw_t30
+        if row.market_type in {"asian_handicap", "total_goals"}
+    } == {
+        ("asian_handicap", Decimal("-0.75")),
+        ("total_goals", Decimal("2.75")),
+    }
+    assert {
+        (row.outcome_side, row.odds)
+        for row in saved_t30
+        if row.market_type == "match_winner"
+    } == {
+        ("home", Decimal("1.670")),
+        ("draw", Decimal("4.250")),
+        ("away", Decimal("4.700")),
+    }
+
+
 def test_run_the_odds_api_sync_reuses_historical_sport_requests_within_batch(session):
     first = _add_match(
         session,
@@ -673,6 +777,82 @@ def _historical_event_payload(
                             {"name": home_team, "price": 2.10},
                             {"name": "Draw", "price": 3.30},
                             {"name": away_team, "price": 3.40},
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def _historical_event_payload_with_markets(
+    last_update: str,
+    *,
+    asian_line: str,
+    asian_home_price: str,
+    asian_away_price: str,
+    total_line: str,
+    over_price: str,
+    under_price: str,
+    h2h_home_price: str,
+    h2h_draw_price: str,
+    h2h_away_price: str,
+    event_id: str = "historical-event-1",
+    home_team: str = "Arsenal",
+    away_team: str = "Chelsea",
+) -> dict:
+    asian_home_point = float(Decimal(asian_line))
+    asian_away_point = float(-Decimal(asian_line))
+    total_point = float(Decimal(total_line))
+    return {
+        "id": event_id,
+        "home_team": home_team,
+        "away_team": away_team,
+        "commence_time": "2026-06-26T19:00:00Z",
+        "bookmakers": [
+            {
+                "key": "pinnacle",
+                "last_update": last_update,
+                "markets": [
+                    {
+                        "key": "h2h",
+                        "last_update": last_update,
+                        "outcomes": [
+                            {"name": home_team, "price": float(Decimal(h2h_home_price))},
+                            {"name": "Draw", "price": float(Decimal(h2h_draw_price))},
+                            {"name": away_team, "price": float(Decimal(h2h_away_price))},
+                        ],
+                    },
+                    {
+                        "key": "spreads",
+                        "last_update": last_update,
+                        "outcomes": [
+                            {
+                                "name": home_team,
+                                "price": float(Decimal(asian_home_price)),
+                                "point": asian_home_point,
+                            },
+                            {
+                                "name": away_team,
+                                "price": float(Decimal(asian_away_price)),
+                                "point": asian_away_point,
+                            },
+                        ],
+                    },
+                    {
+                        "key": "totals",
+                        "last_update": last_update,
+                        "outcomes": [
+                            {
+                                "name": "Over",
+                                "price": float(Decimal(over_price)),
+                                "point": total_point,
+                            },
+                            {
+                                "name": "Under",
+                                "price": float(Decimal(under_price)),
+                                "point": total_point,
+                            },
                         ],
                     },
                 ],

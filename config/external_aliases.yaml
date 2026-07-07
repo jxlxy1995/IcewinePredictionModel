@@ -332,6 +332,14 @@ aliases:
     canonical_name: Sichuan Jiuniu
     alias_name: Shenzhen Peng City
   - entity_type: team
+    source_name: the_odds_api
+    canonical_name: Shenyang Urban
+    alias_name: Liaoning Tieren FC
+  - entity_type: team
+    source_name: the_odds_api
+    canonical_name: Chongqing Tongliang Long
+    alias_name: Chongqing Tonglianglong FC
+  - entity_type: team
     source_name: oddspapi
     canonical_name: Ulsan Hyundai FC
     alias_name: Ulsan HD FC

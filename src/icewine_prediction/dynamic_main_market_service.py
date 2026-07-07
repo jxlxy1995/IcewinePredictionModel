@@ -77,6 +77,58 @@ def build_dynamic_neighbor_market_snapshots(
     )
 
 
+def build_point_in_time_main_market_snapshots(
+    snapshots: list[Snapshot],
+    kickoff_time: datetime,
+) -> list[Snapshot]:
+    filtered = _filter_pre_kickoff_window(snapshots, kickoff_time)
+    grouped = {}
+    for snapshot in filtered:
+        key = (snapshot.bookmaker, snapshot.market_type)
+        grouped.setdefault(key, []).append(snapshot)
+
+    selected = []
+    for group in grouped.values():
+        selected.extend(_build_point_in_time_market_timeline(group))
+    return sorted(
+        selected,
+        key=lambda item: (
+            _as_utc(item.snapshot_time),
+            item.bookmaker,
+            item.market_type,
+            item.outcome_side,
+        ),
+    )
+
+
+def build_point_in_time_neighbor_market_snapshots(
+    snapshots: list[Snapshot],
+    kickoff_time: datetime,
+) -> list[Snapshot]:
+    filtered = _filter_pre_kickoff_window(snapshots, kickoff_time)
+    grouped = {}
+    for snapshot in filtered:
+        key = (snapshot.bookmaker, snapshot.market_type)
+        grouped.setdefault(key, []).append(snapshot)
+
+    selected = []
+    for group in grouped.values():
+        if group and group[0].market_type == "match_winner":
+            selected.extend(_build_point_in_time_match_winner_timeline(group))
+        else:
+            selected.extend(_build_point_in_time_neighbor_market_timeline(group))
+    return sorted(
+        selected,
+        key=lambda item: (
+            _as_utc(item.snapshot_time),
+            item.bookmaker,
+            item.market_type,
+            item.market_line,
+            item.outcome_side,
+        ),
+    )
+
+
 def _build_market_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
     if snapshots and snapshots[0].market_type == "match_winner":
         return _build_match_winner_timeline(snapshots)
@@ -103,6 +155,48 @@ def _build_neighbor_market_timeline(snapshots: list[Snapshot]) -> list[Snapshot]
             selected.extend(
                 _copy_pair_to_time(
                     _complete_pair_for_line(list(latest_by_line_and_side.values()), line),
+                    snapshot_time,
+                )
+            )
+    return selected
+
+
+def _build_point_in_time_market_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
+    if snapshots and snapshots[0].market_type == "match_winner":
+        return _build_point_in_time_match_winner_timeline(snapshots)
+    selected = []
+    for snapshot_time, time_snapshots in _group_snapshots_by_time(snapshots):
+        selected_pair = _select_balanced_pair(time_snapshots)
+        selected.extend(_copy_pair_to_time(selected_pair, snapshot_time))
+    return selected
+
+
+def _build_point_in_time_neighbor_market_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
+    selected = []
+    for snapshot_time, time_snapshots in _group_snapshots_by_time(snapshots):
+        selected_lines = _select_balanced_line_with_neighbors(time_snapshots)
+        for line in selected_lines:
+            selected.extend(
+                _copy_pair_to_time(
+                    _complete_pair_for_line(time_snapshots, line),
+                    snapshot_time,
+                )
+            )
+    return selected
+
+
+def _build_point_in_time_match_winner_timeline(snapshots: list[Snapshot]) -> list[Snapshot]:
+    selected = []
+    for snapshot_time, time_snapshots in _group_snapshots_by_time(snapshots):
+        by_side = {snapshot.outcome_side: snapshot for snapshot in time_snapshots}
+        if {"home", "draw", "away"}.issubset(by_side):
+            selected.extend(
+                _copy_pair_to_time(
+                    [
+                        by_side["home"],
+                        by_side["draw"],
+                        by_side["away"],
+                    ],
                     snapshot_time,
                 )
             )

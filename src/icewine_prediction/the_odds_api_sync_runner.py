@@ -12,6 +12,8 @@ from icewine_prediction.alias_service import list_external_aliases
 from icewine_prediction.dynamic_main_market_service import (
     build_dynamic_main_market_snapshots,
     build_dynamic_neighbor_market_snapshots,
+    build_point_in_time_main_market_snapshots,
+    build_point_in_time_neighbor_market_snapshots,
 )
 from icewine_prediction.historical_odds_service import (
     DEFAULT_EXECUTION_SNAPSHOT_TARGETS,
@@ -366,10 +368,16 @@ def run_the_odds_api_sync_for_session(
                 _store_source_match_status(session, match, candidate, "empty", "no Pinnacle markets")
                 failed += 1
                 continue
-            main_snapshots = build_dynamic_main_market_snapshots(
-                snapshots,
-                kickoff_time=match.kickoff_time,
-            )
+            if candidate.reason == "historical sport/time/team match; standard execution timepoints":
+                main_snapshots = build_point_in_time_main_market_snapshots(
+                    snapshots,
+                    kickoff_time=match.kickoff_time,
+                )
+            else:
+                main_snapshots = build_dynamic_main_market_snapshots(
+                    snapshots,
+                    kickoff_time=match.kickoff_time,
+                )
             result = store_historical_odds_snapshots(
                 session,
                 main_snapshots,
@@ -377,10 +385,16 @@ def run_the_odds_api_sync_for_session(
                 kickoff_time=match.kickoff_time,
                 execution_timepoint_source_snapshots=main_snapshots,
             )
-            raw_summary_snapshots = build_dynamic_neighbor_market_snapshots(
-                raw_source_snapshots,
-                kickoff_time=match.kickoff_time,
-            )
+            if candidate.reason == "historical sport/time/team match; standard execution timepoints":
+                raw_summary_snapshots = build_point_in_time_neighbor_market_snapshots(
+                    raw_source_snapshots,
+                    kickoff_time=match.kickoff_time,
+                )
+            else:
+                raw_summary_snapshots = build_dynamic_neighbor_market_snapshots(
+                    raw_source_snapshots,
+                    kickoff_time=match.kickoff_time,
+                )
             store_historical_odds_raw_snapshots(
                 session,
                 raw_summary_snapshots,

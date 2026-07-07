@@ -209,6 +209,60 @@ def test_build_paper_recommendation_queue_includes_world_cup_but_excludes_disabl
     assert report.rows[0].league_name == "FIFA World Cup"
 
 
+def test_build_paper_recommendation_queue_excludes_configured_source_league_ids(session):
+    blocked_league = League(
+        name="UEFA Europa Conference League",
+        country_or_region="World",
+        level=1,
+        is_enabled=True,
+        source_league_id="848",
+    )
+    allowed_league = League(
+        name="J1 League",
+        country_or_region="Japan",
+        level=1,
+        is_enabled=True,
+        source_league_id="98",
+    )
+    home = Team(canonical_name="Home")
+    away = Team(canonical_name="Away")
+    session.add_all([blocked_league, allowed_league, home, away])
+    session.flush()
+    now = datetime(2026, 6, 12, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    blocked_match = Match(
+        league=blocked_league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 6, 12, 8, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="uefa-conference",
+    )
+    allowed_match = Match(
+        league=allowed_league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=datetime(2026, 6, 12, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+        status="scheduled",
+        source_name="api_football",
+        source_match_id="j1",
+    )
+    session.add_all([blocked_match, allowed_match])
+    session.commit()
+
+    report = build_paper_recommendation_queue(
+        session,
+        now=now,
+        hours=24,
+        scorer=lambda row: None,
+        excluded_source_league_ids={"848"},
+    )
+
+    assert report.total_matches == 1
+    assert [row.match_id for row in report.rows] == [allowed_match.id]
+    assert report.rows[0].league_name == "J1 League"
+
+
 def test_build_paper_recommendation_queue_uses_latest_successful_training_features(
     session,
     monkeypatch,

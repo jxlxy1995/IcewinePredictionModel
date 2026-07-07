@@ -235,12 +235,15 @@ def build_paper_recommendation_queue(
     scorer: Callable[[dict[str, str]], PaperQueueScoreResult] | None = None,
     display_name_service: DisplayNameService | None = None,
     feature_csv_path: Path | None = None,
+    excluded_source_league_ids: set[str] | None = None,
 ) -> PaperRecommendationQueueReport:
+    excluded_source_league_ids = _normalize_excluded_source_league_ids(excluded_source_league_ids)
     threshold = _as_decimal(edge_threshold)
     near_start_fixture_ids = _near_start_fixture_ids(
         session,
         now=now,
         near_start_hours=near_start_hours,
+        excluded_source_league_ids=excluded_source_league_ids,
     )
     prefetch_result = None
     if prefetch_odds and odds_prefetcher is not None and near_start_fixture_ids:
@@ -253,6 +256,7 @@ def build_paper_recommendation_queue(
         hours=hours,
         start_time=start_time,
         end_time=end_time,
+        excluded_source_league_ids=excluded_source_league_ids,
     )
     team_prior_states = _team_prior_states_by_match(session, matches)
     historical_snapshots_by_match_id = _historical_snapshots_by_match_id(session, matches)
@@ -396,6 +400,7 @@ def _list_candidate_matches(
     hours: int,
     start_time: datetime | None,
     end_time: datetime | None,
+    excluded_source_league_ids: set[str],
 ) -> list[Match]:
     query = (
         session.query(Match)
@@ -409,6 +414,7 @@ def _list_candidate_matches(
         .filter(League.is_enabled.is_(True))
         .order_by(Match.kickoff_time.asc(), Match.id.asc())
     )
+    query = _exclude_source_league_ids(query, excluded_source_league_ids)
     if start_time is not None or end_time is not None:
         start = start_time or now
         end = end_time or now + timedelta(hours=hours)
@@ -423,6 +429,23 @@ def _list_candidate_matches(
         .filter(Match.kickoff_time >= now)
         .filter(Match.kickoff_time <= now + timedelta(hours=hours))
         .all()
+    )
+
+
+def _normalize_excluded_source_league_ids(excluded_source_league_ids: set[str] | None) -> set[str]:
+    if not excluded_source_league_ids:
+        return set()
+    return {normalized for item in excluded_source_league_ids if (normalized := str(item).strip())}
+
+
+def _exclude_source_league_ids(query, excluded_source_league_ids: set[str]):
+    if not excluded_source_league_ids:
+        return query
+    return query.filter(
+        or_(
+            League.source_league_id.is_(None),
+            ~League.source_league_id.in_(excluded_source_league_ids),
+        )
     )
 
 
@@ -445,16 +468,23 @@ def _historical_snapshots_by_match_id(
     return snapshots_by_match_id
 
 
-def _near_start_fixture_ids(session: Session, *, now: datetime, near_start_hours: int) -> list[str]:
-    rows = (
+def _near_start_fixture_ids(
+    session: Session,
+    *,
+    now: datetime,
+    near_start_hours: int,
+    excluded_source_league_ids: set[str],
+) -> list[str]:
+    query = (
         session.query(Match.source_match_id)
+        .join(League, Match.league_id == League.id)
         .filter(Match.status == "scheduled")
         .filter(Match.kickoff_time >= now)
         .filter(Match.kickoff_time <= now + timedelta(hours=near_start_hours))
         .filter(Match.source_match_id.isnot(None))
         .order_by(Match.kickoff_time.asc(), Match.id.asc())
-        .all()
     )
+    rows = _exclude_source_league_ids(query, excluded_source_league_ids).all()
     return [source_match_id for (source_match_id,) in rows if source_match_id]
 
 

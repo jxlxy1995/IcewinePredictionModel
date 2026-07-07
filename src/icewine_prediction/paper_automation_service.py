@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
+import yaml
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from icewine_prediction.bark_notification_service import (
@@ -18,7 +21,7 @@ from icewine_prediction.bark_notification_service import (
 )
 from icewine_prediction.config import BEIJING_TIMEZONE
 from icewine_prediction.display_service import DisplayNameService
-from icewine_prediction.models import Match, PaperAutomationTask, PaperRecommendationRecord
+from icewine_prediction.models import League, Match, PaperAutomationTask, PaperRecommendationRecord
 from icewine_prediction.paper_confidence_service import (
     PaperConfidenceGroup,
     build_paper_confidence_workspace,
@@ -50,6 +53,7 @@ class PaperAutomationExecutionResult:
 
 _DEFAULT_BARK_PUSH_URL = object()
 _PAPER_RECORD_ACTIVE_STATUSES = ("pending", "settled", "unsettleable")
+DEFAULT_PAPER_AUTOMATION_CONFIG_PATH = Path("config/paper_automation.yaml")
 
 
 def as_beijing_datetime(value: datetime) -> datetime:
@@ -57,6 +61,39 @@ def as_beijing_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone)
     return value.astimezone(timezone)
+
+
+def load_paper_automation_excluded_source_league_ids(
+    config_path: Path = DEFAULT_PAPER_AUTOMATION_CONFIG_PATH,
+) -> set[str]:
+    if not config_path.exists():
+        return set()
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    raw_ids = payload.get("excluded_source_league_ids", [])
+    if raw_ids is None:
+        return set()
+    if not isinstance(raw_ids, list):
+        raise ValueError("paper automation excluded_source_league_ids must be a list")
+    return {normalized for item in raw_ids if (normalized := str(item).strip())}
+
+
+def _normalize_excluded_source_league_ids(
+    excluded_source_league_ids: set[str] | None,
+) -> set[str]:
+    if excluded_source_league_ids is None:
+        return load_paper_automation_excluded_source_league_ids()
+    return {normalized for item in excluded_source_league_ids if (normalized := str(item).strip())}
+
+
+def _exclude_source_league_ids(query, excluded_source_league_ids: set[str]):
+    if not excluded_source_league_ids:
+        return query
+    return query.filter(
+        or_(
+            League.source_league_id.is_(None),
+            ~League.source_league_id.in_(excluded_source_league_ids),
+        )
+    )
 
 
 def create_paper_automation_task(
@@ -67,11 +104,13 @@ def create_paper_automation_task(
     match_window_end: datetime,
     now: datetime,
     created_by: str = "web",
+    excluded_source_league_ids: set[str] | None = None,
 ) -> PaperAutomationTask:
     trigger_at = as_beijing_datetime(trigger_at)
     match_window_start = as_beijing_datetime(match_window_start)
     match_window_end = as_beijing_datetime(match_window_end)
     now = as_beijing_datetime(now)
+    excluded_source_league_ids = _normalize_excluded_source_league_ids(excluded_source_league_ids)
     if trigger_at <= now:
         raise PaperAutomationValidationError("触发任务时间必须是未来时间")
     if match_window_end < match_window_start:
@@ -80,6 +119,7 @@ def create_paper_automation_task(
         session,
         match_window_start=match_window_start,
         match_window_end=match_window_end,
+        excluded_source_league_ids=excluded_source_league_ids,
     )
     if target_count <= 0:
         raise PaperAutomationValidationError(
@@ -115,13 +155,16 @@ def count_matches_in_window(
     *,
     match_window_start: datetime,
     match_window_end: datetime,
+    excluded_source_league_ids: set[str] | None = None,
 ) -> int:
-    return (
+    excluded_source_league_ids = _normalize_excluded_source_league_ids(excluded_source_league_ids)
+    query = (
         session.query(Match)
+        .join(League, Match.league_id == League.id)
         .filter(Match.kickoff_time >= match_window_start)
         .filter(Match.kickoff_time <= match_window_end)
-        .count()
     )
+    return _exclude_source_league_ids(query, excluded_source_league_ids).count()
 
 
 def list_paper_automation_tasks(
@@ -140,7 +183,10 @@ def list_paper_automation_tasks(
 def build_paper_automation_task_payload(
     session: Session,
     task: PaperAutomationTask,
+    *,
+    excluded_source_league_ids: set[str] | None = None,
 ) -> dict[str, Any]:
+    excluded_source_league_ids = _normalize_excluded_source_league_ids(excluded_source_league_ids)
     return {
         "id": task.id,
         "created_by": task.created_by,
@@ -161,6 +207,7 @@ def build_paper_automation_task_payload(
             session,
             match_window_start=as_beijing_datetime(task.match_window_start),
             match_window_end=as_beijing_datetime(task.match_window_end),
+            excluded_source_league_ids=excluded_source_league_ids,
         ),
         "result_payload": _parse_result_payload(task.result_payload),
     }
@@ -228,8 +275,10 @@ def execute_paper_automation_task(
     queue_builder: Callable[[Session, PaperAutomationTask], PaperRecommendationQueueReport],
     bark_push_url: str | None | object = _DEFAULT_BARK_PUSH_URL,
     bark_sender: Callable[[str, BarkMessage], BarkPushResult] = push_bark_message,
+    excluded_source_league_ids: set[str] | None = None,
 ) -> PaperAutomationExecutionResult:
     now = as_beijing_datetime(now)
+    excluded_source_league_ids = _normalize_excluded_source_league_ids(excluded_source_league_ids)
     task = session.get(PaperAutomationTask, task_id)
     if task is None:
         raise PaperAutomationValidationError(f"自动任务不存在: {task_id}")
@@ -237,7 +286,11 @@ def execute_paper_automation_task(
         raise PaperAutomationValidationError("只能执行运行中的自动任务")
 
     try:
-        target_match_ids = _target_match_ids(session, task)
+        target_match_ids = _target_match_ids(
+            session,
+            task,
+            excluded_source_league_ids=excluded_source_league_ids,
+        )
         odds_sync_result = odds_syncer(target_match_ids)
         queue_report = queue_builder(session, task)
         created_record_ids, snapshot_record_ids, skipped_records = _record_queue_candidates(
@@ -388,6 +441,7 @@ def build_real_paper_queue_for_task(
     now: datetime,
     scorer: Callable[[dict[str, str]], PaperQueueScoreResult] | None = None,
     display_name_service: DisplayNameService | None = None,
+    excluded_source_league_ids: set[str] | None = None,
 ) -> PaperRecommendationQueueReport:
     return build_paper_recommendation_queue(
         session,
@@ -396,17 +450,24 @@ def build_real_paper_queue_for_task(
         end_time=as_beijing_datetime(task.match_window_end),
         scorer=scorer,
         display_name_service=display_name_service,
+        excluded_source_league_ids=_normalize_excluded_source_league_ids(excluded_source_league_ids),
     )
 
 
-def _target_match_ids(session: Session, task: PaperAutomationTask) -> list[int]:
-    rows = (
+def _target_match_ids(
+    session: Session,
+    task: PaperAutomationTask,
+    *,
+    excluded_source_league_ids: set[str],
+) -> list[int]:
+    query = (
         session.query(Match.id)
+        .join(League, Match.league_id == League.id)
         .filter(Match.kickoff_time >= as_beijing_datetime(task.match_window_start))
         .filter(Match.kickoff_time <= as_beijing_datetime(task.match_window_end))
         .order_by(Match.kickoff_time.asc(), Match.id.asc())
-        .all()
     )
+    rows = _exclude_source_league_ids(query, excluded_source_league_ids).all()
     return [match_id for (match_id,) in rows]
 
 

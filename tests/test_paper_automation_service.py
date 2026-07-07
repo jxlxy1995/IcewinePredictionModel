@@ -31,10 +31,13 @@ from icewine_prediction.paper_recommendation_queue_service import (
 )
 from icewine_prediction.paper_automation_service import (
     PaperAutomationValidationError,
+    build_paper_automation_task_payload,
     cancel_paper_automation_task,
     claim_due_paper_automation_task,
+    count_matches_in_window,
     create_paper_automation_task,
     execute_paper_automation_task,
+    load_paper_automation_excluded_source_league_ids,
 )
 from icewine_prediction.paper_strategy_registry import DEFAULT_STRATEGY
 from icewine_prediction.paper_recommendation_tracking_service import (
@@ -64,6 +67,46 @@ def _seed_match(session, kickoff: datetime) -> Match:
     match = Match(
         source_name="api-football",
         source_match_id="fixture-1",
+        league=league,
+        home_team=home,
+        away_team=away,
+        kickoff_time=kickoff,
+        status="scheduled",
+        season=2026,
+    )
+    session.add_all([league, home, away, match])
+    session.commit()
+    return match
+
+
+def _seed_match_for_league(
+    session,
+    *,
+    kickoff: datetime,
+    source_match_id: str,
+    source_league_id: str,
+    league_name: str,
+) -> Match:
+    league = League(
+        source_name="api-football",
+        source_league_id=source_league_id,
+        name=league_name,
+        country_or_region="World",
+        is_enabled=True,
+    )
+    home = Team(
+        source_name="api-football",
+        source_team_id=f"{source_match_id}-home",
+        canonical_name=f"{league_name} Home",
+    )
+    away = Team(
+        source_name="api-football",
+        source_team_id=f"{source_match_id}-away",
+        canonical_name=f"{league_name} Away",
+    )
+    match = Match(
+        source_name="api-football",
+        source_match_id=source_match_id,
         league=league,
         home_team=home,
         away_team=away,
@@ -472,6 +515,52 @@ def test_execute_task_records_candidates_and_sends_bark_from_confidence_groups()
     assert "\u63a8\u83501.50\u624b" in sent_messages[0][1].body
 
 
+def test_execute_task_excludes_blacklisted_leagues_from_odds_sync_targets():
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    odds_calls = []
+
+    with _session() as session:
+        blocked = _seed_match_for_league(
+            session,
+            kickoff=kickoff,
+            source_match_id="uefa-europa-league",
+            source_league_id="3",
+            league_name="UEFA Europa League",
+        )
+        allowed = _seed_match_for_league(
+            session,
+            kickoff=kickoff,
+            source_match_id="j1-league",
+            source_league_id="98",
+            league_name="J1 League",
+        )
+        task = _seed_running_task(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now,
+        )
+
+        def odds_syncer(match_ids):
+            odds_calls.append(match_ids)
+            return {"ok": match_ids}
+
+        result = execute_paper_automation_task(
+            session,
+            task.id,
+            now=now,
+            odds_syncer=odds_syncer,
+            queue_builder=lambda session_arg, task_arg: _queue_report([]),
+            bark_push_url=None,
+            excluded_source_league_ids={"3"},
+        )
+
+    assert blocked.id not in odds_calls[0]
+    assert odds_calls == [[allowed.id]]
+    assert result.result_payload["target_match_ids"] == [allowed.id]
+
+
 def test_execute_task_creates_group_snapshots_and_payload_ids():
     now = datetime(2026, 6, 22, 18, 0, tzinfo=BEIJING)
 
@@ -847,6 +936,70 @@ def test_create_task_rejects_empty_match_window():
                 match_window_end=now + timedelta(hours=1),
                 now=now,
             )
+
+
+def test_load_paper_automation_excluded_source_league_ids_reads_config(tmp_path):
+    config_path = tmp_path / "paper_automation.yaml"
+    config_path.write_text(
+        "excluded_source_league_ids:\n"
+        "  - 2\n"
+        "  - '3'\n"
+        "  - 848\n",
+        encoding="utf-8",
+    )
+
+    assert load_paper_automation_excluded_source_league_ids(config_path) == {"2", "3", "848"}
+    assert load_paper_automation_excluded_source_league_ids(tmp_path / "missing.yaml") == set()
+
+
+def test_create_task_excludes_blacklisted_leagues_from_match_window():
+    now = datetime(2026, 6, 15, 17, 0, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    with _session() as session:
+        blocked = _seed_match_for_league(
+            session,
+            kickoff=kickoff,
+            source_match_id="uefa-champions-league",
+            source_league_id="2",
+            league_name="UEFA Champions League",
+        )
+
+        with pytest.raises(PaperAutomationValidationError, match="没有本地赛程"):
+            create_paper_automation_task(
+                session,
+                trigger_at=now + timedelta(minutes=10),
+                match_window_start=kickoff,
+                match_window_end=kickoff,
+                now=now,
+                excluded_source_league_ids={"2"},
+            )
+
+        allowed = _seed_match_for_league(
+            session,
+            kickoff=kickoff,
+            source_match_id="j1-league",
+            source_league_id="98",
+            league_name="J1 League",
+        )
+        task = create_paper_automation_task(
+            session,
+            trigger_at=now + timedelta(minutes=20),
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now,
+            excluded_source_league_ids={"2"},
+        )
+        payload = build_paper_automation_task_payload(session, task, excluded_source_league_ids={"2"})
+        eligible_count = count_matches_in_window(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            excluded_source_league_ids={"2"},
+        )
+
+    assert blocked.id != allowed.id
+    assert eligible_count == 1
+    assert payload["target_match_count"] == 1
 
 
 def test_create_task_requires_future_trigger_and_existing_match():

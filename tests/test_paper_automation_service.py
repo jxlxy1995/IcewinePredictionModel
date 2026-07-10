@@ -529,6 +529,7 @@ def test_execute_task_does_not_overwrite_task_recovered_by_another_session(tmp_p
     engine = create_database_engine(tmp_path / "automation-fencing.sqlite3")
     initialize_database(engine)
     session_factory = create_session_factory(engine)
+    queue_calls = []
     with session_factory() as session:
         _seed_match(session, kickoff)
         task = _seed_running_task(
@@ -559,14 +560,69 @@ def test_execute_task_does_not_overwrite_task_recovered_by_another_session(tmp_p
                 task_id,
                 now=now,
                 odds_syncer=recover_task,
-                queue_builder=lambda session_arg, task_arg: _queue_report([]),
+                queue_builder=lambda session_arg, task_arg: queue_calls.append(task_arg.id)
+                or _queue_report([]),
                 bark_push_url=None,
             )
 
+    assert queue_calls == []
     with session_factory() as session:
         recovered = session.get(PaperAutomationTask, task_id)
         assert recovered.status == "failed"
         assert recovered.error_message == "recovered by competing scheduler"
+
+
+def test_execute_task_does_not_record_after_ownership_is_lost_during_queue_build(tmp_path):
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    engine = create_database_engine(tmp_path / "automation-queue-fencing.sqlite3")
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    sent_messages = []
+    with session_factory() as session:
+        match = _seed_match(session, kickoff)
+        task = _seed_running_task(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now - timedelta(minutes=5),
+        )
+        task_id = task.id
+        match_id = match.id
+
+    def lose_ownership(session, _task):
+        with session_factory() as competing_session:
+            competing_session.query(PaperAutomationTask).filter_by(id=task_id).update(
+                {
+                    "status": "failed",
+                    "error_message": "recovered during queue build",
+                    "finished_at": now,
+                    "updated_at": now,
+                }
+            )
+            competing_session.commit()
+        match = session.get(Match, match_id)
+        return _queue_report([_queue_row(match)])
+
+    with session_factory() as session:
+        with pytest.raises(PaperAutomationValidationError, match="执行权已失效"):
+            execute_paper_automation_task(
+                session,
+                task_id,
+                now=now,
+                odds_syncer=lambda match_ids: {"ok": match_ids},
+                queue_builder=lose_ownership,
+                bark_push_url="https://example.com/bark/token",
+                bark_sender=lambda push_url, message: sent_messages.append(message)
+                or BarkPushResult(success=True),
+            )
+
+    assert sent_messages == []
+    with session_factory() as session:
+        assert session.query(PaperRecommendationRecord).count() == 0
+        recovered = session.get(PaperAutomationTask, task_id)
+        assert recovered.status == "failed"
+        assert recovered.error_message == "recovered during queue build"
 
 
 def test_execute_task_excludes_blacklisted_leagues_from_odds_sync_targets():

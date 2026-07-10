@@ -321,6 +321,20 @@ def _transition_running_task(
     return True
 
 
+def _require_running_task_ownership(session: Session, *, task_id: int) -> None:
+    owned = (
+        session.query(PaperAutomationTask.id)
+        .filter(PaperAutomationTask.id == task_id)
+        .filter(PaperAutomationTask.status == "running")
+        .first()
+        is not None
+    )
+    if owned:
+        return
+    session.rollback()
+    raise PaperAutomationValidationError("自动任务执行权已失效")
+
+
 def cancel_paper_automation_task(
     session: Session,
     task_id: int,
@@ -366,18 +380,22 @@ def execute_paper_automation_task(
             excluded_source_league_ids=excluded_source_league_ids,
         )
         odds_sync_result = odds_syncer(target_match_ids)
+        _require_running_task_ownership(session, task_id=task_id)
         queue_report = queue_builder(session, task)
+        _require_running_task_ownership(session, task_id=task_id)
         created_record_ids, snapshot_record_ids, skipped_records = _record_queue_candidates(
             session,
             queue_report,
             recorded_at=now,
         )
+        _require_running_task_ownership(session, task_id=task_id)
         snapshot_results = create_group_snapshots_for_record_ids(
             session,
             snapshot_record_ids,
             snapshot_source="automation",
             created_at=now,
         )
+        _require_running_task_ownership(session, task_id=task_id)
         groups = [result.group for result in snapshot_results]
         snapshot_ids = [result.snapshot.id for result in snapshot_results]
         messages = format_paper_automation_bark_messages(
@@ -390,6 +408,7 @@ def execute_paper_automation_task(
                 skipped_count=len(skipped_records),
             ),
         )
+        _require_running_task_ownership(session, task_id=task_id)
         notification_status, notification_error = _send_bark_messages(
             messages,
             bark_push_url=(

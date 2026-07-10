@@ -9,8 +9,9 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import yaml
-from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy import exists, or_
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm.attributes import set_committed_value
 
 from icewine_prediction.bark_notification_service import (
     BarkMessage,
@@ -236,13 +237,19 @@ def claim_due_paper_automation_task(
                 minutes=running_timeout_minutes
             ):
                 return None
-            running.status = "failed"
-            running.error_message = (
-                f"RuntimeError: 自动任务运行超过 {running_timeout_minutes} 分钟，已由调度器恢复"
+            _transition_running_task(
+                session,
+                task_id=running.id,
+                values={
+                    PaperAutomationTask.status: "failed",
+                    PaperAutomationTask.error_message: (
+                        f"RuntimeError: 自动任务运行超过 {running_timeout_minutes} 分钟，"
+                        "已由调度器恢复"
+                    ),
+                    PaperAutomationTask.finished_at: now,
+                    PaperAutomationTask.updated_at: now,
+                },
             )
-            running.finished_at = now
-            running.updated_at = now
-            session.commit()
             continue
 
         task = (
@@ -272,10 +279,12 @@ def _claim_pending_task(
     task_id: int,
     now: datetime,
 ) -> bool:
+    running_task = aliased(PaperAutomationTask)
     updated = (
         session.query(PaperAutomationTask)
         .filter(PaperAutomationTask.id == task_id)
         .filter(PaperAutomationTask.status == "pending")
+        .filter(~exists().where(running_task.status == "running"))
         .update(
             {
                 PaperAutomationTask.status: "running",
@@ -287,6 +296,29 @@ def _claim_pending_task(
     )
     session.commit()
     return updated == 1
+
+
+def _transition_running_task(
+    session: Session,
+    *,
+    task_id: int,
+    values: dict[Any, Any],
+) -> bool:
+    updated = (
+        session.query(PaperAutomationTask)
+        .filter(PaperAutomationTask.id == task_id)
+        .filter(PaperAutomationTask.status == "running")
+        .update(values, synchronize_session=False)
+    )
+    if updated != 1:
+        session.rollback()
+        return False
+    task = session.get(PaperAutomationTask, task_id)
+    if task is not None:
+        for field, value in values.items():
+            set_committed_value(task, field.key, value)
+    session.commit()
+    return True
 
 
 def cancel_paper_automation_task(
@@ -400,14 +432,25 @@ def execute_paper_automation_task(
             "bark": bark_payload,
             "bark_message_count": len(messages),
         }
-        task.status = "success"
-        task.notification_status = notification_status
-        task.notification_error = notification_error
-        task.error_message = None
-        task.result_payload = json.dumps(result_payload, ensure_ascii=False, default=str)
-        task.finished_at = now
-        task.updated_at = now
-        session.commit()
+        completed = _transition_running_task(
+            session,
+            task_id=task_id,
+            values={
+                PaperAutomationTask.status: "success",
+                PaperAutomationTask.notification_status: notification_status,
+                PaperAutomationTask.notification_error: notification_error,
+                PaperAutomationTask.error_message: None,
+                PaperAutomationTask.result_payload: json.dumps(
+                    result_payload,
+                    ensure_ascii=False,
+                    default=str,
+                ),
+                PaperAutomationTask.finished_at: now,
+                PaperAutomationTask.updated_at: now,
+            },
+        )
+        if not completed:
+            raise PaperAutomationValidationError("自动任务执行权已失效")
         return PaperAutomationExecutionResult(
             status=task.status,
             notification_status=task.notification_status,
@@ -415,13 +458,16 @@ def execute_paper_automation_task(
         )
     except Exception as exc:
         session.rollback()
-        task = session.get(PaperAutomationTask, task_id)
-        if task is not None:
-            task.status = "failed"
-            task.error_message = f"{type(exc).__name__}: {exc}"
-            task.finished_at = now
-            task.updated_at = now
-            session.commit()
+        _transition_running_task(
+            session,
+            task_id=task_id,
+            values={
+                PaperAutomationTask.status: "failed",
+                PaperAutomationTask.error_message: f"{type(exc).__name__}: {exc}",
+                PaperAutomationTask.finished_at: now,
+                PaperAutomationTask.updated_at: now,
+            },
+        )
         raise
 
 

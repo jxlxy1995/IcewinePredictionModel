@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 from datetime import datetime, timedelta
 from decimal import Decimal
+from threading import Barrier
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from icewine_prediction.database import create_memory_database, create_session_factory, initialize_database
+from icewine_prediction.database import (
+    create_database_engine,
+    create_memory_database,
+    create_session_factory,
+    initialize_database,
+)
 from icewine_prediction.models import (
     League,
     Match,
@@ -514,6 +521,52 @@ def test_execute_task_records_candidates_and_sends_bark_from_confidence_groups()
     assert payload["bark"]["messages"][0]["body"] == sent_messages[0][1].body
     assert sent_messages[0][0] == "https://example.com/bark/secret-token"
     assert "\u63a8\u83501.50\u624b" in sent_messages[0][1].body
+
+
+def test_execute_task_does_not_overwrite_task_recovered_by_another_session(tmp_path):
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    engine = create_database_engine(tmp_path / "automation-fencing.sqlite3")
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        _seed_match(session, kickoff)
+        task = _seed_running_task(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now - timedelta(minutes=5),
+        )
+        task_id = task.id
+
+    def recover_task(_match_ids):
+        with session_factory() as competing_session:
+            competing_session.query(PaperAutomationTask).filter_by(id=task_id).update(
+                {
+                    "status": "failed",
+                    "error_message": "recovered by competing scheduler",
+                    "finished_at": now,
+                    "updated_at": now,
+                }
+            )
+            competing_session.commit()
+        return {"ok": True}
+
+    with session_factory() as session:
+        with pytest.raises(PaperAutomationValidationError, match="执行权已失效"):
+            execute_paper_automation_task(
+                session,
+                task_id,
+                now=now,
+                odds_syncer=recover_task,
+                queue_builder=lambda session_arg, task_arg: _queue_report([]),
+                bark_push_url=None,
+            )
+
+    with session_factory() as session:
+        recovered = session.get(PaperAutomationTask, task_id)
+        assert recovered.status == "failed"
+        assert recovered.error_message == "recovered by competing scheduler"
 
 
 def test_execute_task_excludes_blacklisted_leagues_from_odds_sync_targets():
@@ -1157,6 +1210,51 @@ def test_claim_pending_task_does_not_overwrite_competing_claim():
         assert claimed is False
         session.expire_all()
         assert session.get(PaperAutomationTask, task.id).status == "running"
+
+
+def test_claim_pending_task_allows_only_one_running_task_across_sessions(tmp_path):
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    engine = create_database_engine(tmp_path / "automation-claim.sqlite3")
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        _seed_match(session, kickoff)
+        tasks = [
+            PaperAutomationTask(
+                created_at=now - timedelta(hours=1),
+                updated_at=now - timedelta(hours=1),
+                created_by="test",
+                trigger_at=now + timedelta(minutes=index),
+                match_window_start=kickoff,
+                match_window_end=kickoff,
+                status="pending",
+                notification_status="pending",
+            )
+            for index in range(2)
+        ]
+        session.add_all(tasks)
+        session.commit()
+        task_ids = [task.id for task in tasks]
+
+    barrier = Barrier(2)
+
+    def claim(task_id: int) -> bool:
+        with session_factory() as session:
+            barrier.wait(timeout=5)
+            return paper_automation_service._claim_pending_task(
+                session,
+                task_id=task_id,
+                now=now,
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(claim, task_ids))
+
+    assert sorted(results) == [False, True]
+    with session_factory() as session:
+        assert session.query(PaperAutomationTask).filter_by(status="running").count() == 1
+        assert session.query(PaperAutomationTask).filter_by(status="pending").count() == 1
 
 
 def test_claim_due_task_skips_missed_backlog_and_claims_next_due_task():

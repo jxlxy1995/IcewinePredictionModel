@@ -159,26 +159,16 @@ export async function markTeamDisplayNameWorkspaceDone(
   leagueId: number,
   season: number
 ): Promise<{ league_id: number; season: number; is_translation_done: boolean }> {
-  try {
-    return await postJson("/api/display/team-name-workspace/done", {
-      league_id: leagueId,
-      season
-    });
-  } catch {
-    fallbackDoneDisplayTranslationKeys.add(`${leagueId}-${season}`);
-    return { is_translation_done: true, league_id: leagueId, season };
-  }
+  return await postJson("/api/display/team-name-workspace/done", {
+    league_id: leagueId,
+    season
+  });
 }
 
 export async function saveTeamDisplayNames(
   teams: Record<string, string>
 ): Promise<{ saved_count: number }> {
-  try {
-    return await postJson("/api/display/team-names", { teams });
-  } catch {
-    Object.assign(fallbackSavedTeamNames, teams);
-    return { saved_count: Object.keys(teams).length };
-  }
+  return await postJson("/api/display/team-names", { teams });
 }
 
 export async function runTrainingWorkflowAction(

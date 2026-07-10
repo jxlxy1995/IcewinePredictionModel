@@ -14,7 +14,9 @@ import {
   loadPaperAutomationTasks,
   loadPaperRecommendationWorkspace,
   loadPaperSnapshotReviewWorkspace,
+  markTeamDisplayNameWorkspaceDone,
   recordPaperCandidates,
+  saveTeamDisplayNames,
   saveZqcf918MatchId,
   startTrainingFullRefresh,
   syncFixtureRange,
@@ -221,6 +223,24 @@ describe("apiClient", () => {
     await expect(loadPaperRecommendationWorkspace()).rejects.toThrow(
       "paper endpoint failed"
     );
+  });
+
+  it("throws when marking a display workspace done fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("mark failed", { status: 500 }))
+    );
+
+    await expect(markTeamDisplayNameWorkspaceDone(49, 2026)).rejects.toThrow("mark failed");
+  });
+
+  it("throws when saving team display names fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("save failed", { status: 500 }))
+    );
+
+    await expect(saveTeamDisplayNames({ Arsenal: "阿森纳" })).rejects.toThrow("save failed");
   });
 
   it("loads paper workspace with replay window params", async () => {

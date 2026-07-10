@@ -229,6 +229,10 @@ def create_web_app(
                 ),
             ),
             grace_minutes=_int_env("PAPER_AUTOMATION_GRACE_MINUTES", 20),
+            running_timeout_minutes=_int_env(
+                "PAPER_AUTOMATION_RUNNING_TIMEOUT_MINUTES",
+                360,
+            ),
             poll_seconds=_int_env("PAPER_AUTOMATION_POLL_SECONDS", 20),
             clock=clock,
         )

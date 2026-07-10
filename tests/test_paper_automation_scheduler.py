@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from icewine_prediction.database import create_memory_database, create_session_factory, initialize_database
 from icewine_prediction.models import League, Match, PaperAutomationTask, Team
+import icewine_prediction.paper_automation_scheduler as paper_automation_scheduler
 from icewine_prediction.paper_automation_scheduler import (
     PaperAutomationScheduler,
     poll_paper_automation_once,
@@ -141,6 +142,35 @@ def test_poll_runs_one_due_task_and_keeps_serial_execution():
         assert session.get(PaperAutomationTask, second.id).status == "pending"
 
 
+def test_poll_passes_running_timeout_to_task_claim():
+    calls = []
+
+    class ClaimSession:
+        def close(self):
+            pass
+
+    def fake_claim(session, *, now, grace_minutes, running_timeout_minutes):
+        calls.append((now, grace_minutes, running_timeout_minutes))
+        return None
+
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    original_claim = paper_automation_scheduler.claim_due_paper_automation_task
+    paper_automation_scheduler.claim_due_paper_automation_task = fake_claim
+    try:
+        claimed_id = poll_paper_automation_once(
+            ClaimSession,
+            now=now,
+            grace_minutes=20,
+            running_timeout_minutes=321,
+            executor=lambda task_id: None,
+        )
+    finally:
+        paper_automation_scheduler.claim_due_paper_automation_task = original_claim
+
+    assert claimed_id is None
+    assert calls == [(now, 20, 321)]
+
+
 def test_poll_marks_overdue_task_missed():
     now = datetime(2026, 6, 15, 18, 50, tzinfo=BEIJING)
     kickoff = datetime(2026, 6, 15, 19, 0, tzinfo=BEIJING)
@@ -214,7 +244,7 @@ def test_poll_does_not_claim_when_running_task_exists():
 def test_scheduler_start_is_idempotent_and_stop_returns(monkeypatch):
     calls = []
 
-    def fake_poll(session_factory, *, now, grace_minutes, executor):
+    def fake_poll(session_factory, *, now, grace_minutes, executor, running_timeout_minutes):
         calls.append((now, grace_minutes))
         if len(calls) == 1:
             raise RuntimeError("transient scheduler failure")
@@ -246,7 +276,7 @@ def test_scheduler_start_is_idempotent_and_stop_returns(monkeypatch):
 def test_scheduler_logs_poll_failures(monkeypatch, caplog):
     calls = []
 
-    def fake_poll(session_factory, *, now, grace_minutes, executor):
+    def fake_poll(session_factory, *, now, grace_minutes, executor, running_timeout_minutes):
         calls.append((now, grace_minutes))
         if len(calls) == 1:
             raise RuntimeError("transient scheduler failure")
@@ -276,7 +306,7 @@ def test_scheduler_stop_returns_when_poll_is_blocked(monkeypatch):
     entered = Event()
     release = Event()
 
-    def blocking_poll(session_factory, *, now, grace_minutes, executor):
+    def blocking_poll(session_factory, *, now, grace_minutes, executor, running_timeout_minutes):
         entered.set()
         release.wait(timeout=1)
 

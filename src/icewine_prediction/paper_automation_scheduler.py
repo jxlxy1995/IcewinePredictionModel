@@ -21,10 +21,16 @@ def poll_paper_automation_once(
     now: datetime,
     grace_minutes: int,
     executor: Callable[[int], object],
+    running_timeout_minutes: int = 360,
 ) -> int | None:
     session = session_factory()
     try:
-        task = claim_due_paper_automation_task(session, now=now, grace_minutes=grace_minutes)
+        task = claim_due_paper_automation_task(
+            session,
+            now=now,
+            grace_minutes=grace_minutes,
+            running_timeout_minutes=running_timeout_minutes,
+        )
         if task is None:
             return None
         task_id = task.id
@@ -40,6 +46,7 @@ class PaperAutomationScheduler:
     session_factory: Callable[[], Session]
     executor: Callable[[int], object]
     grace_minutes: int = 20
+    running_timeout_minutes: int = 360
     poll_seconds: float = 20
     stop_timeout_seconds: float = 5
     clock: Callable[[], datetime] = now_beijing
@@ -68,6 +75,7 @@ class PaperAutomationScheduler:
                     now=self.clock(),
                     grace_minutes=self.grace_minutes,
                     executor=self.executor,
+                    running_timeout_minutes=self.running_timeout_minutes,
                 )
             except Exception:
                 logger.exception("paper automation scheduler poll failed")

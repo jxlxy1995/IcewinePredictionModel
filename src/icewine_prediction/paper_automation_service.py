@@ -54,6 +54,7 @@ class PaperAutomationExecutionResult:
 _DEFAULT_BARK_PUSH_URL = object()
 _PAPER_RECORD_ACTIVE_STATUSES = ("pending", "settled", "unsettleable")
 DEFAULT_PAPER_AUTOMATION_CONFIG_PATH = Path("config/paper_automation.yaml")
+DEFAULT_RUNNING_TIMEOUT_MINUTES = 360
 
 
 def as_beijing_datetime(value: datetime) -> datetime:
@@ -218,13 +219,32 @@ def claim_due_paper_automation_task(
     *,
     now: datetime,
     grace_minutes: int,
+    running_timeout_minutes: int = DEFAULT_RUNNING_TIMEOUT_MINUTES,
 ) -> PaperAutomationTask | None:
     now = as_beijing_datetime(now)
-    running = session.query(PaperAutomationTask).filter(PaperAutomationTask.status == "running").first()
-    if running is not None:
-        return None
 
     while True:
+        running = (
+            session.query(PaperAutomationTask)
+            .filter(PaperAutomationTask.status == "running")
+            .order_by(PaperAutomationTask.started_at.asc(), PaperAutomationTask.id.asc())
+            .first()
+        )
+        if running is not None:
+            running_started_at = running.started_at or running.updated_at or running.created_at
+            if as_beijing_datetime(running_started_at) > now - timedelta(
+                minutes=running_timeout_minutes
+            ):
+                return None
+            running.status = "failed"
+            running.error_message = (
+                f"RuntimeError: 自动任务运行超过 {running_timeout_minutes} 分钟，已由调度器恢复"
+            )
+            running.finished_at = now
+            running.updated_at = now
+            session.commit()
+            continue
+
         task = (
             session.query(PaperAutomationTask)
             .filter(PaperAutomationTask.status == "pending")
@@ -234,17 +254,39 @@ def claim_due_paper_automation_task(
         if task is None or as_beijing_datetime(task.trigger_at) > now:
             return None
         if now <= as_beijing_datetime(task.trigger_at) + timedelta(minutes=grace_minutes):
-            break
+            task_id = task.id
+            claimed = _claim_pending_task(session, task_id=task_id, now=now)
+            session.expire(task)
+            if claimed:
+                return task
+            continue
         task.status = "missed"
         task.missed_at = now
         task.updated_at = now
         session.commit()
 
-    task.status = "running"
-    task.started_at = now
-    task.updated_at = now
+
+def _claim_pending_task(
+    session: Session,
+    *,
+    task_id: int,
+    now: datetime,
+) -> bool:
+    updated = (
+        session.query(PaperAutomationTask)
+        .filter(PaperAutomationTask.id == task_id)
+        .filter(PaperAutomationTask.status == "pending")
+        .update(
+            {
+                PaperAutomationTask.status: "running",
+                PaperAutomationTask.started_at: now,
+                PaperAutomationTask.updated_at: now,
+            },
+            synchronize_session=False,
+        )
+    )
     session.commit()
-    return task
+    return updated == 1
 
 
 def cancel_paper_automation_task(

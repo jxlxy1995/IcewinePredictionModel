@@ -17,6 +17,7 @@ from icewine_prediction.models import (
     Team,
 )
 import icewine_prediction.bark_notification_service as bark_notification_service
+import icewine_prediction.paper_automation_service as paper_automation_service
 from icewine_prediction.bark_notification_service import (
     BarkMessage,
     BarkPushResult,
@@ -1083,6 +1084,79 @@ def test_claim_due_task_marks_missed_after_grace():
 
         assert claimed is None
         assert session.get(type(task), task.id).status == "missed"
+
+
+def test_claim_due_task_fails_stale_running_task_and_claims_pending():
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    with _session() as session:
+        _seed_match(session, kickoff)
+        stale = _seed_running_task(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now - timedelta(minutes=361),
+        )
+        pending = PaperAutomationTask(
+            created_at=now - timedelta(hours=1),
+            updated_at=now - timedelta(hours=1),
+            created_by="test",
+            trigger_at=now,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            status="pending",
+            notification_status="pending",
+        )
+        session.add(pending)
+        session.commit()
+
+        claimed = claim_due_paper_automation_task(
+            session,
+            now=now,
+            grace_minutes=20,
+            running_timeout_minutes=360,
+        )
+
+        session.refresh(stale)
+        assert stale.status == "failed"
+        assert stale.finished_at == now.replace(tzinfo=None)
+        assert stale.error_message == "RuntimeError: 自动任务运行超过 360 分钟，已由调度器恢复"
+        assert claimed is not None
+        assert claimed.id == pending.id
+        assert claimed.status == "running"
+
+
+def test_claim_pending_task_does_not_overwrite_competing_claim():
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        _seed_match(session, kickoff)
+        task = create_paper_automation_task(
+            session,
+            trigger_at=now,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now - timedelta(hours=1),
+        )
+        session.get(PaperAutomationTask, task.id)
+        with session_factory() as competing_session:
+            competing_session.query(PaperAutomationTask).filter_by(id=task.id).update(
+                {"status": "running"}
+            )
+            competing_session.commit()
+
+        claimed = paper_automation_service._claim_pending_task(
+            session,
+            task_id=task.id,
+            now=now,
+        )
+
+        assert claimed is False
+        session.expire_all()
+        assert session.get(PaperAutomationTask, task.id).status == "running"
 
 
 def test_claim_due_task_skips_missed_backlog_and_claims_next_due_task():

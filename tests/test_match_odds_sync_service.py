@@ -7,7 +7,7 @@ from icewine_prediction.match_odds_sync_service import (
     has_trusted_historical_odds,
     run_match_odds_sync_for_session,
 )
-from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, Team
+from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, OddsSourceMatch, Team
 from icewine_prediction.odds_provider_selection_service import (
     ODDSPAPI_SOURCE_NAME,
     THE_ODDS_API_SOURCE_NAME,
@@ -279,6 +279,53 @@ def test_run_match_odds_sync_uses_sbobet_when_zqcf918_has_no_odds(session):
     assert oddspapi_calls[0]["bookmaker"] == "sbobet"
     assert result["requests"] == 10
     assert _success_match_ids(result) == [match.id]
+
+
+def test_run_match_odds_sync_preserves_the_odds_api_primary_failure_reason(session):
+    match = _add_match(session)
+
+    def fake_the_odds_api_sync(**kwargs):
+        session.add(
+            OddsSourceMatch(
+                match_id=match.id,
+                source_name=THE_ODDS_API_SOURCE_NAME,
+                source_fixture_id="unmatched-event",
+                matched_at=datetime(2026, 6, 26, 18, 50, tzinfo=ZoneInfo("UTC")),
+                match_confidence=Decimal("0.0000"),
+                match_reason="no team match",
+                historical_odds_status="unmatched",
+                historical_odds_error="no matching The Odds API event",
+            )
+        )
+        session.commit()
+        return _the_odds_api_result(requests_used=2, credits_used=60, inserted_snapshot_count=0)
+
+    def fake_zqcf918_sync(**kwargs):
+        return {
+            "success": [],
+            "failed": [],
+            "skipped": [{"match_id": match.id, "message": "missing zqcf918 match ID"}],
+            "requests": 0,
+            "credits": 0,
+        }
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id],
+        the_odds_api_syncer=fake_the_odds_api_sync,
+        zqcf918_syncer=fake_zqcf918_sync,
+    )
+
+    assert _success_match_ids(result) == []
+    assert result["failed"] == [
+        {
+            "match_id": match.id,
+            "message": (
+                "The Odds API unmatched: no matching The Odds API event; "
+                "fallback: missing zqcf918 match ID"
+            ),
+        }
+    ]
 
 
 def _add_match(

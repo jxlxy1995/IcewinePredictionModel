@@ -4,7 +4,7 @@ from typing import Any, Callable
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from icewine_prediction.models import HistoricalOddsSnapshot, Match
+from icewine_prediction.models import HistoricalOddsSnapshot, Match, OddsSourceMatch
 from icewine_prediction.oddspapi_sync_runner import (
     SBOBET_FALLBACK_API_FOOTBALL_LEAGUE_IDS,
     run_oddspapi_sync_result,
@@ -85,15 +85,24 @@ def run_match_odds_sync_for_session(
                 for match_id in season_match_ids:
                     run_errors[match_id] = str(error_message)
             if selected_provider == MatchOddsSyncProvider.THE_ODDS_API:
+                _record_the_odds_api_primary_errors(session, season_match_ids, run_errors)
                 zqcf918_match_ids = _zqcf918_fallback_match_ids(session, matches, season_match_ids)
                 if zqcf918_match_ids:
                     zqcf918_result = zqcf918_syncer(session=session, match_ids=zqcf918_match_ids)
                     requests_used += int(zqcf918_result.get("requests", 0) or 0)
                     credits_used += int(zqcf918_result.get("credits", 0) or 0)
                     for item in zqcf918_result.get("failed", []):
-                        run_errors[int(item["match_id"])] = str(item.get("message") or "zqcf918 failed")
+                        _record_fallback_error(
+                            run_errors,
+                            int(item["match_id"]),
+                            str(item.get("message") or "zqcf918 failed"),
+                        )
                     for item in zqcf918_result.get("skipped", []):
-                        run_errors[int(item["match_id"])] = str(item.get("message") or "zqcf918 skipped")
+                        _record_fallback_error(
+                            run_errors,
+                            int(item["match_id"]),
+                            str(item.get("message") or "zqcf918 skipped"),
+                        )
                 fallback_match_ids = _sbobet_fallback_match_ids(session, matches, season_match_ids)
                 if fallback_match_ids:
                     fallback_result = _run_sbobet_fallback_sync(
@@ -107,7 +116,7 @@ def run_match_odds_sync_for_session(
                     fallback_error_message = getattr(fallback_result, "error_message", None)
                     if fallback_error_message:
                         for match_id in fallback_match_ids:
-                            run_errors[match_id] = str(fallback_error_message)
+                            _record_fallback_error(run_errors, match_id, str(fallback_error_message))
         except Exception as exc:
             for match_id in season_match_ids:
                 run_errors[match_id] = str(exc)
@@ -153,6 +162,46 @@ def has_trusted_historical_odds(session: Session, match_id: int) -> bool:
         .first()
         is not None
     )
+
+
+def _record_the_odds_api_primary_errors(
+    session: Session,
+    match_ids: set[int],
+    run_errors: dict[int, str],
+) -> None:
+    source_matches = (
+        session.query(OddsSourceMatch)
+        .filter(OddsSourceMatch.match_id.in_(match_ids))
+        .filter(OddsSourceMatch.source_name == THE_ODDS_API_SOURCE_NAME)
+        .all()
+    )
+    for source_match in source_matches:
+        if source_match.historical_odds_status == "success":
+            continue
+        message = _format_the_odds_api_primary_error(
+            source_match.historical_odds_status,
+            source_match.historical_odds_error,
+        )
+        if message and source_match.match_id not in run_errors:
+            run_errors[source_match.match_id] = message
+
+
+def _format_the_odds_api_primary_error(status: str | None, error: str | None) -> str | None:
+    if not status and not error:
+        return None
+    label = "The Odds API"
+    if status:
+        label = f"{label} {status}"
+    if error:
+        return f"{label}: {error}"
+    return label
+
+
+def _record_fallback_error(run_errors: dict[int, str], match_id: int, message: str) -> None:
+    if match_id in run_errors:
+        run_errors[match_id] = f"{run_errors[match_id]}; fallback: {message}"
+        return
+    run_errors[match_id] = message
 
 
 def has_priority_pinnacle_historical_odds(session: Session, match_id: int) -> bool:

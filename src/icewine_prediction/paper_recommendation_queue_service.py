@@ -2105,6 +2105,8 @@ def _score_market(
         ]
         calibrated_index = max(range(len(side_labels)), key=lambda index: calibrated_edges[index])
         calibrated_side = side_labels[calibrated_index]
+        # Keep this edge on the raw model's selected side. calibrated_side separately
+        # records whether the calibrated model selected that same side.
         calibrated_edge = _quantize(calibrated_edges[side_index])
     return PaperQueueScore(
         market_type=market_type,

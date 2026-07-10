@@ -1002,46 +1002,6 @@ def _row_with_robustness(
     )
 
 
-def _latest_historical_snapshots_for_match(
-    match: Match,
-    *,
-    historical_snapshots: list[HistoricalOddsSnapshot],
-) -> list[HistoricalOddsSnapshot]:
-    selected = []
-    kickoff_time = _match_snapshot_timeline_kickoff_time(match)
-    for market_type in ("asian_handicap", "total_goals", "match_winner"):
-        pairs = _pair_market_snapshots(
-            [snapshot for snapshot in historical_snapshots if snapshot.market_type == market_type],
-            market_type=market_type,
-        )
-        pair = _select_latest_pre_kickoff_pair(pairs, kickoff_time=kickoff_time)
-        if pair is not None:
-            selected.extend(_snapshots_from_pair(match, pair))
-    return selected
-
-
-def _select_latest_pre_kickoff_pair(
-    pairs: list[_PairedMarketSnapshot],
-    *,
-    kickoff_time: datetime,
-) -> _PairedMarketSnapshot | None:
-    kickoff = _comparable_datetime(kickoff_time)
-    candidates = [
-        pair
-        for pair in pairs
-        if _comparable_datetime(pair.snapshot_time) <= kickoff
-    ]
-    if not candidates:
-        return None
-    return max(
-        candidates,
-        key=lambda pair: (
-            _comparable_datetime(pair.snapshot_time),
-            -pair.balance_gap,
-        ),
-    )
-
-
 def _apply_execution_robustness_to_rows(
     rows: list[PaperQueueRow],
     *,

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
+import icewine_prediction.paper_recommendation_queue_service as queue_service
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, OddsSnapshot, Team, TrainingRun
 from icewine_prediction.paper_strategy_registry import ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY
 from icewine_prediction.paper_recommendation_queue_service import (
@@ -17,6 +18,10 @@ from icewine_prediction.paper_recommendation_queue_service import (
     _team_prior_state,
     _team_prior_states_by_match,
 )
+
+
+def test_paper_queue_does_not_keep_legacy_latest_historical_snapshot_helper():
+    assert not hasattr(queue_service, "_latest_historical_snapshots_for_match")
 
 
 def test_build_paper_recommendation_queue_marks_candidate_no_odds_and_prefetch(session):

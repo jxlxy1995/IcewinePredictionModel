@@ -2,17 +2,14 @@ from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import date, datetime, time as datetime_time, timedelta
 from decimal import Decimal
-from pathlib import Path
 from threading import Lock
 import time
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
-import yaml
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from icewine_prediction.alias_service import list_external_aliases
 from icewine_prediction.database import create_database_engine, create_session_factory, initialize_database
 from icewine_prediction.dynamic_main_market_service import (
     build_dynamic_main_market_snapshots,
@@ -30,6 +27,7 @@ from icewine_prediction.odds_source_match_service import (
     find_best_odds_source_match,
 )
 from icewine_prediction.settings import load_project_settings
+from icewine_prediction.team_alias_service import load_global_team_aliases
 from icewine_prediction.sources.oddspapi_client import (
     OddsPapiApiError,
     OddsPapiClient,
@@ -934,40 +932,7 @@ def _resolve_source_fixture_id(
 
 
 def _load_team_aliases(session: Session) -> list[ExternalAliasInput]:
-    db_aliases = [
-        ExternalAliasInput(
-            canonical_name=alias.canonical_name,
-            alias_name=alias.alias_name,
-        )
-        for alias in list_external_aliases(
-            session,
-            source_name=ODDSPAPI_SOURCE_NAME,
-            entity_type="team",
-        )
-    ]
-    config_aliases = _load_configured_team_aliases()
-    return list(dict.fromkeys([*config_aliases, *db_aliases]))
-
-
-def _load_configured_team_aliases(config_path: Path = Path("config/external_aliases.yaml")) -> list[ExternalAliasInput]:
-    if not config_path.exists():
-        return []
-    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    aliases = []
-    for item in payload.get("aliases", []):
-        if item.get("entity_type") != "team" or item.get("source_name") != ODDSPAPI_SOURCE_NAME:
-            continue
-        canonical_name = item.get("canonical_name")
-        alias_name = item.get("alias_name")
-        if not canonical_name or not alias_name:
-            continue
-        aliases.append(
-            ExternalAliasInput(
-                canonical_name=str(canonical_name),
-                alias_name=str(alias_name),
-            )
-        )
-    return aliases
+    return load_global_team_aliases(session)
 
 
 def _build_fixture_cache_key(tournament_id: int, kickoff_time: datetime) -> tuple[int, str, str]:

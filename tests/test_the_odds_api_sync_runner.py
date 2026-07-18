@@ -185,7 +185,7 @@ def test_load_the_odds_api_team_aliases_includes_config_and_database_aliases(
 
     assert ExternalAliasInput(canonical_name="Türkiye", alias_name="Turkey") in aliases
     assert ExternalAliasInput(canonical_name="USA", alias_name="United States") in aliases
-    assert ExternalAliasInput(canonical_name="Wolves", alias_name="Wolverhampton Wanderers") not in aliases
+    assert ExternalAliasInput(canonical_name="Wolves", alias_name="Wolverhampton Wanderers") in aliases
 
 
 def test_run_the_odds_api_sync_stores_snapshots_under_distinct_source(session):

@@ -918,7 +918,11 @@ def test_run_oddspapi_sync_for_session_uses_stored_team_aliases(session):
     assert session.query(HistoricalOddsSnapshot).count() == 4
 
 
-def test_load_team_aliases_includes_configured_aliases(session, tmp_path, monkeypatch):
+def test_load_team_aliases_includes_cross_source_configured_aliases(
+    session,
+    tmp_path,
+    monkeypatch,
+):
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     (config_dir / "external_aliases.yaml").write_text(
@@ -926,7 +930,7 @@ def test_load_team_aliases_includes_configured_aliases(session, tmp_path, monkey
             [
                 "aliases:",
                 "  - entity_type: team",
-                "    source_name: oddspapi",
+                "    source_name: the_odds_api",
                 "    canonical_name: Dynamo",
                 "    alias_name: FK Dinamo Moscow",
             ]

@@ -1,14 +1,11 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import yaml
 from sqlalchemy.orm import Session, joinedload
 
-from icewine_prediction.alias_service import list_external_aliases
 from icewine_prediction.dynamic_main_market_service import (
     build_dynamic_main_market_snapshots,
     build_dynamic_neighbor_market_snapshots,
@@ -31,6 +28,7 @@ from icewine_prediction.odds_source_match_service import (
     normalize_team_name,
 )
 from icewine_prediction.settings import load_project_settings
+from icewine_prediction.team_alias_service import load_global_team_aliases
 from icewine_prediction.sources.the_odds_api_client import (
     TheOddsApiApiError,
     TheOddsApiClient,
@@ -718,42 +716,7 @@ def _best_team_similarity(
 
 
 def _load_team_aliases(session: Session) -> list[ExternalAliasInput]:
-    db_aliases = [
-        ExternalAliasInput(
-            canonical_name=alias.canonical_name,
-            alias_name=alias.alias_name,
-        )
-        for alias in list_external_aliases(
-            session,
-            source_name=THE_ODDS_API_SOURCE_NAME,
-            entity_type="team",
-        )
-    ]
-    config_aliases = _load_configured_team_aliases()
-    return list(dict.fromkeys([*config_aliases, *db_aliases]))
-
-
-def _load_configured_team_aliases(
-    config_path: Path = Path("config/external_aliases.yaml"),
-) -> list[ExternalAliasInput]:
-    if not config_path.exists():
-        return []
-    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    aliases = []
-    for item in payload.get("aliases", []):
-        if item.get("entity_type") != "team" or item.get("source_name") != THE_ODDS_API_SOURCE_NAME:
-            continue
-        canonical_name = item.get("canonical_name")
-        alias_name = item.get("alias_name")
-        if not canonical_name or not alias_name:
-            continue
-        aliases.append(
-            ExternalAliasInput(
-                canonical_name=str(canonical_name),
-                alias_name=str(alias_name),
-            )
-        )
-    return aliases
+    return load_global_team_aliases(session)
 
 
 def _parse_time(value: Any) -> datetime | None:

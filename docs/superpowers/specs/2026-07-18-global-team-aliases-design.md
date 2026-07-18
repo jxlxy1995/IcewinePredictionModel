@@ -42,7 +42,7 @@
 因此：
 
 - `Ham-Kam` 使用已有别名 `HamKam`，与 The Odds API 名称完全匹配。
-- `Sichuan Jiuniu` 使用已有别名 `Shenzhen Peng City`，与 `Shenzhen Peng City FC` 通过现有包含关系获得 `0.9` 相似度，达到匹配要求，无需增加带 `FC` 的重复别名。
+- `Sichuan Jiuniu` 使用已有别名 `Shenzhen Peng City`；现有名称标准化会移除末尾 `FC`，因此它与 `Shenzhen Peng City FC` 获得 `1.0` 相似度，无需增加带 `FC` 的重复别名。
 
 ## 代码边界
 

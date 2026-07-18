@@ -3,6 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
 import yaml
 
 from icewine_prediction.models import (
@@ -142,6 +143,45 @@ def test_find_best_the_odds_api_event_match_uses_external_team_aliases(session):
 
     assert candidate is not None
     assert candidate.event_id == "world-cup-turkey-usa"
+    assert candidate.confidence == Decimal("1.0000")
+
+
+@pytest.mark.parametrize(
+    ("home", "away", "external_home", "external_away"),
+    [
+        ("Ham-Kam", "Tromso", "HamKam", "Tromso"),
+        (
+            "Wuhan Three Towns",
+            "Sichuan Jiuniu",
+            "Wuhan Three Towns",
+            "Shenzhen Peng City FC",
+        ),
+    ],
+)
+def test_find_best_the_odds_api_event_match_handles_reported_global_alias_variants(
+    session,
+    home,
+    away,
+    external_home,
+    external_away,
+):
+    aliases = _load_team_aliases(session)
+    match = _add_match(session, home_team_name=home, away_team_name=away)
+    candidate = find_best_the_odds_api_event_match(
+        match,
+        [
+            {
+                "id": "reported-event",
+                "home_team": external_home,
+                "away_team": external_away,
+                "commence_time": "2026-06-26T19:00:00Z",
+            }
+        ],
+        team_aliases=aliases,
+    )
+
+    assert candidate is not None
+    assert candidate.event_id == "reported-event"
     assert candidate.confidence == Decimal("1.0000")
 
 

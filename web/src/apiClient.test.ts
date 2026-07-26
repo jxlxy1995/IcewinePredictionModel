@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearSbobetExecutionTimepointOdds,
+  createFilteredPaperAutomationTasks,
   createManualExecutionTimepointOdds,
   createPaperAutomationTask,
   cancelPaperAutomationTask,
@@ -723,6 +724,47 @@ describe("apiClient", () => {
     });
     expect(task.id).toBe(12);
     expect(task.status).toBe("pending");
+  });
+
+  it("creates filtered paper automation tasks with the full match filter payload", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        matched_match_count: 12,
+        excluded_match_count: 1,
+        eligible_match_count: 11,
+        time_slot_count: 4,
+        created_count: 0,
+        skipped_existing_count: 3,
+        skipped_expired_count: 1,
+        tasks: []
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createFilteredPaperAutomationTasks({
+      start_time: "2026-07-27T00:00",
+      end_time: "2026-07-28T00:00",
+      league_name: "Premier League",
+      status_filter: "not_started",
+      odds_filter: ["none", "partial"],
+      search: "Arsenal"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/paper-automation/tasks/from-match-filters",
+      {
+        body: JSON.stringify({
+          start_time: "2026-07-27T00:00",
+          end_time: "2026-07-28T00:00",
+          league_name: "Premier League",
+          status_filter: "not_started",
+          odds_filter: "none,partial",
+          search: "Arsenal"
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      }
+    );
   });
 
   it("loads and cancels paper automation task by id", async () => {

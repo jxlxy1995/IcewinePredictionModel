@@ -613,6 +613,17 @@ export type CreatePaperAutomationTaskPayload = {
   match_window_end: string;
 };
 
+export type CreateFilteredPaperAutomationTasksResult = {
+  matched_match_count: number;
+  excluded_match_count: number;
+  eligible_match_count: number;
+  time_slot_count: number;
+  created_count: number;
+  skipped_existing_count: number;
+  skipped_expired_count: number;
+  tasks: PaperAutomationTask[];
+};
+
 export type DataSyncFreshness = {
   latest_fixtures_results_sync: string | null;
   latest_odds_sync: string | null;

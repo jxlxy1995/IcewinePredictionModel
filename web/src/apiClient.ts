@@ -17,9 +17,11 @@ import type {
   MatchListWorkspace,
   MatchSyncRunDetail,
   MatchSyncResponse,
+  MatchListFilters,
   MatchWithOdds,
   MatchOddsTrends,
   CreatePaperAutomationTaskPayload,
+  CreateFilteredPaperAutomationTasksResult,
   ClearSbobetExecutionTimepointOddsResult,
   ManualExecutionTimepointOddsPayload,
   ManualExecutionTimepointOddsResult,
@@ -376,6 +378,18 @@ export async function createPaperAutomationTask(
   payload: CreatePaperAutomationTaskPayload
 ): Promise<PaperAutomationTask> {
   return await postJson<PaperAutomationTask>("/api/paper-automation/tasks", payload);
+}
+
+export async function createFilteredPaperAutomationTasks(
+  filters: MatchListFilters
+): Promise<CreateFilteredPaperAutomationTasksResult> {
+  return await postJson<CreateFilteredPaperAutomationTasksResult>(
+    "/api/paper-automation/tasks/from-match-filters",
+    {
+      ...filters,
+      odds_filter: serializeOddsFilter(filters.odds_filter)
+    }
+  );
 }
 
 export async function loadPaperAutomationTask(taskId: number): Promise<PaperAutomationTask> {

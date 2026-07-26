@@ -59,10 +59,12 @@ from icewine_prediction.oddspapi_backfill_audit_service import (
 )
 from icewine_prediction.oddspapi_worker_process_service import _is_process_running
 from icewine_prediction.paper_automation_service import (
+    PaperAutomationBatchResult,
     PaperAutomationValidationError,
     build_real_paper_queue_for_task,
     build_paper_automation_task_payload,
     cancel_paper_automation_task,
+    create_filtered_paper_automation_tasks,
     create_paper_automation_task,
     execute_paper_automation_task,
     list_paper_automation_tasks,
@@ -951,6 +953,26 @@ def create_web_app(
             except PaperAutomationValidationError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
             return build_paper_automation_task_payload(session, task)
+
+    @app.post("/api/paper-automation/tasks/from-match-filters")
+    def create_filtered_paper_automation_tasks_endpoint(
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = clock()
+        with session_factory() as session:
+            try:
+                matches = _select_sync_matches_from_payload(session, payload, now=now)
+            except (TypeError, ValueError) as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"自动任务筛选参数错误: {error}",
+                ) from error
+            result = create_filtered_paper_automation_tasks(
+                session,
+                matches=matches,
+                now=now,
+            )
+            return build_paper_automation_batch_payload(session, result)
 
     @app.get("/api/paper-automation/tasks/{task_id}")
     def paper_automation_task_detail(task_id: int) -> dict[str, Any]:
@@ -2023,6 +2045,22 @@ def _select_sync_matches_from_payload(
         odds_filter=str(payload.get("odds_filter") or "all"),
         search=payload.get("search") or None,
     )
+
+
+def build_paper_automation_batch_payload(
+    session: Session,
+    result: PaperAutomationBatchResult,
+) -> dict[str, Any]:
+    return {
+        "matched_match_count": result.matched_match_count,
+        "excluded_match_count": result.excluded_match_count,
+        "eligible_match_count": result.eligible_match_count,
+        "time_slot_count": result.time_slot_count,
+        "created_count": result.created_count,
+        "skipped_existing_count": result.skipped_existing_count,
+        "skipped_expired_count": result.skipped_expired_count,
+        "tasks": [build_paper_automation_task_payload(session, task) for task in result.tasks],
+    }
 
 
 def _build_fixture_range_sync_report(

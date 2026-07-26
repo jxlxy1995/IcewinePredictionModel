@@ -3329,6 +3329,106 @@ def test_web_console_api_creates_paper_automation_task(tmp_path):
     assert payload["result_payload"] is None
 
 
+def test_web_console_api_creates_automation_tasks_from_match_filters(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    _seed_console_data(session_factory)
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            start_paper_automation_scheduler=False,
+            clock=lambda: datetime(2026, 5, 20, 20, 0, tzinfo=BEIJING),
+        )
+    )
+
+    response = client.post(
+        "/api/paper-automation/tasks/from-match-filters",
+        json={
+            "start_time": "2026-05-20T21:30:00+08:00",
+            "end_time": "2026-05-20T22:30:00+08:00",
+            "league_name": "英冠",
+            "status_filter": "finished",
+            "odds_filter": "all",
+            "search": "Cardiff",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert {
+        key: payload[key]
+        for key in (
+            "matched_match_count",
+            "excluded_match_count",
+            "eligible_match_count",
+            "time_slot_count",
+            "created_count",
+            "skipped_existing_count",
+            "skipped_expired_count",
+        )
+    } == {
+        "matched_match_count": 1,
+        "excluded_match_count": 0,
+        "eligible_match_count": 1,
+        "time_slot_count": 1,
+        "created_count": 1,
+        "skipped_existing_count": 0,
+        "skipped_expired_count": 0,
+    }
+    assert len(payload["tasks"]) == 1
+    task = payload["tasks"][0]
+    assert task["trigger_at"] == "2026-05-20T21:51:00+08:00"
+    assert task["match_window_start"] == "2026-05-20T22:00:00+08:00"
+    assert task["match_window_end"] == "2026-05-20T22:00:00+08:00"
+    assert task["target_match_count"] == 1
+
+
+def test_web_console_api_filtered_automation_returns_empty_summary(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            start_paper_automation_scheduler=False,
+        )
+    )
+
+    response = client.post(
+        "/api/paper-automation/tasks/from-match-filters",
+        json={"start_time": "2026-07-27T00:00", "end_time": "2026-07-28T00:00"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["matched_match_count"] == 0
+    assert response.json()["created_count"] == 0
+    assert response.json()["tasks"] == []
+
+
+def test_web_console_api_filtered_automation_rejects_invalid_time(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            start_paper_automation_scheduler=False,
+        )
+    )
+
+    response = client.post(
+        "/api/paper-automation/tasks/from-match-filters",
+        json={"start_time": "not-a-time", "end_time": "2026-07-28T00:00"},
+    )
+
+    assert response.status_code == 400
+    assert "自动任务筛选参数错误" in response.json()["detail"]
+
+
 def test_web_console_api_rejects_empty_paper_automation_window(tmp_path):
     engine = create_memory_database()
     initialize_database(engine)

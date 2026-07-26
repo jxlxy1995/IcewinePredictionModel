@@ -25,6 +25,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   cancelPaperAutomationTask,
   clearSbobetExecutionTimepointOdds,
+  createFilteredPaperAutomationTasks,
   createPaperAutomationTask,
   createManualExecutionTimepointOdds,
   deletePaperRecord,
@@ -58,6 +59,7 @@ import {
   loadTeamDisplayNameWorkspace
 } from "../apiClient";
 import { LeagueCoverageTable } from "../components/LeagueCoverageTable";
+import { MatchAutomationActions } from "../components/MatchAutomationActions";
 import { MetricCard } from "../components/MetricCard";
 import { MatchListTable } from "../components/MatchListTable";
 import { OddsTrendPanel } from "../components/OddsTrendPanel";
@@ -117,6 +119,10 @@ import {
   formatShortDateTime as formatAutomationShortDateTime
 } from "../paperAutomationWorkspace";
 import { updateDraftFromTriggerTime } from "../paperAutomationDraft";
+import {
+  formatFilteredAutomationResult,
+  mergePaperAutomationTasks
+} from "../paperAutomationBatch";
 import {
   buildExecutionTimepointOddsTableView,
   buildExecutionTimepointCoverageView,
@@ -582,6 +588,24 @@ export function DashboardPage() {
                 match_window_end: matchListFilters.end_time
               });
               setAutomationDialogOpen(true);
+            }}
+            onCreateFilteredAutomationTasks={() => {
+              setMatchListAction("create-filtered-automation-tasks");
+              setMatchListError(null);
+              setMatchListMessage(null);
+              createFilteredPaperAutomationTasks(matchListFilters)
+                .then((result) => {
+                  const message = formatFilteredAutomationResult(result);
+                  setPaperAutomationTasks((current) =>
+                    mergePaperAutomationTasks(current, result.tasks)
+                  );
+                  setMatchListMessage(message);
+                  setAutomationTaskMessage(message);
+                })
+                .catch((error) =>
+                  setMatchListError(formatActionError("一键创建自动任务失败", error))
+                )
+                .finally(() => setMatchListAction(null));
             }}
             onFiltersChange={(nextFilters) => {
               const merged = { ...matchListFilters, ...nextFilters };
@@ -1297,6 +1321,7 @@ function FilteredMatchListView({
   syncRunDetail,
   onBackToList,
   onCreateAutomationTask,
+  onCreateFilteredAutomationTasks,
   onDiscoverFixtures,
   onDetailOddsChanged,
   onDetailUpdated,
@@ -1323,6 +1348,7 @@ function FilteredMatchListView({
   syncRunDetail: MatchSyncRunDetail | null;
   onBackToList: () => void;
   onCreateAutomationTask: () => void;
+  onCreateFilteredAutomationTasks: () => void;
   onDiscoverFixtures: () => void;
   onDetailOddsChanged: (matchId: number) => Promise<void>;
   onDetailUpdated: (detail: MatchDetail) => void;
@@ -1386,12 +1412,11 @@ function FilteredMatchListView({
             同步财富赔率
           </button>
         </div>
-        <div className="sync-action">
-          <button disabled={isBusy} onClick={onCreateAutomationTask} type="button">
-            <Clock size={16} />
-            创建自动任务
-          </button>
-        </div>
+        <MatchAutomationActions
+          isBusy={isBusy}
+          onCreateFiltered={onCreateFilteredAutomationTasks}
+          onCreateManual={onCreateAutomationTask}
+        />
       </section>
       <section className="match-secondary-freshness">
         {freshnessCards.slice(2).map((card) => (
@@ -2155,6 +2180,9 @@ function formatActionError(prefix: string, error: unknown): string {
 }
 
 function formatMatchListAction(action: string) {
+  if (action === "create-filtered-automation-tasks") {
+    return "一键创建筛选自动任务";
+  }
   if (action === "discover-fixtures") {
     return "拉取赛程";
   }

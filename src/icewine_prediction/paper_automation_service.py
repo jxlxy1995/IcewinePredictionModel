@@ -52,6 +52,21 @@ class PaperAutomationExecutionResult:
     result_payload: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class PaperAutomationBatchResult:
+    matched_match_count: int
+    excluded_match_count: int
+    eligible_match_count: int
+    time_slot_count: int
+    skipped_existing_count: int
+    skipped_expired_count: int
+    tasks: tuple[PaperAutomationTask, ...]
+
+    @property
+    def created_count(self) -> int:
+        return len(self.tasks)
+
+
 _DEFAULT_BARK_PUSH_URL = object()
 _PAPER_RECORD_ACTIVE_STATUSES = ("pending", "settled", "unsettleable")
 DEFAULT_PAPER_AUTOMATION_CONFIG_PATH = Path("config/paper_automation.yaml")
@@ -98,6 +113,26 @@ def _exclude_source_league_ids(query, excluded_source_league_ids: set[str]):
     )
 
 
+def _new_paper_automation_task(
+    *,
+    trigger_at: datetime,
+    match_window_start: datetime,
+    match_window_end: datetime,
+    now: datetime,
+    created_by: str,
+) -> PaperAutomationTask:
+    return PaperAutomationTask(
+        created_at=now,
+        updated_at=now,
+        created_by=created_by,
+        trigger_at=trigger_at,
+        match_window_start=match_window_start,
+        match_window_end=match_window_end,
+        status="pending",
+        notification_status="pending",
+    )
+
+
 def create_paper_automation_task(
     session: Session,
     *,
@@ -137,19 +172,86 @@ def create_paper_automation_task(
     )
     if duplicate is not None:
         raise PaperAutomationValidationError("已存在重复的触发时间和比赛时间段待执行自动任务")
-    task = PaperAutomationTask(
-        created_at=now,
-        updated_at=now,
-        created_by=created_by,
+    task = _new_paper_automation_task(
         trigger_at=trigger_at,
         match_window_start=match_window_start,
         match_window_end=match_window_end,
-        status="pending",
-        notification_status="pending",
+        now=now,
+        created_by=created_by,
     )
     session.add(task)
     session.commit()
     return task
+
+
+def create_filtered_paper_automation_tasks(
+    session: Session,
+    *,
+    matches: list[Match],
+    now: datetime,
+    created_by: str = "web",
+    excluded_source_league_ids: set[str] | None = None,
+) -> PaperAutomationBatchResult:
+    now = as_beijing_datetime(now)
+    excluded_ids = _normalize_excluded_source_league_ids(excluded_source_league_ids)
+    matched_matches = list(matches)
+    eligible_matches = [
+        match
+        for match in matched_matches
+        if match.league.source_league_id is None
+        or str(match.league.source_league_id).strip() not in excluded_ids
+    ]
+    kickoff_times = sorted(
+        {as_beijing_datetime(match.kickoff_time) for match in eligible_matches}
+    )
+    active_tasks = (
+        session.query(PaperAutomationTask)
+        .filter(PaperAutomationTask.status.in_(("pending", "running")))
+        .all()
+    )
+    tasks: list[PaperAutomationTask] = []
+    skipped_existing_count = 0
+    skipped_expired_count = 0
+
+    for kickoff_time in kickoff_times:
+        trigger_at = kickoff_time - timedelta(minutes=9)
+        if trigger_at <= now:
+            skipped_expired_count += 1
+            continue
+        if any(
+            as_beijing_datetime(task.match_window_start)
+            <= kickoff_time
+            <= as_beijing_datetime(task.match_window_end)
+            for task in active_tasks
+        ):
+            skipped_existing_count += 1
+            continue
+        task = _new_paper_automation_task(
+            trigger_at=trigger_at,
+            match_window_start=kickoff_time,
+            match_window_end=kickoff_time,
+            now=now,
+            created_by=created_by,
+        )
+        tasks.append(task)
+        active_tasks.append(task)
+
+    try:
+        session.add_all(tasks)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return PaperAutomationBatchResult(
+        matched_match_count=len(matched_matches),
+        excluded_match_count=len(matched_matches) - len(eligible_matches),
+        eligible_match_count=len(eligible_matches),
+        time_slot_count=len(kickoff_times),
+        skipped_existing_count=skipped_existing_count,
+        skipped_expired_count=skipped_expired_count,
+        tasks=tuple(tasks),
+    )
 
 
 def count_matches_in_window(

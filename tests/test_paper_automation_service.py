@@ -1048,6 +1048,170 @@ def test_create_task_rejects_empty_match_window():
             )
 
 
+def test_create_filtered_tasks_groups_same_kickoff_and_uses_t_minus_nine():
+    now = datetime(2026, 7, 27, 17, 0, tzinfo=BEIJING)
+    kickoff = now + timedelta(hours=2)
+    with _session() as session:
+        matches = [
+            _seed_match_for_league(
+                session,
+                kickoff=kickoff,
+                source_match_id="fresh-a",
+                source_league_id="12",
+                league_name="Fresh League A",
+            ),
+            _seed_match_for_league(
+                session,
+                kickoff=kickoff,
+                source_match_id="fresh-b",
+                source_league_id="13",
+                league_name="Fresh League B",
+            ),
+        ]
+
+        result = paper_automation_service.create_filtered_paper_automation_tasks(
+            session,
+            matches=matches,
+            now=now,
+            excluded_source_league_ids=set(),
+        )
+
+        assert result.matched_match_count == 2
+        assert result.eligible_match_count == 2
+        assert result.time_slot_count == 1
+        assert result.created_count == 1
+        assert paper_automation_service.as_beijing_datetime(
+            result.tasks[0].trigger_at
+        ) == kickoff - timedelta(minutes=9)
+        assert paper_automation_service.as_beijing_datetime(
+            result.tasks[0].match_window_start
+        ) == kickoff
+        assert paper_automation_service.as_beijing_datetime(
+            result.tasks[0].match_window_end
+        ) == kickoff
+
+
+def test_create_filtered_tasks_reports_expired_existing_and_excluded_slots():
+    now = datetime(2026, 7, 27, 17, 0, tzinfo=BEIJING)
+    expired = now + timedelta(minutes=9)
+    covered = now + timedelta(hours=1)
+    fresh = now + timedelta(hours=2)
+    with _session() as session:
+        matches = [
+            _seed_match_for_league(
+                session,
+                kickoff=expired,
+                source_match_id="expired",
+                source_league_id="10",
+                league_name="Expired League",
+            ),
+            _seed_match_for_league(
+                session,
+                kickoff=covered,
+                source_match_id="covered",
+                source_league_id="11",
+                league_name="Covered League",
+            ),
+            _seed_match_for_league(
+                session,
+                kickoff=fresh,
+                source_match_id="fresh",
+                source_league_id="12",
+                league_name="Fresh League",
+            ),
+            _seed_match_for_league(
+                session,
+                kickoff=fresh,
+                source_match_id="excluded",
+                source_league_id="2",
+                league_name="Excluded League",
+            ),
+        ]
+        _seed_running_task(
+            session,
+            match_window_start=covered - timedelta(minutes=30),
+            match_window_end=covered + timedelta(minutes=30),
+            now=now,
+        )
+
+        result = paper_automation_service.create_filtered_paper_automation_tasks(
+            session,
+            matches=matches,
+            now=now,
+            excluded_source_league_ids={"2"},
+        )
+
+        assert result.matched_match_count == 4
+        assert result.excluded_match_count == 1
+        assert result.eligible_match_count == 3
+        assert result.time_slot_count == 3
+        assert result.created_count == 1
+        assert result.skipped_existing_count == 1
+        assert result.skipped_expired_count == 1
+
+
+@pytest.mark.parametrize("status", ["success", "failed", "missed", "cancelled"])
+def test_create_filtered_tasks_ignores_terminal_task_windows(status):
+    now = datetime(2026, 7, 27, 17, 0, tzinfo=BEIJING)
+    kickoff = now + timedelta(hours=1)
+    with _session() as session:
+        match = _seed_match(session, kickoff)
+        session.add(
+            PaperAutomationTask(
+                created_at=now,
+                updated_at=now,
+                created_by="test",
+                trigger_at=kickoff - timedelta(minutes=9),
+                match_window_start=kickoff,
+                match_window_end=kickoff,
+                status=status,
+                notification_status="pending",
+            )
+        )
+        session.commit()
+
+        result = paper_automation_service.create_filtered_paper_automation_tasks(
+            session,
+            matches=[match],
+            now=now,
+            excluded_source_league_ids=set(),
+        )
+
+        assert result.created_count == 1
+        assert result.skipped_existing_count == 0
+
+
+def test_create_filtered_tasks_rolls_back_all_new_tasks_when_commit_fails(monkeypatch):
+    now = datetime(2026, 7, 27, 17, 0, tzinfo=BEIJING)
+    with _session() as session:
+        matches = [
+            _seed_match_for_league(
+                session,
+                kickoff=now + timedelta(hours=index),
+                source_match_id=f"rollback-{index}",
+                source_league_id=str(100 + index),
+                league_name=f"Rollback League {index}",
+            )
+            for index in (1, 2)
+        ]
+        real_commit = session.commit
+
+        def fail_commit():
+            raise RuntimeError("commit failed")
+
+        monkeypatch.setattr(session, "commit", fail_commit)
+        with pytest.raises(RuntimeError, match="commit failed"):
+            paper_automation_service.create_filtered_paper_automation_tasks(
+                session,
+                matches=matches,
+                now=now,
+                excluded_source_league_ids=set(),
+            )
+        monkeypatch.setattr(session, "commit", real_commit)
+
+        assert session.query(PaperAutomationTask).count() == 0
+
+
 def test_load_paper_automation_excluded_source_league_ids_reads_config(tmp_path):
     config_path = tmp_path / "paper_automation.yaml"
     config_path.write_text(

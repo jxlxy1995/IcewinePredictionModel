@@ -98,6 +98,34 @@ def test_load_zqcf918_league_aliases_deduplicates_equivalent_records(
     assert aliases == [ExternalAliasInput("Ekstraklasa (Poland)", "Poland First")]
 
 
+def test_load_zqcf918_league_aliases_keeps_distinct_chinese_aliases(
+    session,
+    tmp_path,
+    monkeypatch,
+):
+    _write_config(
+        tmp_path,
+        [
+            "  - entity_type: league",
+            "    source_name: zqcf918",
+            "    canonical_name: Ekstraklasa (Poland)",
+            "    alias_name: \u6ce2\u5170\u7532",
+            "  - entity_type: league",
+            "    source_name: zqcf918",
+            "    canonical_name: Urvalsdeild (Iceland)",
+            "    alias_name: \u51b0\u5c9b\u8d85",
+        ],
+    )
+    monkeypatch.chdir(tmp_path)
+
+    aliases = load_zqcf918_league_aliases(session)
+
+    assert aliases == [
+        ExternalAliasInput("Ekstraklasa (Poland)", "\u6ce2\u5170\u7532"),
+        ExternalAliasInput("Urvalsdeild (Iceland)", "\u51b0\u5c9b\u8d85"),
+    ]
+
+
 def test_load_zqcf918_league_aliases_rejects_cross_league_conflicts(
     session,
     tmp_path,

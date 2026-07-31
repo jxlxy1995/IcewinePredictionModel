@@ -8,13 +8,20 @@ from icewine_prediction.time_utils import now_beijing
 
 
 def normalize_alias_name(name: str) -> str:
-    ascii_name = (
-        unicodedata.normalize("NFKD", name)
-        .encode("ascii", "ignore")
-        .decode("ascii")
-        .lower()
-    )
-    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", ascii_name)).strip()
+    characters: list[str] = []
+    for character in unicodedata.normalize("NFKD", name).lower():
+        if unicodedata.combining(character):
+            continue
+        if character.isascii() or not unicodedata.name(character, "").startswith(
+            "LATIN"
+        ):
+            characters.append(character)
+    normalized_name = "".join(characters)
+    return re.sub(
+        r"\s+",
+        " ",
+        re.sub(r"[^\w]+", " ", normalized_name).replace("_", " "),
+    ).strip()
 
 
 def add_external_alias(

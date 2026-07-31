@@ -65,6 +65,36 @@ def test_add_external_alias_keeps_distinct_chinese_aliases(session):
     ]
 
 
+def test_add_external_alias_upgrades_legacy_empty_chinese_normalized_alias(session):
+    legacy = add_external_alias(
+        session,
+        entity_type="league",
+        source_name="zqcf918",
+        canonical_name="Old League",
+        alias_name="\u6ce2\u5170\u7532",
+    )
+    legacy.normalized_alias = ""
+    session.commit()
+
+    updated = add_external_alias(
+        session,
+        entity_type="league",
+        source_name="zqcf918",
+        canonical_name="Ekstraklasa (Poland)",
+        alias_name="\u6ce2\u5170\u7532",
+    )
+
+    aliases = list_external_aliases(
+        session,
+        source_name="zqcf918",
+        entity_type="league",
+    )
+    assert updated.id == legacy.id
+    assert len(aliases) == 1
+    assert aliases[0].canonical_name == "Ekstraklasa (Poland)"
+    assert aliases[0].normalized_alias == "\u6ce2\u5170\u7532"
+
+
 def test_expand_external_names_returns_aliases_for_canonical_name(session):
     add_external_alias(
         session,

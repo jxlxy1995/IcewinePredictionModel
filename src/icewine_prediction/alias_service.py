@@ -24,6 +24,16 @@ def normalize_alias_name(name: str) -> str:
     ).strip()
 
 
+def _legacy_normalize_alias_name(name: str) -> str:
+    ascii_name = (
+        unicodedata.normalize("NFKD", name)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", ascii_name)).strip()
+
+
 def add_external_alias(
     session: Session,
     entity_type: str,
@@ -41,9 +51,23 @@ def add_external_alias(
         )
         .one_or_none()
     )
+    if existing is None:
+        legacy_normalized_alias = _legacy_normalize_alias_name(alias_name)
+        legacy = (
+            session.query(ExternalAlias)
+            .filter_by(
+                entity_type=entity_type,
+                source_name=source_name,
+                normalized_alias=legacy_normalized_alias,
+            )
+            .one_or_none()
+        )
+        if legacy is not None and normalize_alias_name(legacy.alias_name) == normalized_alias:
+            existing = legacy
     if existing is not None:
         existing.canonical_name = canonical_name
         existing.alias_name = alias_name
+        existing.normalized_alias = normalized_alias
         session.commit()
         return existing
 

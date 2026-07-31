@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -32,6 +33,7 @@ from icewine_prediction.team_alias_service import load_global_team_aliases
 from icewine_prediction.sources.the_odds_api_client import (
     TheOddsApiApiError,
     TheOddsApiClient,
+    TheOddsApiExtraTimeBudgetExceededError,
     TheOddsApiRequestBudgetExceededError,
 )
 from icewine_prediction.sources.the_odds_api_odds_mapper import map_the_odds_api_event_odds
@@ -39,6 +41,7 @@ from icewine_prediction.time_utils import now_beijing
 
 
 UTC = ZoneInfo("UTC")
+logger = logging.getLogger(__name__)
 DEFAULT_REGION = "eu"
 DEFAULT_MARKETS = ("h2h", "spreads", "totals")
 ALTERNATE_MARKETS = ("alternate_spreads", "alternate_totals")
@@ -195,6 +198,18 @@ class TheOddsApiSyncClient:
     def provider_requests_remaining(self) -> int | None:
         return getattr(self.client, "provider_requests_remaining", None)
 
+    @property
+    def retry_count(self) -> int:
+        return getattr(self.client, "retry_count", 0)
+
+    @property
+    def retry_success_count(self) -> int:
+        return getattr(self.client, "retry_success_count", 0)
+
+    @property
+    def recovery_budget(self) -> Any | None:
+        return getattr(self.client, "recovery_budget", None)
+
     def fetch_current_odds(self, sport_key: str) -> list[dict[str, Any]]:
         payload = self.client.get(
             f"sports/{sport_key}/odds",
@@ -316,6 +331,7 @@ def run_the_odds_api_sync_for_session(
     from_date: datetime | None = None,
     refresh_existing: bool = False,
     now: datetime | None = None,
+    trace_id: str | None = None,
 ) -> TheOddsApiSyncResult:
     matches, skipped = select_the_odds_api_candidate_matches(
         session,
@@ -328,6 +344,7 @@ def run_the_odds_api_sync_for_session(
     )
     events_by_sport_key: dict[str, TheOddsApiCachedRequestResult] = {}
     match_results: list[TheOddsApiMatchSyncResult] = []
+    not_attempted_match_ids: list[int] = []
     processed = matched = failed = inserted = skipped_duplicates = 0
     asian = totals = winners = 0
     error_message = None
@@ -336,8 +353,9 @@ def run_the_odds_api_sync_for_session(
     historical_odds_cache: dict[
         tuple[str, str, str, str, str], TheOddsApiCachedRequestResult
     ] = {}
-    for match in matches:
+    for match_index, match in enumerate(matches):
         sport_key = API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS[str(match.league.source_league_id)]
+        _log_match_start(trace_id=trace_id, match_id=match.id, sport_key=sport_key)
         request_failures: list[TheOddsApiCachedRequestResult] = []
         try:
             if _as_utc(match.kickoff_time) <= now_utc:
@@ -351,6 +369,12 @@ def run_the_odds_api_sync_for_session(
                     )
                 )
                 candidate = _historical_candidate_from_snapshots(match, snapshots)
+                _log_request_cache_failures(
+                    request_failures,
+                    trace_id=trace_id,
+                    match_id=match.id,
+                    sport_key=sport_key,
+                )
             else:
                 snapshots, raw_source_snapshots, request_failures = (
                     _fetch_pre_kickoff_elapsed_historical_snapshots(
@@ -363,6 +387,12 @@ def run_the_odds_api_sync_for_session(
                     )
                 )
                 candidate = _historical_candidate_from_snapshots(match, snapshots)
+                _log_request_cache_failures(
+                    request_failures,
+                    trace_id=trace_id,
+                    match_id=match.id,
+                    sport_key=sport_key,
+                )
                 if candidate is None:
                     current_result = _fetch_current_odds_cached(
                         client,
@@ -371,14 +401,19 @@ def run_the_odds_api_sync_for_session(
                     )
                     if current_result.failed:
                         request_failures.append(current_result)
+                        _log_request_cache_failure(
+                            current_result,
+                            trace_id=trace_id,
+                            match_id=match.id,
+                            sport_key=sport_key,
+                        )
                         failure_result = _failed_match_result(
                             match.id,
                             current_result.error_message or "The Odds API request failed",
                             current_result.error_code or "request_error",
                             request_failures,
                         )
-                        match_results.append(failure_result)
-                        error_message = error_message or failure_result.error_message
+                        _record_match_result(match_results, failure_result, trace_id=trace_id)
                         _store_source_match_status(
                             session,
                             match,
@@ -428,7 +463,7 @@ def run_the_odds_api_sync_for_session(
                     failure_result.error_message,
                 )
                 failed += 1
-                match_results.append(failure_result)
+                _record_match_result(match_results, failure_result, trace_id=trace_id)
                 continue
             if not snapshots:
                 failure_result = _failed_match_result(
@@ -445,7 +480,7 @@ def run_the_odds_api_sync_for_session(
                     failure_result.error_message,
                 )
                 failed += 1
-                match_results.append(failure_result)
+                _record_match_result(match_results, failure_result, trace_id=trace_id)
                 continue
             if candidate.reason == "historical sport/time/team match; standard execution timepoints":
                 main_snapshots = build_point_in_time_main_market_snapshots(
@@ -500,31 +535,55 @@ def run_the_odds_api_sync_for_session(
             asian += sum(1 for snapshot in snapshots if snapshot.market_type == "asian_handicap")
             totals += sum(1 for snapshot in snapshots if snapshot.market_type == "total_goals")
             winners += sum(1 for snapshot in snapshots if snapshot.market_type == "match_winner")
-            match_results.append(match_result)
-        except (TheOddsApiApiError, TheOddsApiRequestBudgetExceededError) as exc:
-            error_message = str(exc)
-            _store_source_match_status(session, match, None, "failed", error_message)
-            failed += 1
-            if isinstance(exc, TheOddsApiApiError):
-                match_results.append(
-                    TheOddsApiMatchSyncResult(
-                        match_id=match.id,
-                        status="failed",
-                        error_message=error_message,
-                        error_code=exc.error_code,
-                        attempt_count=exc.attempt_count,
-                        retry_exhausted=exc.retry_exhausted,
+            _record_match_result(match_results, match_result, trace_id=trace_id)
+        except TheOddsApiExtraTimeBudgetExceededError:
+            for remaining_index, remaining_match in enumerate(
+                matches[match_index:],
+                start=match_index,
+            ):
+                remaining_sport_key = API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS[
+                    str(remaining_match.league.source_league_id)
+                ]
+                if remaining_index != match_index:
+                    _log_match_start(
+                        trace_id=trace_id,
+                        match_id=remaining_match.id,
+                        sport_key=remaining_sport_key,
                     )
-                )
-            else:
-                match_results.append(
+                not_attempted_match_ids.append(remaining_match.id)
+                _record_match_result(
+                    match_results,
                     TheOddsApiMatchSyncResult(
-                        match_id=match.id,
-                        status="failed",
-                        error_message=error_message,
-                    )
+                        match_id=remaining_match.id,
+                        status="not_attempted",
+                        error_message="The Odds API recovery time budget exhausted",
+                        error_code="extra_time_budget_exhausted",
+                    ),
+                    trace_id=trace_id,
                 )
             break
+        except (TheOddsApiApiError, TheOddsApiRequestBudgetExceededError) as exc:
+            match_error_message = str(exc)
+            _store_source_match_status(session, match, None, "failed", match_error_message)
+            failed += 1
+            if isinstance(exc, TheOddsApiApiError):
+                match_result = TheOddsApiMatchSyncResult(
+                    match_id=match.id,
+                    status="failed",
+                    error_message=match_error_message,
+                    error_code=exc.error_code,
+                    attempt_count=exc.attempt_count,
+                    retry_exhausted=exc.retry_exhausted,
+                )
+            else:
+                match_result = TheOddsApiMatchSyncResult(
+                    match_id=match.id,
+                    status="failed",
+                    error_message=match_error_message,
+                    error_code="request_budget_exhausted",
+                )
+            _record_match_result(match_results, match_result, trace_id=trace_id)
+    recovery_budget = client.recovery_budget
     return TheOddsApiSyncResult(
         processed_match_count=processed,
         matched_count=matched,
@@ -541,6 +600,83 @@ def run_the_odds_api_sync_for_session(
         provider_requests_remaining=client.provider_requests_remaining,
         error_message=error_message,
         match_results=tuple(match_results),
+        not_attempted_match_ids=tuple(not_attempted_match_ids),
+        trace_id=trace_id,
+        retry_count=client.retry_count,
+        retry_success_count=client.retry_success_count,
+        rate_limit_wait_seconds=(
+            getattr(recovery_budget, "limiter_wait_seconds", 0.0)
+            if recovery_budget is not None
+            else 0.0
+        ),
+        recovery_elapsed_seconds=(
+            getattr(recovery_budget, "consumed_seconds", 0.0)
+            if recovery_budget is not None
+            else 0.0
+        ),
+        recovery_budget_remaining_seconds=(
+            getattr(recovery_budget, "remaining_seconds", 120.0)
+            if recovery_budget is not None
+            else 120.0
+        ),
+    )
+
+
+def _log_match_start(*, trace_id: str | None, match_id: int, sport_key: str) -> None:
+    logger.info(
+        "the_odds_api_match_start trace_id=%s match_id=%s sport_key=%s",
+        trace_id,
+        match_id,
+        sport_key,
+    )
+
+
+def _record_match_result(
+    match_results: list[TheOddsApiMatchSyncResult],
+    match_result: TheOddsApiMatchSyncResult,
+    *,
+    trace_id: str | None,
+) -> None:
+    match_results.append(match_result)
+    logger.info(
+        "the_odds_api_match_result trace_id=%s match_id=%s status=%s error_code=%s",
+        trace_id,
+        match_result.match_id,
+        match_result.status,
+        match_result.error_code,
+    )
+
+
+def _log_request_cache_failures(
+    request_failures: list[TheOddsApiCachedRequestResult],
+    *,
+    trace_id: str | None,
+    match_id: int,
+    sport_key: str,
+) -> None:
+    for request_failure in request_failures:
+        _log_request_cache_failure(
+            request_failure,
+            trace_id=trace_id,
+            match_id=match_id,
+            sport_key=sport_key,
+        )
+
+
+def _log_request_cache_failure(
+    request_failure: TheOddsApiCachedRequestResult,
+    *,
+    trace_id: str | None,
+    match_id: int,
+    sport_key: str,
+) -> None:
+    logger.warning(
+        "the_odds_api_request_cache_failure trace_id=%s match_id=%s "
+        "sport_key=%s error_code=%s",
+        trace_id,
+        match_id,
+        sport_key,
+        request_failure.error_code,
     )
 
 

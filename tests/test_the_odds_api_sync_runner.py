@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -20,6 +21,7 @@ from icewine_prediction.odds_provider_selection_service import THE_ODDS_API_SOUR
 from icewine_prediction.sources.the_odds_api_client import (
     TheOddsApiApiError,
     TheOddsApiExtraTimeBudgetExceededError,
+    TheOddsApiRequestBudgetExceededError,
 )
 from icewine_prediction.the_odds_api_sync_runner import (
     API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS,
@@ -788,6 +790,234 @@ def test_run_the_odds_api_sync_reuses_failed_current_request_across_matches(sess
     assert result.failed_match_count == 2
 
 
+def test_run_the_odds_api_sync_continues_after_match_request_failure(session, caplog):
+    caplog.set_level(logging.INFO)
+    first = _add_match(
+        session,
+        home_team_name="Arsenal",
+        away_team_name="Chelsea",
+        source_league_id="103",
+    )
+    sweden_league = League(
+        name="Allsvenskan",
+        country_or_region="Sweden",
+        level=1,
+        is_enabled=True,
+        source_name="api_football",
+        source_league_id="113",
+    )
+    session.add(sweden_league)
+    session.flush()
+    second = _add_match_in_league(
+        session,
+        league=sweden_league,
+        home_team_name="Tottenham",
+        away_team_name="Everton",
+        kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC")),
+        source_match_id="1002",
+    )
+
+    class NorwayFailureSwedenSuccessClient(FakeTheOddsApiClient):
+        def get(self, endpoint, params=None):
+            params = params or {}
+            self.calls.append((endpoint, params))
+            self.request_count += 1
+            if endpoint.startswith("historical/"):
+                return {"data": []}
+            if endpoint == "sports/soccer_norway_eliteserien/odds":
+                raise TheOddsApiApiError(
+                    "current odds request timed out",
+                    error_code="read_timeout",
+                    attempt_count=2,
+                    retry_exhausted=True,
+                )
+            if endpoint == "sports/soccer_sweden_allsvenskan/odds":
+                return [
+                    _featured_event_payload(
+                        "2026-06-26T18:45:00Z",
+                        home_team="Tottenham",
+                        away_team="Everton",
+                    )
+                ]
+            raise AssertionError(f"unexpected endpoint: {endpoint}")
+
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=TheOddsApiSyncClient(NorwayFailureSwedenSuccessClient({})),
+        season=2026,
+        max_matches=5,
+        match_ids={first.id, second.id},
+        now=datetime(2026, 6, 26, 18, 51, tzinfo=ZoneInfo("UTC")),
+        trace_id="trace-337",
+    )
+
+    assert [(item.match_id, item.status, item.error_code) for item in result.match_results] == [
+        (first.id, "failed", "read_timeout"),
+        (second.id, "success", None),
+    ]
+    assert result.failed_match_count == 1
+    assert result.processed_match_count == 1
+    assert result.error_message is None
+    assert result.trace_id == "trace-337"
+    assert result.retry_count == 0
+    assert result.retry_success_count == 0
+    assert result.rate_limit_wait_seconds == 0.0
+    assert result.recovery_elapsed_seconds == 0.0
+    assert result.recovery_budget_remaining_seconds == 120.0
+    messages = [record.getMessage() for record in caplog.records]
+    assert (
+        "the_odds_api_match_result trace_id=trace-337 "
+        f"match_id={first.id} status=failed error_code=read_timeout"
+    ) in messages
+    assert (
+        "the_odds_api_match_result trace_id=trace-337 "
+        f"match_id={second.id} status=success error_code=None"
+    ) in messages
+
+
+def test_run_the_odds_api_sync_marks_current_and_remaining_matches_not_attempted_when_extra_time_budget_is_exhausted(
+    session,
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    first = _add_match(session, home_team_name="Arsenal", away_team_name="Chelsea")
+    second = _add_match_in_league(
+        session,
+        league=first.league,
+        home_team_name="Tottenham",
+        away_team_name="Everton",
+        kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC")),
+        source_match_id="1002",
+    )
+
+    class ExhaustedClient(FakeTheOddsApiClient):
+        def get(self, endpoint, params=None):
+            self.calls.append((endpoint, params or {}))
+            self.request_count += 1
+            raise TheOddsApiExtraTimeBudgetExceededError(
+                "The Odds API recovery time budget exceeded"
+            )
+
+    raw_client = ExhaustedClient({})
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=TheOddsApiSyncClient(raw_client),
+        season=2026,
+        max_matches=5,
+        match_ids={first.id, second.id},
+        now=datetime(2026, 6, 26, 18, 51, tzinfo=ZoneInfo("UTC")),
+        trace_id="trace-budget",
+    )
+
+    assert result.not_attempted_match_ids == (first.id, second.id)
+    assert [(item.match_id, item.status) for item in result.match_results] == [
+        (first.id, "not_attempted"),
+        (second.id, "not_attempted"),
+    ]
+    assert {item.error_code for item in result.match_results} == {
+        "extra_time_budget_exhausted"
+    }
+    assert result.failed_match_count == 0
+    assert result.processed_match_count == 0
+    assert result.error_message is None
+    assert len(raw_client.calls) == 1
+    messages = [record.getMessage() for record in caplog.records]
+    assert sum(message.startswith("the_odds_api_match_result") for message in messages) == 2
+
+
+def test_run_the_odds_api_sync_treats_request_budget_exhaustion_as_a_match_failure(session):
+    first = _add_match(
+        session,
+        home_team_name="Arsenal",
+        away_team_name="Chelsea",
+        source_league_id="103",
+    )
+    sweden_league = League(
+        name="Allsvenskan",
+        country_or_region="Sweden",
+        level=1,
+        is_enabled=True,
+        source_name="api_football",
+        source_league_id="113",
+    )
+    session.add(sweden_league)
+    session.flush()
+    second = _add_match_in_league(
+        session,
+        league=sweden_league,
+        home_team_name="Tottenham",
+        away_team_name="Everton",
+        kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC")),
+        source_match_id="1002",
+    )
+
+    class RequestBudgetFailureClient(FakeTheOddsApiClient):
+        def get(self, endpoint, params=None):
+            self.calls.append((endpoint, params or {}))
+            self.request_count += 1
+            if endpoint.startswith("historical/"):
+                return {"data": []}
+            if endpoint == "sports/soccer_norway_eliteserien/odds":
+                raise TheOddsApiRequestBudgetExceededError(
+                    "The Odds API request budget exceeded"
+                )
+            return [
+                _featured_event_payload(
+                    "2026-06-26T18:45:00Z",
+                    home_team="Tottenham",
+                    away_team="Everton",
+                )
+            ]
+
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=TheOddsApiSyncClient(RequestBudgetFailureClient({})),
+        season=2026,
+        max_matches=5,
+        match_ids={first.id, second.id},
+        now=datetime(2026, 6, 26, 18, 51, tzinfo=ZoneInfo("UTC")),
+    )
+
+    assert [(item.match_id, item.status, item.error_code) for item in result.match_results] == [
+        (first.id, "failed", "request_budget_exhausted"),
+        (second.id, "success", None),
+    ]
+    assert result.failed_match_count == 1
+    assert result.processed_match_count == 1
+    assert result.error_message is None
+
+
+def test_run_the_odds_api_sync_reports_raw_client_recovery_statistics(session):
+    match = _add_match(session, home_team_name="Arsenal", away_team_name="Chelsea")
+
+    class RecoveryBudget:
+        limiter_wait_seconds = 1.25
+        consumed_seconds = 3.5
+        remaining_seconds = 116.5
+
+    raw_client = FakeTheOddsApiClient(
+        {"sports/soccer_epl/odds": [_featured_event_payload("2026-06-26T18:45:00Z")]}
+    )
+    raw_client.retry_count = 2
+    raw_client.retry_success_count = 1
+    raw_client.recovery_budget = RecoveryBudget()
+
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=TheOddsApiSyncClient(raw_client),
+        season=2026,
+        max_matches=5,
+        match_ids={match.id},
+        now=datetime(2026, 6, 25, 0, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
+    assert result.retry_count == 2
+    assert result.retry_success_count == 1
+    assert result.rate_limit_wait_seconds == 1.25
+    assert result.recovery_elapsed_seconds == 3.5
+    assert result.recovery_budget_remaining_seconds == 116.5
+
+
 def test_run_the_odds_api_sync_prefers_terminal_current_failure_over_historical_failure(session):
     match = _add_match(
         session,
@@ -1199,11 +1429,16 @@ def _historical_event_payload_with_markets(
     }
 
 
-def _featured_event_payload(last_update: str) -> dict:
+def _featured_event_payload(
+    last_update: str,
+    *,
+    home_team: str = "Arsenal",
+    away_team: str = "Chelsea",
+) -> dict:
     return {
         "id": "event-1",
-        "home_team": "Arsenal",
-        "away_team": "Chelsea",
+        "home_team": home_team,
+        "away_team": away_team,
         "commence_time": "2026-06-26T19:00:00Z",
         "bookmakers": [
             {
@@ -1214,17 +1449,17 @@ def _featured_event_payload(last_update: str) -> dict:
                         "key": "h2h",
                         "last_update": last_update,
                         "outcomes": [
-                            {"name": "Arsenal", "price": 2.10},
+                            {"name": home_team, "price": 2.10},
                             {"name": "Draw", "price": 3.30},
-                            {"name": "Chelsea", "price": 3.40},
+                            {"name": away_team, "price": 3.40},
                         ],
                     },
                     {
                         "key": "spreads",
                         "last_update": last_update,
                         "outcomes": [
-                            {"name": "Arsenal", "price": 1.91, "point": -0.25},
-                            {"name": "Chelsea", "price": 1.99, "point": 0.25},
+                            {"name": home_team, "price": 1.91, "point": -0.25},
+                            {"name": away_team, "price": 1.99, "point": 0.25},
                         ],
                     },
                     {

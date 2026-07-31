@@ -11,6 +11,7 @@ from icewine_prediction.oddspapi_sync_runner import (
     run_oddspapi_sync_result,
 )
 from icewine_prediction.odds_provider_selection_service import (
+    PINNACLE_BOOKMAKER,
     THE_ODDS_API_SOURCE_NAME,
     TRUSTED_SNAPSHOT_PRIORITY,
 )
@@ -90,6 +91,14 @@ def run_match_odds_sync_for_session(
         match_id: _trusted_snapshot_source(session, match_id)
         for match_id in eligible_match_ids
     }
+    the_odds_api_snapshot_ids_before = _the_odds_api_snapshot_ids(
+        session,
+        eligible_match_ids,
+    )
+    source_match_states_before = _the_odds_api_source_match_states(
+        session,
+        eligible_match_ids,
+    )
 
     requests_used = 0
     credits_used = 0
@@ -106,6 +115,7 @@ def run_match_odds_sync_for_session(
     fallback_errors: dict[int, str] = {}
     fallback_invoked_ids: set[int] = set()
     fallback_attempted_ids: set[int] = set()
+    batch_errors: list[str] = []
 
     for season in seasons:
         season_match_ids = {match.id for match in matches if match.season == season}
@@ -122,20 +132,7 @@ def run_match_odds_sync_for_session(
                 recovery_budget=recovery_budget,
             )
         except Exception as exc:
-            primary_status = (
-                "not_attempted"
-                if selected_provider == MatchOddsSyncProvider.THE_ODDS_API
-                else "failed"
-            )
-            for match_id in season_match_ids:
-                primary_results[match_id] = TheOddsApiMatchSyncResult(
-                    match_id=match_id,
-                    status=primary_status,
-                    error_message=str(exc),
-                    error_code=_error_code_from_value(exc),
-                )
-                if primary_status == "not_attempted":
-                    not_attempted_ids.add(match_id)
+            batch_errors.append(str(exc))
 
         if result is not None:
             requests_used += int(getattr(result, "requests_used", 0) or 0)
@@ -191,9 +188,16 @@ def run_match_odds_sync_for_session(
         if selected_provider != MatchOddsSyncProvider.THE_ODDS_API:
             continue
 
+        _merge_new_the_odds_api_snapshot_results(
+            session=session,
+            match_ids=season_match_ids,
+            snapshot_ids_before=the_odds_api_snapshot_ids_before,
+            primary_results=primary_results,
+        )
         _merge_the_odds_api_source_match_results(
             session=session,
             match_ids=season_match_ids,
+            source_match_states_before=source_match_states_before,
             primary_results=primary_results,
         )
         zqcf918_match_ids = _zqcf918_fallback_match_ids(session, matches, season_match_ids)
@@ -310,6 +314,7 @@ def run_match_odds_sync_for_session(
         result_rate_limit_wait_seconds=result_rate_limit_wait_seconds,
         result_recovery_elapsed_seconds=result_recovery_elapsed_seconds,
         result_recovery_budget_remaining_seconds=result_recovery_budget_remaining_seconds,
+        error_message="; ".join(dict.fromkeys(batch_errors)) or None,
     )
 
 
@@ -347,6 +352,7 @@ def _merge_the_odds_api_source_match_results(
     *,
     session: Session,
     match_ids: set[int],
+    source_match_states_before: dict[int, tuple[Any, ...]],
     primary_results: dict[int, TheOddsApiMatchSyncResult],
 ) -> None:
     rows = (
@@ -356,7 +362,11 @@ def _merge_the_odds_api_source_match_results(
         .all()
     )
     for row in rows:
-        if row.match_id in primary_results or not row.historical_odds_status:
+        if (
+            row.match_id in primary_results
+            or not row.historical_odds_status
+            or source_match_states_before.get(row.match_id) == _source_match_odds_state(row)
+        ):
             continue
         status = row.historical_odds_status
         normalized_status = status if status in {"success", "partial_success"} else "failed"
@@ -373,6 +383,67 @@ def _merge_the_odds_api_source_match_results(
                 else _error_code_from_value(row.historical_odds_error) or status
             ),
         )
+
+
+def _merge_new_the_odds_api_snapshot_results(
+    *,
+    session: Session,
+    match_ids: set[int],
+    snapshot_ids_before: set[int],
+    primary_results: dict[int, TheOddsApiMatchSyncResult],
+) -> None:
+    rows = (
+        session.query(HistoricalOddsSnapshot.id, HistoricalOddsSnapshot.match_id)
+        .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
+        .filter(HistoricalOddsSnapshot.source_name == THE_ODDS_API_SOURCE_NAME)
+        .filter(HistoricalOddsSnapshot.bookmaker == PINNACLE_BOOKMAKER)
+        .all()
+    )
+    for snapshot_id, match_id in rows:
+        if snapshot_id in snapshot_ids_before or match_id in primary_results:
+            continue
+        primary_results[match_id] = TheOddsApiMatchSyncResult(
+            match_id=match_id,
+            status="success",
+        )
+
+
+def _the_odds_api_snapshot_ids(session: Session, match_ids: set[int]) -> set[int]:
+    if not match_ids:
+        return set()
+    return {
+        snapshot_id
+        for (snapshot_id,) in (
+            session.query(HistoricalOddsSnapshot.id)
+            .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
+            .filter(HistoricalOddsSnapshot.source_name == THE_ODDS_API_SOURCE_NAME)
+            .filter(HistoricalOddsSnapshot.bookmaker == PINNACLE_BOOKMAKER)
+            .all()
+        )
+    }
+
+
+def _the_odds_api_source_match_states(
+    session: Session,
+    match_ids: set[int],
+) -> dict[int, tuple[Any, ...]]:
+    if not match_ids:
+        return {}
+    rows = (
+        session.query(OddsSourceMatch)
+        .filter(OddsSourceMatch.match_id.in_(match_ids))
+        .filter(OddsSourceMatch.source_name == THE_ODDS_API_SOURCE_NAME)
+        .all()
+    )
+    return {row.match_id: _source_match_odds_state(row) for row in rows}
+
+
+def _source_match_odds_state(row: OddsSourceMatch) -> tuple[Any, ...]:
+    return (
+        row.historical_odds_status,
+        row.historical_odds_checked_at,
+        row.historical_odds_error,
+    )
 
 
 def _successful_primary_refresh_status(
@@ -455,6 +526,7 @@ def _finalize_sync_result(
     result_rate_limit_wait_seconds: float = 0.0,
     result_recovery_elapsed_seconds: float = 0.0,
     result_recovery_budget_remaining_seconds: float = 120.0,
+    error_message: str | None = None,
 ) -> SyncResultPayload:
     success.sort(key=lambda item: item["match_id"])
     failed.sort(key=lambda item: item["match_id"])
@@ -495,6 +567,7 @@ def _finalize_sync_result(
         "not_attempted": not_attempted,
         "odds_status": odds_status,
         "trace_id": trace_id,
+        "error_message": error_message,
         "requests": requests,
         "credits": credits,
         "provider_requests_used": provider_requests_used,

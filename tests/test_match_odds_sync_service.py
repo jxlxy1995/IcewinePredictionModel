@@ -483,6 +483,55 @@ def test_run_match_odds_sync_merges_per_match_primary_status_without_spreading_b
     assert sum(message.startswith("match_odds_sync_result") for message in messages) == 2
 
 
+def test_run_match_odds_sync_keeps_raised_provider_error_at_batch_level(session):
+    first = _add_match(session)
+    second = _add_match(
+        session,
+        league_name="Allsvenskan",
+        country_or_region="Sweden",
+        source_league_id="113",
+        home_team_name="Tottenham",
+        away_team_name="Everton",
+        source_match_id="1002",
+    )
+
+    def fake_the_odds_api_sync(**kwargs):
+        raise RuntimeError("global boom")
+
+    def fake_zqcf918_sync(**kwargs):
+        assert kwargs["match_ids"] == {first.id, second.id}
+        session.add(
+            _snapshot(
+                match_id=first.id,
+                source_name=ZQCF918_SOURCE_NAME,
+                odds=Decimal("1.91"),
+            )
+        )
+        session.commit()
+        return {
+            "success": [{"match_id": first.id}],
+            "failed": [{"match_id": second.id, "message": "fallback empty"}],
+            "skipped": [],
+            "requests": 1,
+            "credits": 0,
+        }
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[first.id, second.id],
+        the_odds_api_syncer=fake_the_odds_api_sync,
+        zqcf918_syncer=fake_zqcf918_sync,
+    )
+
+    assert _success_match_ids(result) == [first.id]
+    assert [item["match_id"] for item in result["failed"]] == [second.id]
+    assert result["not_attempted"] == []
+    final_items = result["success"] + result["failed"]
+    assert all(item.get("primary_refresh_error") != "global boom" for item in final_items)
+    assert all("global boom" not in item["message"] for item in final_items)
+    assert result["error_message"] == "global boom"
+
+
 def test_run_match_odds_sync_uses_existing_trusted_odds_after_primary_refresh_failure(session):
     match = _add_match(session)
     session.add(
@@ -530,6 +579,62 @@ def test_run_match_odds_sync_uses_existing_trusted_odds_after_primary_refresh_fa
             "primary_refresh_error": "read_timeout",
         }
     ]
+
+
+def test_legacy_sync_new_snapshot_wins_over_unchanged_stale_source_failure(session):
+    match = _add_match(session)
+    session.add(
+        OddsSourceMatch(
+            match_id=match.id,
+            source_name=THE_ODDS_API_SOURCE_NAME,
+            source_fixture_id="stale-event",
+            matched_at=datetime(2026, 6, 25, 18, 50, tzinfo=ZoneInfo("UTC")),
+            match_confidence=Decimal("0.5000"),
+            match_reason="stale failure",
+            historical_odds_status="failed",
+            historical_odds_checked_at=datetime(
+                2026,
+                6,
+                25,
+                18,
+                50,
+                tzinfo=ZoneInfo("UTC"),
+            ),
+            historical_odds_error="read_timeout",
+        )
+    )
+    session.commit()
+
+    def fake_legacy_sync(**kwargs):
+        session.add(
+            _snapshot(
+                match_id=match.id,
+                source_name=THE_ODDS_API_SOURCE_NAME,
+                odds=Decimal("1.96"),
+            )
+        )
+        session.commit()
+        return _the_odds_api_result(
+            requests_used=1,
+            inserted_snapshot_count=1,
+            match_results=(),
+            trace_id=kwargs["trace_id"],
+        )
+
+    def unexpected_fallback(**kwargs):
+        raise AssertionError("fallback must not run after a new trusted primary snapshot")
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id],
+        the_odds_api_syncer=fake_legacy_sync,
+        zqcf918_syncer=unexpected_fallback,
+    )
+
+    assert result["failed"] == []
+    assert result["success"][0]["source"] == THE_ODDS_API_SOURCE_NAME
+    assert result["success"][0]["primary_refresh_status"] == "success"
+    assert result["success"][0]["primary_refresh_error"] is None
 
 
 def test_session_runner_binds_explicit_recovery_budget_to_raw_client(session):

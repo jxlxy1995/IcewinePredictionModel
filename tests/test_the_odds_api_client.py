@@ -1,4 +1,6 @@
-from threading import Thread
+import logging
+import time
+from threading import Event, Thread
 
 import pytest
 import requests
@@ -619,6 +621,34 @@ def test_the_odds_api_client_checks_request_budget_before_retry_wait():
     assert fake_time.sleeps == []
 
 
+def test_the_odds_api_client_checks_request_budget_before_ordinary_limiter_wait():
+    fake_time = FakeTime()
+    budget = TheOddsApiRecoveryBudget()
+    client = TheOddsApiClient(
+        api_key="secret",
+        request_budget=1,
+        session=FakeSession([FakeResponse({"ok": True})]),
+        request_limiter=TheOddsApiRequestLimiter(
+            cooldown_seconds=1.0,
+            clock=fake_time.monotonic,
+            sleeper=fake_time.sleep,
+        ),
+        recovery_budget=budget,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+
+    assert client.get("sports") == {"ok": True}
+    fake_time.now += 0.25
+
+    with pytest.raises(TheOddsApiRequestBudgetExceededError):
+        client.get("sports")
+
+    assert client.request_count == 1
+    assert fake_time.sleeps == []
+    assert budget.consumed_seconds == 0.0
+
+
 def test_the_odds_api_client_charges_actual_backoff_oversleep_before_exhausting_budget():
     client, fake_time, budget = _controlled_client(
         [requests.exceptions.ReadTimeout("unsafe secret")],
@@ -699,6 +729,38 @@ def test_the_odds_api_client_success_log_contains_only_safe_request_metadata(cap
     assert "do-not-log" not in caplog.text
 
 
+def test_the_odds_api_client_sanitizes_safe_metadata_values(caplog):
+    api_key = "K9Q8W7E6R5"
+    client = TheOddsApiClient(
+        api_key=api_key,
+        session=FakeSession([FakeResponse({"ok": True})]),
+        request_limiter=_no_wait_limiter(),
+        trace_id="metadata-test",
+    )
+
+    with caplog.at_level("INFO"):
+        client.get(
+            "sports",
+            {
+                "regions": f"eu\napiKey={api_key}",
+                "bookmakers": f"https://book.test/path?token={api_key}",
+                "markets": "h2h\r\nforged=yes",
+                "dateFormat": "iso",
+                "date": "2" * 300,
+            },
+        )
+
+    record = next(record for record in caplog.records if record.levelname == "INFO")
+    assert record.regions == "<redacted>"
+    assert record.bookmakers == "<redacted>"
+    assert record.markets == "h2h forged=yes"
+    assert record.dateFormat == "iso"
+    assert len(record.date) <= 160
+    assert api_key not in caplog.text
+    assert "apiKey" not in caplog.text
+    assert "\nforged" not in record.getMessage()
+
+
 @pytest.mark.parametrize("status_code", [200, 422])
 def test_the_odds_api_client_redacts_sensitive_provider_messages(status_code):
     api_key = "credential-12345"
@@ -737,6 +799,104 @@ def test_the_odds_api_client_logs_endpoint_path_without_query_or_fragment(caplog
     assert "secret" not in caplog.text
     assert "?" not in caplog.text
     assert "#fragment" not in caplog.text
+
+
+def test_the_odds_api_client_wraps_invalid_json_without_raw_error_text():
+    class BadJsonResponse(FakeResponse):
+        def json(self):
+            raise ValueError("raw decoder detail apiKey=secret")
+
+    client = TheOddsApiClient(
+        api_key="secret",
+        session=FakeSession([BadJsonResponse(None)]),
+        request_limiter=_no_wait_limiter(),
+    )
+
+    with pytest.raises(TheOddsApiApiError) as exc_info:
+        client.get("sports")
+
+    assert exc_info.value.error_code == "response_decode_error"
+    assert exc_info.value.attempt_count == 1
+    assert exc_info.value.retry_exhausted is False
+    assert "raw decoder detail" not in str(exc_info.value)
+    assert "apiKey" not in str(exc_info.value)
+    assert client.request_count == 1
+    assert client.retry_count == 0
+
+
+def test_the_odds_api_client_revalidates_retry_permit_after_logging_delay():
+    cooldown_seconds = 0.05
+    retry_log_reached = Event()
+    release_retry_log = Event()
+    request_times = {}
+    errors = []
+
+    class RetryingSession:
+        def __init__(self):
+            self.call_count = 0
+
+        def get(self, url, params, timeout):
+            self.call_count += 1
+            if self.call_count == 1:
+                raise requests.exceptions.ReadTimeout("retry")
+            request_times["retry"] = time.monotonic()
+            return FakeResponse({"ok": True})
+
+    class RecordingSession:
+        def get(self, url, params, timeout):
+            request_times["other"] = time.monotonic()
+            return FakeResponse({"ok": True})
+
+    class BlockingRetryHandler(logging.Handler):
+        def emit(self, record):
+            if getattr(record, "trace_id", None) == "stale-retry-test":
+                retry_log_reached.set()
+                release_retry_log.wait(timeout=2.0)
+
+    limiter = TheOddsApiRequestLimiter(cooldown_seconds=cooldown_seconds)
+    retrying_client = TheOddsApiClient(
+        api_key="secret",
+        session=RetryingSession(),
+        request_limiter=limiter,
+        trace_id="stale-retry-test",
+    )
+    retrying_client._retry_delay = lambda _error: 0.0
+    other_client = TheOddsApiClient(
+        api_key="secret",
+        session=RecordingSession(),
+        request_limiter=limiter,
+        trace_id="other-test",
+    )
+    module_logger = logging.getLogger(
+        "icewine_prediction.sources.the_odds_api_client"
+    )
+    handler = BlockingRetryHandler()
+    previous_level = module_logger.level
+    module_logger.setLevel(logging.WARNING)
+    module_logger.addHandler(handler)
+
+    def run_retry():
+        try:
+            retrying_client.get("sports")
+        except Exception as exc:
+            errors.append(exc)
+
+    thread = Thread(target=run_retry)
+    try:
+        thread.start()
+        assert retry_log_reached.wait(timeout=2.0)
+        other_client.get("sports")
+        release_retry_log.set()
+        thread.join(timeout=2.0)
+    finally:
+        release_retry_log.set()
+        thread.join(timeout=2.0)
+        module_logger.removeHandler(handler)
+        module_logger.setLevel(previous_level)
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert request_times["retry"] - request_times["other"] >= 0.045
 
 
 def test_the_odds_api_clients_share_request_limiter_timing():

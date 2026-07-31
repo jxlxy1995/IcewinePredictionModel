@@ -761,6 +761,42 @@ def test_the_odds_api_client_sanitizes_safe_metadata_values(caplog):
     assert "\nforged" not in record.getMessage()
 
 
+def test_the_odds_api_client_rejects_scalar_subclasses_with_unsafe_repr(caplog):
+    class EvilInt(int):
+        def __repr__(self):
+            return "1 apiKey=secret\nforged-int=yes"
+
+    class EvilFloat(float):
+        def __repr__(self):
+            return "1.5 apiKey=secret\nforged-float=yes"
+
+    client = TheOddsApiClient(
+        api_key="secret",
+        session=FakeSession([FakeResponse({"ok": True})]),
+        request_limiter=_no_wait_limiter(),
+        trace_id="metadata-subclass-test",
+    )
+
+    with caplog.at_level("INFO"):
+        client.get(
+            "sports",
+            {
+                "regions": EvilInt(1),
+                "bookmakers": EvilFloat(1.5),
+                "markets": "h2h",
+            },
+        )
+
+    record = next(record for record in caplog.records if record.levelname == "INFO")
+    assert not hasattr(record, "regions")
+    assert not hasattr(record, "bookmakers")
+    assert record.markets == "h2h"
+    assert "apiKey" not in caplog.text
+    assert "secret" not in caplog.text
+    assert "forged-int" not in caplog.text
+    assert "forged-float" not in caplog.text
+
+
 @pytest.mark.parametrize("status_code", [200, 422])
 def test_the_odds_api_client_redacts_sensitive_provider_messages(status_code):
     api_key = "credential-12345"

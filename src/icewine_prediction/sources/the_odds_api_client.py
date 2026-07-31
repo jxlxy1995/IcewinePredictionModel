@@ -659,7 +659,7 @@ def _safe_request_metadata(
     return {
         name: _safe_metadata_value(value, api_key)
         for name, value in params.items()
-        if name in allowed_names and isinstance(value, scalar_types)
+        if name in allowed_names and type(value) in scalar_types
     }
 
 

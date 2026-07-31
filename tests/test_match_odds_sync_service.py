@@ -490,6 +490,104 @@ def test_run_match_odds_sync_merges_per_match_primary_status_without_spreading_b
     assert sum(message.startswith("match_odds_sync_result") for message in messages) == 2
 
 
+def test_run_match_odds_sync_turns_primary_not_attempted_into_success_after_fallback(session):
+    match = _add_match(session)
+
+    def fake_the_odds_api_sync(**kwargs):
+        return _the_odds_api_result(
+            requests_used=0,
+            inserted_snapshot_count=0,
+            match_results=(
+                TheOddsApiMatchSyncResult(
+                    match_id=match.id,
+                    status="not_attempted",
+                    error_message="The Odds API request budget exhausted",
+                    error_code="request_budget_exhausted",
+                ),
+            ),
+            not_attempted_match_ids=(match.id,),
+            trace_id=kwargs["trace_id"],
+        )
+
+    def fake_zqcf918_sync(**kwargs):
+        assert kwargs["match_ids"] == {match.id}
+        session.add(
+            _snapshot(
+                match_id=match.id,
+                source_name=ZQCF918_SOURCE_NAME,
+                odds=Decimal("1.91"),
+            )
+        )
+        session.commit()
+        return {
+            "success": [{"match_id": match.id}],
+            "failed": [],
+            "skipped": [],
+            "requests": 1,
+            "credits": 0,
+        }
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id],
+        the_odds_api_syncer=fake_the_odds_api_sync,
+        zqcf918_syncer=fake_zqcf918_sync,
+    )
+
+    assert result["failed"] == []
+    assert result["not_attempted"] == []
+    assert result["success"][0]["match_id"] == match.id
+    assert result["success"][0]["primary_refresh_status"] == "not_attempted_fallback_used"
+    assert result["success"][0]["primary_refresh_error"] == "request_budget_exhausted"
+
+
+def test_run_match_odds_sync_reports_one_final_failure_when_not_attempted_fallback_has_no_odds(
+    session,
+):
+    match = _add_match(session)
+
+    def fake_the_odds_api_sync(**kwargs):
+        return _the_odds_api_result(
+            requests_used=0,
+            inserted_snapshot_count=0,
+            match_results=(
+                TheOddsApiMatchSyncResult(
+                    match_id=match.id,
+                    status="not_attempted",
+                    error_message="The Odds API request budget exhausted",
+                    error_code="request_budget_exhausted",
+                ),
+            ),
+            not_attempted_match_ids=(match.id,),
+            trace_id=kwargs["trace_id"],
+        )
+
+    def fake_zqcf918_sync(**kwargs):
+        assert kwargs["match_ids"] == {match.id}
+        return {
+            "success": [],
+            "failed": [{"match_id": match.id, "message": "fallback empty"}],
+            "skipped": [],
+            "requests": 1,
+            "credits": 0,
+        }
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id],
+        the_odds_api_syncer=fake_the_odds_api_sync,
+        zqcf918_syncer=fake_zqcf918_sync,
+    )
+
+    assert result["success"] == []
+    assert result["not_attempted"] == []
+    assert len(result["failed"]) == 1
+    assert result["failed"][0]["match_id"] == match.id
+    assert result["failed"][0]["error_code"] == "request_budget_exhausted"
+    assert result["failed"][0]["failure_stage"] == "fallback"
+    assert result["failed"][0]["fallback_error"] == "fallback empty"
+
+
 def test_run_match_odds_sync_keeps_raised_provider_error_at_batch_level(session):
     first = _add_match(session)
     second = _add_match(

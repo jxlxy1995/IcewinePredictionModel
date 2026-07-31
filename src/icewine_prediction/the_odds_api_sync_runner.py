@@ -544,51 +544,39 @@ def run_the_odds_api_sync_for_session(
             winners += sum(1 for snapshot in snapshots if snapshot.market_type == "match_winner")
             _record_match_result(match_results, match_result, trace_id=trace_id)
         except TheOddsApiExtraTimeBudgetExceededError:
-            for remaining_index, remaining_match in enumerate(
-                matches[match_index:],
-                start=match_index,
-            ):
-                remaining_sport_key = API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS[
-                    str(remaining_match.league.source_league_id)
-                ]
-                if remaining_index != match_index:
-                    _log_match_start(
-                        trace_id=trace_id,
-                        match_id=remaining_match.id,
-                        sport_key=remaining_sport_key,
-                    )
-                not_attempted_match_ids.append(remaining_match.id)
-                _record_match_result(
-                    match_results,
-                    TheOddsApiMatchSyncResult(
-                        match_id=remaining_match.id,
-                        status="not_attempted",
-                        error_message="The Odds API recovery time budget exhausted",
-                        error_code="extra_time_budget_exhausted",
-                    ),
-                    trace_id=trace_id,
-                )
+            _record_remaining_matches_not_attempted(
+                matches=matches,
+                start_index=match_index,
+                match_results=match_results,
+                not_attempted_match_ids=not_attempted_match_ids,
+                trace_id=trace_id,
+                error_message="The Odds API recovery time budget exhausted",
+                error_code="extra_time_budget_exhausted",
+            )
             break
-        except (TheOddsApiApiError, TheOddsApiRequestBudgetExceededError) as exc:
+        except TheOddsApiRequestBudgetExceededError:
+            _record_remaining_matches_not_attempted(
+                matches=matches,
+                start_index=match_index,
+                match_results=match_results,
+                not_attempted_match_ids=not_attempted_match_ids,
+                trace_id=trace_id,
+                error_message="The Odds API request budget exhausted",
+                error_code="request_budget_exhausted",
+            )
+            break
+        except TheOddsApiApiError as exc:
             match_error_message = str(exc)
             _store_source_match_status(session, match, None, "failed", match_error_message)
             failed += 1
-            if isinstance(exc, TheOddsApiApiError):
-                match_result = TheOddsApiMatchSyncResult(
-                    match_id=match.id,
-                    status="failed",
-                    error_message=match_error_message,
-                    error_code=exc.error_code,
-                    attempt_count=exc.attempt_count,
-                    retry_exhausted=exc.retry_exhausted,
-                )
-            else:
-                match_result = TheOddsApiMatchSyncResult(
-                    match_id=match.id,
-                    status="failed",
-                    error_message=match_error_message,
-                    error_code="request_budget_exhausted",
-                )
+            match_result = TheOddsApiMatchSyncResult(
+                match_id=match.id,
+                status="failed",
+                error_message=match_error_message,
+                error_code=exc.error_code,
+                attempt_count=exc.attempt_count,
+                retry_exhausted=exc.retry_exhausted,
+            )
             _record_match_result(match_results, match_result, trace_id=trace_id)
     recovery_budget = client.recovery_budget
     return TheOddsApiSyncResult(
@@ -627,6 +615,42 @@ def run_the_odds_api_sync_for_session(
             else 120.0
         ),
     )
+
+
+def _record_remaining_matches_not_attempted(
+    *,
+    matches: list[Match],
+    start_index: int,
+    match_results: list[TheOddsApiMatchSyncResult],
+    not_attempted_match_ids: list[int],
+    trace_id: str | None,
+    error_message: str,
+    error_code: str,
+) -> None:
+    for remaining_index, remaining_match in enumerate(
+        matches[start_index:],
+        start=start_index,
+    ):
+        remaining_sport_key = API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS[
+            str(remaining_match.league.source_league_id)
+        ]
+        if remaining_index != start_index:
+            _log_match_start(
+                trace_id=trace_id,
+                match_id=remaining_match.id,
+                sport_key=remaining_sport_key,
+            )
+        not_attempted_match_ids.append(remaining_match.id)
+        _record_match_result(
+            match_results,
+            TheOddsApiMatchSyncResult(
+                match_id=remaining_match.id,
+                status="not_attempted",
+                error_message=error_message,
+                error_code=error_code,
+            ),
+            trace_id=trace_id,
+        )
 
 
 def _log_match_start(*, trace_id: str | None, match_id: int, sport_key: str) -> None:

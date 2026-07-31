@@ -23,7 +23,6 @@ from icewine_prediction.sources.the_odds_api_client import (
     TheOddsApiClient,
     TheOddsApiExtraTimeBudgetExceededError,
     TheOddsApiRecoveryBudget,
-    TheOddsApiRequestBudgetExceededError,
     TheOddsApiRequestLimiter,
 )
 from icewine_prediction.the_odds_api_sync_runner import (
@@ -1037,7 +1036,56 @@ def test_run_the_odds_api_sync_stops_batch_when_real_client_cannot_get_first_lim
     assert no_network_session.calls == []
 
 
-def test_run_the_odds_api_sync_treats_request_budget_exhaustion_as_a_match_failure(session):
+def test_run_the_odds_api_sync_marks_all_matches_not_attempted_when_request_budget_is_zero(
+    session,
+):
+    first = _add_match(session, home_team_name="Arsenal", away_team_name="Chelsea")
+    second = _add_match_in_league(
+        session,
+        league=first.league,
+        home_team_name="Tottenham",
+        away_team_name="Everton",
+        kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC")),
+        source_match_id="1002",
+    )
+
+    class NoNetworkSession:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, params, timeout):
+            self.calls.append((url, params, timeout))
+            raise AssertionError("request budget must stop before the network")
+
+    no_network_session = NoNetworkSession()
+    raw_client = TheOddsApiClient(
+        api_key="secret",
+        request_budget=0,
+        session=no_network_session,
+        request_limiter=TheOddsApiRequestLimiter(cooldown_seconds=0.0),
+    )
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=TheOddsApiSyncClient(raw_client),
+        season=2026,
+        max_matches=5,
+        match_ids={first.id, second.id},
+        now=datetime(2026, 6, 25, 0, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
+    assert [(item.match_id, item.status, item.error_code) for item in result.match_results] == [
+        (first.id, "not_attempted", "request_budget_exhausted"),
+        (second.id, "not_attempted", "request_budget_exhausted"),
+    ]
+    assert result.not_attempted_match_ids == (first.id, second.id)
+    assert result.failed_match_count == 0
+    assert result.processed_match_count == 0
+    assert result.requests_used == 0
+    assert result.error_message is None
+    assert no_network_session.calls == []
+
+
+def test_run_the_odds_api_sync_stops_after_request_budget_is_exhausted_mid_batch(session):
     first = _add_match(
         session,
         home_team_name="Arsenal",
@@ -1063,40 +1111,52 @@ def test_run_the_odds_api_sync_treats_request_budget_exhaustion_as_a_match_failu
         source_match_id="1002",
     )
 
-    class RequestBudgetFailureClient(FakeTheOddsApiClient):
-        def get(self, endpoint, params=None):
-            self.calls.append((endpoint, params or {}))
-            self.request_count += 1
-            if endpoint.startswith("historical/"):
-                return {"data": []}
-            if endpoint == "sports/soccer_norway_eliteserien/odds":
-                raise TheOddsApiRequestBudgetExceededError(
-                    "The Odds API request budget exceeded"
-                )
-            return [
-                _featured_event_payload(
-                    "2026-06-26T18:45:00Z",
-                    home_team="Tottenham",
-                    away_team="Everton",
-                )
-            ]
+    class FakeResponse:
+        status_code = 200
+        headers = {}
 
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [_featured_event_payload("2026-06-26T18:45:00Z")]
+
+    class OneResponseSession:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, params, timeout):
+            self.calls.append((url, params, timeout))
+            if len(self.calls) > 1:
+                raise AssertionError("no network request is allowed after budget exhaustion")
+            return FakeResponse()
+
+    one_response_session = OneResponseSession()
+    raw_client = TheOddsApiClient(
+        api_key="secret",
+        request_budget=1,
+        session=one_response_session,
+        request_limiter=TheOddsApiRequestLimiter(cooldown_seconds=0.0),
+    )
     result = run_the_odds_api_sync_for_session(
         session=session,
-        client=TheOddsApiSyncClient(RequestBudgetFailureClient({})),
+        client=TheOddsApiSyncClient(raw_client),
         season=2026,
         max_matches=5,
         match_ids={first.id, second.id},
-        now=datetime(2026, 6, 26, 18, 51, tzinfo=ZoneInfo("UTC")),
+        now=datetime(2026, 6, 25, 0, 0, tzinfo=ZoneInfo("UTC")),
     )
 
     assert [(item.match_id, item.status, item.error_code) for item in result.match_results] == [
-        (first.id, "failed", "request_budget_exhausted"),
-        (second.id, "success", None),
+        (first.id, "success", None),
+        (second.id, "not_attempted", "request_budget_exhausted"),
     ]
-    assert result.failed_match_count == 1
+    assert result.not_attempted_match_ids == (second.id,)
+    assert result.failed_match_count == 0
     assert result.processed_match_count == 1
-    assert result.error_message is None
+    assert result.requests_used == 1
+    assert len(one_response_session.calls) == 1
+    assert len({item.match_id for item in result.match_results}) == len(result.match_results)
 
 
 def test_run_the_odds_api_sync_reports_raw_client_recovery_statistics(session):

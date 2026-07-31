@@ -523,6 +523,67 @@ def test_execute_task_records_candidates_and_sends_bark_from_confidence_groups()
     assert "\u63a8\u83501.50\u624b" in sent_messages[0][1].body
 
 
+def test_execute_task_bark_summarizes_partial_odds_recovery_without_failing_task():
+    now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
+    sent_messages = []
+    odds_result = {
+        "success": [
+            {
+                "match_id": 1,
+                "primary_refresh_status": "failed_existing_odds_used",
+            }
+        ],
+        "failed": [],
+        "skipped": [],
+        "not_attempted": [{"match_id": 2}],
+        "retry_count": 1,
+        "retry_success_count": 1,
+        "retry_recovered_match_count": 1,
+        "recovery_elapsed_seconds": 46.2,
+        "odds_status": "partial",
+    }
+
+    with _session() as session:
+        match = _seed_match(session, kickoff)
+        task = _seed_running_task(
+            session,
+            match_window_start=kickoff,
+            match_window_end=kickoff,
+            now=now,
+        )
+
+        result = execute_paper_automation_task(
+            session,
+            task.id,
+            now=now,
+            odds_syncer=lambda match_ids: odds_result,
+            queue_builder=lambda session_arg, task_arg: _queue_report([]),
+            bark_push_url="https://example.com/bark/secret-token",
+            bark_sender=lambda push_url, message: sent_messages.append(message)
+            or BarkPushResult(success=True),
+        )
+
+        loaded = session.get(PaperAutomationTask, task.id)
+
+    bark_body = sent_messages[0].body
+    assert "赔率刷新：成功1 失败0 未尝试1" in bark_body
+    assert "重试：1次，恢复1场" in bark_body
+    assert "旧赔率兜底：1场" in bark_body
+    assert "额外耗时：46秒" in bark_body
+    assert result.status == "success"
+    assert loaded.status == "success"
+    assert result.result_payload["odds"]["odds_status"] == "partial"
+
+
+def test_odds_summary_lines_preserves_legacy_three_count_format():
+    odds_result = {"success": [1], "failed": [2], "skipped": [3]}
+
+    assert paper_automation_service._odds_summary_lines(odds_result) == [
+        "赔率刷新：成功1 失败1 跳过1"
+    ]
+
+
 def test_execute_task_does_not_overwrite_task_recovered_by_another_session(tmp_path):
     now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
     kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)
@@ -863,7 +924,7 @@ def test_execute_task_continues_after_partial_odds_failure_and_sends_empty_notic
     assert loaded.notification_status == "sent"
     assert payload["target_match_ids"] == [match.id]
     assert payload["created_record_ids"] == []
-    assert "赔率回填" in sent_messages[0].body
+    assert "赔率刷新" in sent_messages[0].body
     assert "失败1" in sent_messages[0].body
     assert "\u6ca1\u6709\u8bb0\u5f55\u5230\u5019\u9009" in sent_messages[0].body
 

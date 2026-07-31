@@ -600,7 +600,7 @@ def _execution_summary_lines(
     skipped_count: int,
 ) -> list[str]:
     return [
-        _odds_summary_text(odds_sync_result),
+        *_odds_summary_lines(odds_sync_result),
         (
             f"候选{queue_report.candidate_count} "
             f"记录{created_count} 跳过{skipped_count}"
@@ -608,15 +608,65 @@ def _execution_summary_lines(
     ]
 
 
-def _odds_summary_text(odds_sync_result: Any) -> str:
+def _odds_summary_lines(odds_sync_result: Any) -> list[str]:
     if not isinstance(odds_sync_result, dict):
-        return "赔率回填：结果已返回"
+        return ["赔率刷新：结果已返回"]
     success_count = _count_result_items(odds_sync_result, "success")
     failed_count = _count_result_items(odds_sync_result, "failed")
     skipped_count = _count_result_items(odds_sync_result, "skipped")
-    if success_count == 0 and failed_count == 0 and skipped_count == 0:
-        return "赔率回填：结果已返回"
-    return f"赔率回填：成功{success_count} 失败{failed_count} 跳过{skipped_count}"
+    not_attempted_count = _count_result_items(odds_sync_result, "not_attempted")
+    if success_count == failed_count == skipped_count == not_attempted_count == 0:
+        return ["赔率刷新：结果已返回"]
+    if "not_attempted" not in odds_sync_result:
+        return [f"赔率刷新：成功{success_count} 失败{failed_count} 跳过{skipped_count}"]
+
+    lines = [
+        f"赔率刷新：成功{success_count} 失败{failed_count} 未尝试{not_attempted_count}"
+    ]
+    retry_count = _safe_nonnegative_int(odds_sync_result.get("retry_count"))
+    if retry_count > 0:
+        recovered_count = _safe_nonnegative_int(
+            odds_sync_result.get("retry_recovered_match_count")
+        )
+        lines.append(f"重试：{retry_count}次，恢复{recovered_count}场")
+
+    existing_odds_count = _count_existing_odds_fallbacks(odds_sync_result.get("success"))
+    if existing_odds_count > 0:
+        lines.append(f"旧赔率兜底：{existing_odds_count}场")
+
+    recovery_elapsed_seconds = _safe_nonnegative_float(
+        odds_sync_result.get("recovery_elapsed_seconds")
+    )
+    if recovery_elapsed_seconds > 0:
+        lines.append(f"额外耗时：{round(recovery_elapsed_seconds)}秒")
+    return lines
+
+
+def _count_existing_odds_fallbacks(success_items: Any) -> int:
+    if isinstance(success_items, list | tuple | set):
+        items = success_items
+    else:
+        items = [success_items]
+    return sum(
+        isinstance(item, dict)
+        and item.get("primary_refresh_status") == "failed_existing_odds_used"
+        for item in items
+    )
+
+
+def _safe_nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(float(value)))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _safe_nonnegative_float(value: Any) -> float:
+    try:
+        parsed = float(value)
+        return parsed if parsed > 0 and parsed != float("inf") else 0.0
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
 
 
 def _count_result_items(payload: dict[str, Any], key: str) -> int:

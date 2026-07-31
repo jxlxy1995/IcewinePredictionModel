@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session, joinedload
@@ -34,6 +35,7 @@ from icewine_prediction.sources.the_odds_api_client import (
     TheOddsApiApiError,
     TheOddsApiClient,
     TheOddsApiExtraTimeBudgetExceededError,
+    TheOddsApiRecoveryBudget,
     TheOddsApiRequestBudgetExceededError,
 )
 from icewine_prediction.sources.the_odds_api_odds_mapper import map_the_odds_api_event_odds
@@ -332,7 +334,12 @@ def run_the_odds_api_sync_for_session(
     refresh_existing: bool = False,
     now: datetime | None = None,
     trace_id: str | None = None,
+    recovery_budget: TheOddsApiRecoveryBudget | None = None,
 ) -> TheOddsApiSyncResult:
+    if recovery_budget is not None:
+        client.client.recovery_budget = recovery_budget
+    if trace_id is not None:
+        client.client.trace_id = trace_id
     matches, skipped = select_the_odds_api_candidate_matches(
         session,
         season=season,
@@ -793,12 +800,18 @@ def run_the_odds_api_sync(
     refresh_existing: bool = False,
     bookmaker: str = PINNACLE_BOOKMAKER,
     region: str = DEFAULT_REGION,
+    trace_id: str | None = None,
+    recovery_budget: TheOddsApiRecoveryBudget | None = None,
 ) -> str:
+    trace_id = trace_id or uuid4().hex[:12]
+    recovery_budget = recovery_budget or TheOddsApiRecoveryBudget(limit_seconds=120.0)
     settings = load_project_settings()
     raw_client = TheOddsApiClient(
         api_key=settings.the_odds_api_key,
         timeout_seconds=timeout_seconds,
         request_budget=request_budget,
+        recovery_budget=recovery_budget,
+        trace_id=trace_id,
     )
     client = TheOddsApiSyncClient(raw_client, bookmaker=bookmaker, region=region)
     with _open_session() as session:
@@ -811,6 +824,8 @@ def run_the_odds_api_sync(
             match_ids=match_ids,
             from_date=from_date,
             refresh_existing=refresh_existing,
+            trace_id=trace_id,
+            recovery_budget=recovery_budget,
         )
     return format_the_odds_api_sync_result(result)
 

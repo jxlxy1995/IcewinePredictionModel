@@ -2,6 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+import icewine_prediction.zqcf918_match_service as zqcf918_match_service
 from icewine_prediction.display_service import DisplayNameService, DisplayNames
 from icewine_prediction.models import League, Match, OddsSourceMatch, Team
 from icewine_prediction.odds_provider_selection_service import ZQCF918_SOURCE_NAME
@@ -79,6 +80,54 @@ def test_sync_zqcf918_match_ids_only_targets_missing_mappings(session):
     assert [item["match_id"] for item in result["success"]] == [first.id]
     assert [item["match_id"] for item in result["skipped"]] == [second.id]
     assert get_zqcf918_match_id(session, first.id).source_fixture_id == "4460916"
+
+
+def test_sync_zqcf918_match_ids_loads_league_aliases_for_default_discoverer(
+    session,
+    tmp_path,
+    monkeypatch,
+):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "external_aliases.yaml").write_text(
+        "\n".join(
+            [
+                "aliases:",
+                "  - entity_type: league",
+                "    source_name: zqcf918",
+                "    canonical_name: Ekstraklasa (Poland)",
+                "    alias_name: \u6ce2\u5170\u7532",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    captured = {}
+
+    class CapturingDiscoverer:
+        def __init__(self, *, league_aliases=None):
+            captured["league_aliases"] = league_aliases
+
+        def discover(self, matches):
+            return {}
+
+    monkeypatch.setattr(
+        zqcf918_match_service,
+        "ZQCF918MatchDiscoverer",
+        CapturingDiscoverer,
+    )
+    match = _add_match(
+        session,
+        league_name="Ekstraklasa (Poland)",
+        home_name="Wisla Plock",
+        away_name="Widzew \u0141\u00f3d\u017a",
+    )
+
+    sync_zqcf918_match_ids_for_matches(session, [match])
+
+    assert captured["league_aliases"] == [
+        ExternalAliasInput("Ekstraklasa (Poland)", "\u6ce2\u5170\u7532")
+    ]
 
 
 class FakeClient:

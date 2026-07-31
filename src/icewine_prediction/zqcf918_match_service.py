@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from icewine_prediction.display_service import DisplayNameService, DisplayNames
+from icewine_prediction.league_alias_service import load_zqcf918_league_aliases
 from icewine_prediction.models import Match, OddsSourceMatch
 from icewine_prediction.odds_provider_selection_service import ZQCF918_SOURCE_NAME
 from icewine_prediction.odds_source_match_service import ExternalAliasInput
@@ -112,7 +113,9 @@ def sync_zqcf918_match_ids_for_matches(
     *,
     discoverer: Any | None = None,
 ) -> dict[str, list[dict[str, Any]] | int]:
-    discoverer = discoverer or ZQCF918MatchDiscoverer()
+    discoverer = discoverer or ZQCF918MatchDiscoverer(
+        league_aliases=load_zqcf918_league_aliases(session),
+    )
     target_matches = [match for match in matches if get_zqcf918_match_id(session, match.id) is None]
     target_match_ids = {match.id for match in target_matches}
     skipped = [

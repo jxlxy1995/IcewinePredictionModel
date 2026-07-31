@@ -104,8 +104,7 @@ def run_match_odds_sync_for_session(
     credits_used = 0
     retry_count = 0
     retry_success_count = 0
-    provider_requests_used = 0
-    has_provider_requests_used = False
+    provider_requests_used: int | None = None
     provider_requests_remaining: int | None = None
     result_rate_limit_wait_seconds = 0.0
     result_recovery_elapsed_seconds = 0.0
@@ -132,7 +131,9 @@ def run_match_odds_sync_for_session(
                 recovery_budget=recovery_budget,
             )
         except Exception as exc:
-            batch_errors.append(str(exc))
+            error_message = str(exc)
+            session.rollback()
+            batch_errors.append(error_message)
 
         if result is not None:
             requests_used += int(getattr(result, "requests_used", 0) or 0)
@@ -141,8 +142,12 @@ def run_match_odds_sync_for_session(
             retry_success_count += int(getattr(result, "retry_success_count", 0) or 0)
             raw_provider_requests_used = getattr(result, "provider_requests_used", None)
             if raw_provider_requests_used is not None:
-                has_provider_requests_used = True
-                provider_requests_used += int(raw_provider_requests_used or 0)
+                used_value = int(raw_provider_requests_used or 0)
+                provider_requests_used = (
+                    used_value
+                    if provider_requests_used is None
+                    else max(provider_requests_used, used_value)
+                )
             raw_provider_requests_remaining = getattr(result, "provider_requests_remaining", None)
             if raw_provider_requests_remaining is not None:
                 remaining_value = int(raw_provider_requests_remaining)
@@ -231,9 +236,11 @@ def run_match_odds_sync_for_session(
                         str(item.get("message") or "zqcf918 skipped"),
                     )
             except Exception as exc:
+                error_message = str(exc)
+                session.rollback()
                 fallback_attempted_ids.update(zqcf918_match_ids)
                 for match_id in zqcf918_match_ids:
-                    _record_fallback_error(fallback_errors, match_id, str(exc))
+                    _record_fallback_error(fallback_errors, match_id, error_message)
 
         sbobet_match_ids = _sbobet_fallback_match_ids(session, matches, season_match_ids)
         if sbobet_match_ids:
@@ -257,8 +264,10 @@ def run_match_odds_sync_for_session(
                             str(fallback_error_message),
                         )
             except Exception as exc:
+                error_message = str(exc)
+                session.rollback()
                 for match_id in sbobet_match_ids:
-                    _record_fallback_error(fallback_errors, match_id, str(exc))
+                    _record_fallback_error(fallback_errors, match_id, error_message)
 
     success: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
@@ -313,7 +322,7 @@ def run_match_odds_sync_for_session(
         credits=credits_used,
         retry_count=retry_count,
         retry_success_count=retry_success_count,
-        provider_requests_used=(provider_requests_used if has_provider_requests_used else None),
+        provider_requests_used=provider_requests_used,
         provider_requests_remaining=provider_requests_remaining,
         result_rate_limit_wait_seconds=result_rate_limit_wait_seconds,
         result_recovery_elapsed_seconds=result_recovery_elapsed_seconds,
@@ -550,11 +559,11 @@ def _finalize_sync_result(
     failed.sort(key=lambda item: item["match_id"])
     skipped.sort(key=lambda item: item["match_id"])
     not_attempted.sort(key=lambda item: item["match_id"])
-    non_success_count = len(failed) + len(skipped) + len(not_attempted)
-    if success:
-        odds_status = "partial" if non_success_count else "success"
+    unresolved_count = len(failed) + len(not_attempted)
+    if not unresolved_count:
+        odds_status = "success"
     else:
-        odds_status = "failed" if non_success_count else "success"
+        odds_status = "partial" if success else "failed"
     retry_recovered_match_count = sum(
         bool(item.get("retried"))
         and item.get("primary_refresh_status") in {"success", "partial_success"}

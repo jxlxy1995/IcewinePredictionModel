@@ -3,8 +3,11 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from icewine_prediction.match_odds_sync_service import (
     MatchOddsSyncProvider,
+    _finalize_sync_result,
     has_trusted_historical_odds,
     run_match_odds_sync_for_session,
 )
@@ -383,6 +386,8 @@ def test_run_match_odds_sync_shares_trace_and_recovery_budget_across_seasons(ses
             trace_id=kwargs["trace_id"],
             retry_count=1,
             retry_success_count=1,
+            provider_requests_used=100 if len(calls) == 1 else 130,
+            provider_requests_remaining=900 if len(calls) == 1 else 870,
         )
 
     result = run_match_odds_sync_for_session(
@@ -399,6 +404,8 @@ def test_run_match_odds_sync_shares_trace_and_recovery_budget_across_seasons(ses
     assert result["credits"] == 30
     assert result["retry_count"] == 2
     assert result["retry_success_count"] == 2
+    assert result["provider_requests_used"] == 130
+    assert result["provider_requests_remaining"] == 870
     assert result["retry_recovered_match_count"] == 1
     assert result["rate_limit_wait_seconds"] == 2.0
     assert result["recovery_elapsed_seconds"] == 2.0
@@ -530,6 +537,53 @@ def test_run_match_odds_sync_keeps_raised_provider_error_at_batch_level(session)
     assert all(item.get("primary_refresh_error") != "global boom" for item in final_items)
     assert all("global boom" not in item["message"] for item in final_items)
     assert result["error_message"] == "global boom"
+
+
+def test_run_match_odds_sync_rolls_back_failed_provider_transaction_before_fallback(session):
+    match = _add_match(session)
+    match_id = match.id
+
+    def fake_the_odds_api_sync(**kwargs):
+        session.add(
+            League(
+                name="Premier League",
+                country_or_region="Duplicate",
+                level=1,
+                is_enabled=True,
+                source_name="api_football",
+                source_league_id="duplicate",
+            )
+        )
+        session.flush()
+
+    def fake_zqcf918_sync(**kwargs):
+        assert kwargs["match_ids"] == {match_id}
+        session.add(
+            _snapshot(
+                match_id=match_id,
+                source_name=ZQCF918_SOURCE_NAME,
+                odds=Decimal("1.91"),
+            )
+        )
+        session.commit()
+        return {
+            "success": [{"match_id": match_id}],
+            "failed": [],
+            "skipped": [],
+            "requests": 1,
+            "credits": 0,
+        }
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match_id],
+        the_odds_api_syncer=fake_the_odds_api_sync,
+        zqcf918_syncer=fake_zqcf918_sync,
+    )
+
+    assert _success_match_ids(result) == [match_id]
+    assert result["failed"] == []
+    assert session.query(Match).filter(Match.id == match_id).one().id == match_id
 
 
 def test_run_match_odds_sync_uses_existing_trusted_odds_after_primary_refresh_failure(session):
@@ -738,6 +792,35 @@ def test_session_runner_binds_explicit_recovery_budget_to_raw_client(session):
     assert result.trace_id == "shared-trace"
 
 
+@pytest.mark.parametrize(
+    ("success", "failed", "skipped", "not_attempted", "expected_status"),
+    [
+        ([{"match_id": 1}], [], [{"match_id": 2}], [], "success"),
+        ([], [], [{"match_id": 1}], [], "success"),
+        ([{"match_id": 1}], [{"match_id": 2}], [], [], "partial"),
+        ([{"match_id": 1}], [], [], [{"match_id": 2}], "partial"),
+        ([], [{"match_id": 1}], [], [], "failed"),
+    ],
+)
+def test_finalize_sync_result_uses_failed_and_not_attempted_for_odds_status(
+    success,
+    failed,
+    skipped,
+    not_attempted,
+    expected_status,
+):
+    result = _finalize_sync_result(
+        trace_id="status-trace",
+        recovery_budget=TheOddsApiRecoveryBudget(),
+        success=success,
+        failed=failed,
+        skipped=skipped,
+        not_attempted=not_attempted,
+    )
+
+    assert result["odds_status"] == expected_status
+
+
 def _add_match(
     session,
     *,
@@ -810,6 +893,8 @@ def _the_odds_api_result(
     trace_id: str | None = None,
     retry_count: int = 0,
     retry_success_count: int = 0,
+    provider_requests_used: int | None = None,
+    provider_requests_remaining: int | None = None,
 ) -> TheOddsApiSyncResult:
     successful_statuses = {"success", "partial_success"}
     return TheOddsApiSyncResult(
@@ -830,6 +915,8 @@ def _the_odds_api_result(
         trace_id=trace_id,
         retry_count=retry_count,
         retry_success_count=retry_success_count,
+        provider_requests_used=provider_requests_used,
+        provider_requests_remaining=provider_requests_remaining,
     )
 
 

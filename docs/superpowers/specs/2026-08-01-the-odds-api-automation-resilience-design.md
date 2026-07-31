@@ -114,7 +114,10 @@ recovery_budget_remaining_seconds
 rate_limit_wait_seconds
 retry_count
 retry_success_count
+retry_recovered_match_count
 ```
+
+`retry_count` 和 `retry_success_count` 分别表示重试请求数和重试成功请求数；`retry_recovered_match_count` 表示因重试成功而最终获得主源赔率的比赛数。共享请求可能恢复多场比赛，因此这两个成功指标不能混用。
 
 ## 共享请求缓存
 
@@ -186,6 +189,7 @@ not_attempted_match_ids
   "trace_id": "sync trace id",
   "retry_count": 0,
   "retry_success_count": 0,
+  "retry_recovered_match_count": 0,
   "rate_limit_wait_seconds": 0.0,
   "recovery_elapsed_seconds": 0.0,
   "recovery_budget_remaining_seconds": 120.0,
@@ -306,7 +310,7 @@ Bark 摘要增加：
 - 主源成功、部分成功、fallback 成功、旧赔率兜底和最终失败正确合并。
 - 一个批次错误不会复制成多场独立请求失败。
 - `success`、`failed`、`skipped` 旧字段继续存在。
-- `not_attempted`、重试统计和 `odds_status` 正确。
+- `not_attempted`、请求级重试统计、恢复比赛数和 `odds_status` 正确。
 - Bark 汇总计数与任务结果一致。
 
 ## 验收标准

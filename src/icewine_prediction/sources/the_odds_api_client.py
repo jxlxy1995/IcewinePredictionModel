@@ -1,4 +1,7 @@
-from typing import Any
+import time
+from dataclasses import dataclass
+from threading import Lock
+from typing import Any, Callable
 
 import requests
 
@@ -18,6 +21,80 @@ class TheOddsApiApiError(RuntimeError):
     def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class TheOddsApiExtraTimeBudgetExceededError(RuntimeError):
+    pass
+
+
+@dataclass
+class TheOddsApiRecoveryBudget:
+    limit_seconds: float = 120.0
+    limiter_wait_seconds: float = 0.0
+    backoff_wait_seconds: float = 0.0
+    retry_elapsed_seconds: float = 0.0
+
+    @property
+    def consumed_seconds(self) -> float:
+        return (
+            self.limiter_wait_seconds
+            + self.backoff_wait_seconds
+            + self.retry_elapsed_seconds
+        )
+
+    @property
+    def remaining_seconds(self) -> float:
+        return max(0.0, self.limit_seconds - self.consumed_seconds)
+
+    def require_capacity(self, seconds: float) -> None:
+        required_seconds = max(0.0, seconds)
+        if required_seconds > self.remaining_seconds:
+            raise TheOddsApiExtraTimeBudgetExceededError(
+                "The Odds API recovery time budget exceeded"
+            )
+
+    def add_limiter_wait(self, seconds: float) -> None:
+        wait_seconds = max(0.0, seconds)
+        self.require_capacity(wait_seconds)
+        self.limiter_wait_seconds += wait_seconds
+
+    def add_backoff_wait(self, seconds: float) -> None:
+        wait_seconds = max(0.0, seconds)
+        self.require_capacity(wait_seconds)
+        self.backoff_wait_seconds += wait_seconds
+
+    def add_retry_elapsed(self, seconds: float) -> None:
+        elapsed_seconds = max(0.0, seconds)
+        self.require_capacity(elapsed_seconds)
+        self.retry_elapsed_seconds += elapsed_seconds
+
+
+class TheOddsApiRequestLimiter:
+    def __init__(
+        self,
+        cooldown_seconds: float = 1.0,
+        clock: Callable[[], float] = time.monotonic,
+        sleeper: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self.cooldown_seconds = max(0.0, cooldown_seconds)
+        self._clock = clock
+        self._sleeper = sleeper
+        self._last_request_at = 0.0
+        self._lock = Lock()
+
+    def wait(self, budget: TheOddsApiRecoveryBudget) -> float:
+        with self._lock:
+            elapsed_seconds = self._clock() - self._last_request_at
+            wait_seconds = max(0.0, self.cooldown_seconds - elapsed_seconds)
+            budget.require_capacity(wait_seconds)
+            if wait_seconds > 0.0:
+                self._sleeper(wait_seconds)
+                budget.add_limiter_wait(wait_seconds)
+            self._last_request_at = self._clock()
+            return wait_seconds
+
+
+GLOBAL_THE_ODDS_API_REQUEST_LIMITER = TheOddsApiRequestLimiter()
 
 
 class TheOddsApiClient:

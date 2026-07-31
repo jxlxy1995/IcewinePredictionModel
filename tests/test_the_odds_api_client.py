@@ -5,7 +5,10 @@ from icewine_prediction.sources.the_odds_api_client import (
     MissingTheOddsApiKeyError,
     TheOddsApiApiError,
     TheOddsApiClient,
+    TheOddsApiExtraTimeBudgetExceededError,
+    TheOddsApiRecoveryBudget,
     TheOddsApiRequestBudgetExceededError,
+    TheOddsApiRequestLimiter,
 )
 
 
@@ -31,6 +34,53 @@ class FakeSession:
     def get(self, url, params, timeout):
         self.calls.append((url, params, timeout))
         return self.responses.pop(0)
+
+
+class FakeTime:
+    def __init__(self):
+        self.now = 100.0
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def test_the_odds_api_request_limiter_charges_only_required_wait():
+    fake_time = FakeTime()
+    budget = TheOddsApiRecoveryBudget(limit_seconds=120.0)
+    limiter = TheOddsApiRequestLimiter(
+        cooldown_seconds=1.0,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+
+    assert limiter.wait(budget) == 0.0
+    fake_time.now += 0.25
+
+    assert limiter.wait(budget) == pytest.approx(0.75)
+    assert fake_time.sleeps == [pytest.approx(0.75)]
+    assert budget.limiter_wait_seconds == pytest.approx(0.75)
+    assert budget.remaining_seconds == pytest.approx(119.25)
+
+
+def test_the_odds_api_request_limiter_refuses_wait_beyond_budget():
+    fake_time = FakeTime()
+    budget = TheOddsApiRecoveryBudget(limit_seconds=0.5)
+    limiter = TheOddsApiRequestLimiter(
+        cooldown_seconds=1.0,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+
+    assert limiter.wait(budget) == 0.0
+    with pytest.raises(TheOddsApiExtraTimeBudgetExceededError):
+        limiter.wait(budget)
+
+    assert fake_time.sleeps == []
 
 
 def test_the_odds_api_client_adds_api_key_and_counts_requests():

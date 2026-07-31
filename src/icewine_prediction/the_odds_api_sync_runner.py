@@ -371,9 +371,10 @@ def run_the_odds_api_sync_for_session(
                     )
                     if current_result.failed:
                         request_failures.append(current_result)
-                        failure_result = _match_result_from_request_failures(
+                        failure_result = _failed_match_result(
                             match.id,
-                            "failed",
+                            current_result.error_message or "The Odds API request failed",
+                            current_result.error_code or "request_error",
                             request_failures,
                         )
                         match_results.append(failure_result)
@@ -413,28 +414,38 @@ def run_the_odds_api_sync_for_session(
                             )
                         )
             if candidate is None:
+                failure_result = _failed_match_result(
+                    match.id,
+                    "no matching The Odds API event",
+                    "event_not_found",
+                    request_failures,
+                )
                 _store_source_match_status(
                     session,
                     match,
                     None,
                     "unmatched",
-                    "no matching The Odds API event",
+                    failure_result.error_message,
                 )
                 failed += 1
-                match_results.append(
-                    _failed_match_result(
-                        match.id,
-                        "no matching The Odds API event",
-                        request_failures,
-                    )
-                )
+                match_results.append(failure_result)
                 continue
             if not snapshots:
-                _store_source_match_status(session, match, candidate, "empty", "no Pinnacle markets")
-                failed += 1
-                match_results.append(
-                    _failed_match_result(match.id, "no Pinnacle markets", request_failures)
+                failure_result = _failed_match_result(
+                    match.id,
+                    "no Pinnacle markets",
+                    "markets_not_found",
+                    request_failures,
                 )
+                _store_source_match_status(
+                    session,
+                    match,
+                    candidate,
+                    "empty",
+                    failure_result.error_message,
+                )
+                failed += 1
+                match_results.append(failure_result)
                 continue
             if candidate.reason == "historical sport/time/team match; standard execution timepoints":
                 main_snapshots = build_point_in_time_main_market_snapshots(
@@ -470,7 +481,18 @@ def run_the_odds_api_sync_for_session(
                 kickoff_time=match.kickoff_time,
                 max_snapshots_per_market_type=250,
             )
-            _store_source_match_status(session, match, candidate, "success", None)
+            match_result = (
+                _partial_success_match_result(match.id, request_failures)
+                if request_failures
+                else TheOddsApiMatchSyncResult(match_id=match.id, status="success")
+            )
+            _store_source_match_status(
+                session,
+                match,
+                candidate,
+                match_result.status,
+                match_result.error_message,
+            )
             matched += 1
             processed += 1
             inserted += result.inserted_count
@@ -478,13 +500,7 @@ def run_the_odds_api_sync_for_session(
             asian += sum(1 for snapshot in snapshots if snapshot.market_type == "asian_handicap")
             totals += sum(1 for snapshot in snapshots if snapshot.market_type == "total_goals")
             winners += sum(1 for snapshot in snapshots if snapshot.market_type == "match_winner")
-            match_results.append(
-                _match_result_from_request_failures(
-                    match.id,
-                    "partial_success" if request_failures else "success",
-                    request_failures,
-                )
-            )
+            match_results.append(match_result)
         except (TheOddsApiApiError, TheOddsApiRequestBudgetExceededError) as exc:
             error_message = str(exc)
             _store_source_match_status(session, match, None, "failed", error_message)
@@ -1007,17 +1023,18 @@ def _cached_request_failure(exc: TheOddsApiApiError) -> TheOddsApiCachedRequestR
     )
 
 
-def _match_result_from_request_failures(
+def _match_result_with_request_metadata(
     match_id: int,
     status: str,
+    error_message: str | None,
+    error_code: str | None,
     request_failures: list[TheOddsApiCachedRequestResult],
 ) -> TheOddsApiMatchSyncResult:
-    first_failure = request_failures[0] if request_failures else None
     return TheOddsApiMatchSyncResult(
         match_id=match_id,
         status=status,
-        error_message=first_failure.error_message if first_failure else None,
-        error_code=first_failure.error_code if first_failure else None,
+        error_message=error_message,
+        error_code=error_code,
         attempt_count=max(
             (request_result.attempt_count for request_result in request_failures),
             default=1,
@@ -1028,17 +1045,32 @@ def _match_result_from_request_failures(
     )
 
 
-def _failed_match_result(
+def _partial_success_match_result(
     match_id: int,
-    fallback_error_message: str,
     request_failures: list[TheOddsApiCachedRequestResult],
 ) -> TheOddsApiMatchSyncResult:
-    if request_failures:
-        return _match_result_from_request_failures(match_id, "failed", request_failures)
-    return TheOddsApiMatchSyncResult(
-        match_id=match_id,
-        status="failed",
-        error_message=fallback_error_message,
+    first_failure = request_failures[0]
+    return _match_result_with_request_metadata(
+        match_id,
+        "partial_success",
+        first_failure.error_message,
+        first_failure.error_code,
+        request_failures,
+    )
+
+
+def _failed_match_result(
+    match_id: int,
+    terminal_error_message: str,
+    terminal_error_code: str,
+    request_failures: list[TheOddsApiCachedRequestResult],
+) -> TheOddsApiMatchSyncResult:
+    return _match_result_with_request_metadata(
+        match_id,
+        "failed",
+        terminal_error_message,
+        terminal_error_code,
+        request_failures,
     )
 
 

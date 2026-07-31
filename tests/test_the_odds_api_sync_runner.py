@@ -665,6 +665,9 @@ def test_run_the_odds_api_sync_reports_partial_success_for_failed_historical_tim
     assert result.match_results[0].status == "partial_success"
     assert result.match_results[0].attempt_count == 2
     assert result.match_results[0].error_code == "read_timeout"
+    source_match = session.query(OddsSourceMatch).filter_by(match_id=match.id).one()
+    assert source_match.historical_odds_status == "partial_success"
+    assert source_match.historical_odds_error == "historical odds request timed out"
 
 
 def test_run_the_odds_api_sync_reuses_failed_historical_request_across_matches(session):
@@ -783,6 +786,106 @@ def test_run_the_odds_api_sync_reuses_failed_current_request_across_matches(sess
     assert {item.match_id for item in result.match_results} == {first.id, second.id}
     assert {item.status for item in result.match_results} == {"failed"}
     assert result.failed_match_count == 2
+
+
+def test_run_the_odds_api_sync_prefers_terminal_current_failure_over_historical_failure(session):
+    match = _add_match(
+        session,
+        home_team_name="Arsenal",
+        away_team_name="Chelsea",
+        kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
+    class HistoricalAndCurrentFailureClient(FakeTheOddsApiClient):
+        def get(self, endpoint, params=None):
+            params = params or {}
+            self.calls.append((endpoint, params))
+            self.request_count += 1
+            if params.get("date") == "2026-06-26T18:00:00Z":
+                raise TheOddsApiApiError(
+                    "historical odds request timed out",
+                    error_code="read_timeout",
+                    attempt_count=4,
+                    retry_exhausted=True,
+                )
+            if endpoint == "sports/soccer_epl/odds":
+                raise TheOddsApiApiError(
+                    "current odds rate limited",
+                    status_code=429,
+                    error_code="http_429",
+                    attempt_count=2,
+                    retry_exhausted=False,
+                )
+            return {"data": []}
+
+    client = TheOddsApiSyncClient(HistoricalAndCurrentFailureClient({}))
+
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=client,
+        season=2026,
+        max_matches=5,
+        match_ids={match.id},
+        now=datetime(2026, 6, 26, 18, 51, tzinfo=ZoneInfo("UTC")),
+    )
+
+    match_result = result.match_results[0]
+    source_match = session.query(OddsSourceMatch).filter_by(match_id=match.id).one()
+    assert match_result.status == "failed"
+    assert match_result.error_message == "current odds rate limited"
+    assert match_result.error_code == "http_429"
+    assert match_result.attempt_count == 4
+    assert match_result.retry_exhausted is True
+    assert source_match.historical_odds_status == "failed"
+    assert source_match.historical_odds_error == "current odds rate limited"
+
+
+def test_run_the_odds_api_sync_preserves_terminal_unmatched_reason_after_historical_failure(
+    session,
+):
+    match = _add_match(
+        session,
+        home_team_name="Arsenal",
+        away_team_name="Chelsea",
+        kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
+    class HistoricalFailureWithoutCurrentMatchClient(FakeTheOddsApiClient):
+        def get(self, endpoint, params=None):
+            params = params or {}
+            self.calls.append((endpoint, params))
+            self.request_count += 1
+            if params.get("date") == "2026-06-26T18:00:00Z":
+                raise TheOddsApiApiError(
+                    "historical odds request timed out",
+                    error_code="read_timeout",
+                    attempt_count=3,
+                    retry_exhausted=True,
+                )
+            if endpoint == "sports/soccer_epl/odds":
+                return []
+            return {"data": []}
+
+    client = TheOddsApiSyncClient(HistoricalFailureWithoutCurrentMatchClient({}))
+
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=client,
+        season=2026,
+        max_matches=5,
+        match_ids={match.id},
+        now=datetime(2026, 6, 26, 18, 51, tzinfo=ZoneInfo("UTC")),
+    )
+
+    match_result = result.match_results[0]
+    source_match = session.query(OddsSourceMatch).filter_by(match_id=match.id).one()
+    assert match_result.status == "failed"
+    assert match_result.error_message == "no matching The Odds API event"
+    assert match_result.error_code == "event_not_found"
+    assert match_result.attempt_count == 3
+    assert match_result.retry_exhausted is True
+    assert source_match.historical_odds_status == "unmatched"
+    assert source_match.historical_odds_error == "no matching The Odds API event"
 
 
 def test_run_the_odds_api_sync_uses_elapsed_historical_timepoints_before_kickoff(session):

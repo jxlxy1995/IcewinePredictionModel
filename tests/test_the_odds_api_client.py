@@ -11,6 +11,7 @@ from icewine_prediction.sources.the_odds_api_client import (
     TheOddsApiRecoveryBudget,
     TheOddsApiRequestBudgetExceededError,
     TheOddsApiRequestLimiter,
+    _retry_after_seconds,
 )
 
 
@@ -35,7 +36,10 @@ class FakeSession:
 
     def get(self, url, params, timeout):
         self.calls.append((url, params, timeout))
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
 
 
 class FakeTime:
@@ -200,6 +204,32 @@ def _capture_limiter_error(limiter, budget, errors):
         errors.append(exc)
 
 
+def _no_wait_limiter():
+    return TheOddsApiRequestLimiter(cooldown_seconds=0.0)
+
+
+def _controlled_client(responses, timeout_seconds=40, recovery_limit=120):
+    fake_time = FakeTime()
+    budget = TheOddsApiRecoveryBudget(limit_seconds=recovery_limit)
+    limiter = TheOddsApiRequestLimiter(
+        cooldown_seconds=1.0,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+    client = TheOddsApiClient(
+        api_key="secret",
+        timeout_seconds=timeout_seconds,
+        request_budget=20,
+        session=FakeSession(responses),
+        request_limiter=limiter,
+        recovery_budget=budget,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+        trace_id="trace-test",
+    )
+    return client, fake_time, budget
+
+
 def test_the_odds_api_client_adds_api_key_and_counts_requests():
     session = FakeSession([FakeResponse({"ok": True})])
     client = TheOddsApiClient(
@@ -207,6 +237,7 @@ def test_the_odds_api_client_adds_api_key_and_counts_requests():
         timeout_seconds=12,
         request_budget=2,
         session=session,
+        request_limiter=_no_wait_limiter(),
     )
 
     payload = client.get("sports/soccer_epl/odds", {"regions": "eu"})
@@ -244,6 +275,7 @@ def test_the_odds_api_client_tracks_credit_headers_alongside_request_count():
         api_key="secret",
         request_budget=2,
         session=session,
+        request_limiter=_no_wait_limiter(),
     )
 
     client.get("historical/sports/soccer_epl/odds")
@@ -257,7 +289,10 @@ def test_the_odds_api_client_tracks_credit_headers_alongside_request_count():
 
 
 def test_the_odds_api_client_default_session_ignores_environment_proxy():
-    client = TheOddsApiClient(api_key="secret")
+    client = TheOddsApiClient(
+        api_key="secret",
+        request_limiter=_no_wait_limiter(),
+    )
 
     assert client.session.trust_env is False
 
@@ -267,11 +302,30 @@ def test_the_odds_api_client_requires_api_key():
         TheOddsApiClient(api_key=None)
 
 
+def test_the_odds_api_api_error_preserves_retry_context():
+    error = TheOddsApiApiError(
+        "request failed",
+        status_code=429,
+        error_code="http_429",
+        retry_after_seconds=12.0,
+        attempt_count=2,
+        retry_exhausted=True,
+    )
+
+    assert str(error) == "request failed"
+    assert error.status_code == 429
+    assert error.error_code == "http_429"
+    assert error.retry_after_seconds == 12.0
+    assert error.attempt_count == 2
+    assert error.retry_exhausted is True
+
+
 def test_the_odds_api_client_enforces_request_budget():
     client = TheOddsApiClient(
         api_key="secret",
         request_budget=0,
         session=FakeSession([]),
+        request_limiter=_no_wait_limiter(),
     )
 
     with pytest.raises(TheOddsApiRequestBudgetExceededError):
@@ -282,6 +336,8 @@ def test_the_odds_api_client_wraps_json_error_payload():
     client = TheOddsApiClient(
         api_key="secret",
         session=FakeSession([FakeResponse({"message": "Invalid API key"})]),
+        request_limiter=_no_wait_limiter(),
+        max_retries=0,
     )
 
     with pytest.raises(TheOddsApiApiError) as exc_info:
@@ -301,6 +357,8 @@ def test_the_odds_api_client_api_error_does_not_expose_api_key_in_url():
     client = TheOddsApiClient(
         api_key="secret",
         session=FakeSession([UrlLeakingResponse({})]),
+        request_limiter=_no_wait_limiter(),
+        max_retries=0,
     )
 
     with pytest.raises(TheOddsApiApiError) as exc_info:
@@ -314,6 +372,8 @@ def test_the_odds_api_client_http_error_includes_response_message_without_api_ke
     client = TheOddsApiClient(
         api_key="secret",
         session=FakeSession([FakeResponse({"message": "Markets not available"}, status_code=422)]),
+        request_limiter=_no_wait_limiter(),
+        max_retries=0,
     )
 
     with pytest.raises(TheOddsApiApiError) as exc_info:
@@ -336,6 +396,8 @@ def test_the_odds_api_client_wraps_request_errors_without_exposing_api_key():
     client = TheOddsApiClient(
         api_key="secret",
         session=RequestFailingSession(),
+        request_limiter=_no_wait_limiter(),
+        max_retries=0,
     )
 
     with pytest.raises(TheOddsApiApiError) as exc_info:
@@ -345,3 +407,213 @@ def test_the_odds_api_client_wraps_request_errors_without_exposing_api_key():
     assert "ProxyError" in str(exc_info.value)
     assert "secret" not in str(exc_info.value)
     assert "apiKey" not in str(exc_info.value)
+
+
+def test_the_odds_api_client_retries_read_timeout_and_tracks_recovery():
+    client, fake_time, budget = _controlled_client(
+        [requests.exceptions.ReadTimeout("unsafe secret"), FakeResponse({"ok": True})]
+    )
+
+    payload = client.get("sports", {"regions": "eu"})
+
+    assert payload == {"ok": True}
+    assert client.request_count == 2
+    assert client.retry_count == 1
+    assert client.retry_success_count == 1
+    assert client.last_request_attempt_count == 2
+    assert budget.backoff_wait_seconds == pytest.approx(5.0)
+    assert fake_time.sleeps == [pytest.approx(5.0)]
+
+
+def test_the_odds_api_client_uses_retry_after_for_rate_limit():
+    client, fake_time, budget = _controlled_client(
+        [
+            FakeResponse({}, status_code=429, headers={"Retry-After": "12"}),
+            FakeResponse({"ok": True}),
+        ]
+    )
+
+    assert client.get("sports") == {"ok": True}
+    assert budget.backoff_wait_seconds == pytest.approx(12.0)
+    assert fake_time.sleeps == [pytest.approx(12.0)]
+
+
+def test_the_odds_api_retry_after_accepts_numeric_zero():
+    assert _retry_after_seconds({"Retry-After": 0}) == 0.0
+
+
+@pytest.mark.parametrize("status_code", [500, 502, 503, 504])
+def test_the_odds_api_client_retries_transient_server_errors(status_code):
+    client, fake_time, budget = _controlled_client(
+        [FakeResponse({}, status_code=status_code), FakeResponse({"ok": True})]
+    )
+
+    assert client.get("sports") == {"ok": True}
+    assert client.request_count == 2
+    assert budget.backoff_wait_seconds == pytest.approx(5.0)
+    assert fake_time.sleeps == [pytest.approx(5.0)]
+
+
+def test_the_odds_api_client_retries_connection_error():
+    client, fake_time, budget = _controlled_client(
+        [requests.exceptions.ConnectionError("unsafe secret"), FakeResponse({"ok": True})]
+    )
+
+    assert client.get("sports") == {"ok": True}
+    assert client.request_count == 2
+    assert budget.backoff_wait_seconds == pytest.approx(5.0)
+    assert fake_time.sleeps == [pytest.approx(5.0)]
+
+
+@pytest.mark.parametrize("retry_after", [None, "invalid", "-1"])
+def test_the_odds_api_client_uses_default_rate_limit_backoff(retry_after):
+    headers = {} if retry_after is None else {"Retry-After": retry_after}
+    client, fake_time, budget = _controlled_client(
+        [FakeResponse({}, status_code=429, headers=headers), FakeResponse({"ok": True})]
+    )
+
+    assert client.get("sports") == {"ok": True}
+    assert budget.backoff_wait_seconds == pytest.approx(15.0)
+    assert fake_time.sleeps == [pytest.approx(15.0)]
+
+
+@pytest.mark.parametrize("status_code", [401, 403, 422])
+def test_the_odds_api_client_does_not_retry_permanent_http_errors(status_code):
+    client, fake_time, _budget = _controlled_client(
+        [FakeResponse({"message": "request rejected"}, status_code=status_code)]
+    )
+
+    with pytest.raises(TheOddsApiApiError) as exc_info:
+        client.get("sports")
+
+    assert exc_info.value.error_code == f"http_{status_code}"
+    assert exc_info.value.attempt_count == 1
+    assert exc_info.value.retry_exhausted is False
+    assert client.request_count == 1
+    assert fake_time.sleeps == []
+
+
+def test_the_odds_api_client_refuses_retry_when_recovery_budget_cannot_cover_attempt():
+    client, fake_time, _budget = _controlled_client(
+        [requests.exceptions.ReadTimeout("unsafe secret")],
+        timeout_seconds=40,
+        recovery_limit=44,
+    )
+
+    with pytest.raises(TheOddsApiApiError) as exc_info:
+        client.get("sports")
+
+    assert exc_info.value.error_code == "retry_budget_exhausted"
+    assert exc_info.value.attempt_count == 1
+    assert exc_info.value.retry_exhausted is True
+    assert client.request_count == 1
+    assert fake_time.sleeps == []
+
+
+def test_the_odds_api_client_charges_actual_backoff_oversleep_before_exhausting_budget():
+    client, fake_time, budget = _controlled_client(
+        [requests.exceptions.ReadTimeout("unsafe secret")],
+        timeout_seconds=40,
+        recovery_limit=45,
+    )
+    fake_time.oversleep_seconds = 0.5
+
+    with pytest.raises(TheOddsApiApiError) as exc_info:
+        client.get("sports")
+
+    assert exc_info.value.error_code == "retry_budget_exhausted"
+    assert budget.backoff_wait_seconds == pytest.approx(5.5)
+    assert budget.remaining_seconds == pytest.approx(39.5)
+    assert fake_time.sleeps == [pytest.approx(5.0)]
+
+
+def test_the_odds_api_client_charges_actual_retry_execution_time():
+    client, fake_time, budget = _controlled_client(
+        [requests.exceptions.ReadTimeout("unsafe secret"), FakeResponse({"ok": True})]
+    )
+    successful_response = client.session.responses[1]
+    original_json = successful_response.json
+
+    def advancing_json():
+        fake_time.now += 2.0
+        return original_json()
+
+    successful_response.json = advancing_json
+
+    assert client.get("sports") == {"ok": True}
+    assert budget.retry_elapsed_seconds == pytest.approx(2.0)
+
+
+def test_the_odds_api_client_retry_log_is_traceable_and_redacted(caplog):
+    client, _fake_time, _budget = _controlled_client(
+        [requests.exceptions.ReadTimeout("apiKey=secret"), FakeResponse({"ok": True})]
+    )
+
+    with caplog.at_level("WARNING"):
+        client.get("sports", {"regions": "eu", "apiKey": "secret"})
+
+    retry_record = next(record for record in caplog.records if record.levelname == "WARNING")
+    assert retry_record.trace_id == "trace-test"
+    assert retry_record.endpoint == "sports"
+    assert retry_record.attempt == 1
+    assert retry_record.error_code == "read_timeout"
+    assert retry_record.limiter_wait == 0.0
+    assert retry_record.backoff == pytest.approx(5.0)
+    assert "trace-test" in caplog.text
+    assert "secret" not in caplog.text
+    assert "apiKey" not in caplog.text
+
+
+def test_the_odds_api_client_success_log_contains_only_safe_request_metadata(caplog):
+    client, _fake_time, _budget = _controlled_client([FakeResponse({"ok": True})])
+
+    with caplog.at_level("INFO"):
+        client.get(
+            "sports",
+            {
+                "regions": "eu",
+                "markets": "h2h",
+                "apiKey": "secret",
+                "unsafe": "do-not-log",
+            },
+        )
+
+    success_record = next(record for record in caplog.records if record.levelname == "INFO")
+    assert success_record.trace_id == "trace-test"
+    assert success_record.endpoint == "sports"
+    assert success_record.regions == "eu"
+    assert success_record.markets == "h2h"
+    assert not hasattr(success_record, "apiKey")
+    assert not hasattr(success_record, "unsafe")
+    assert "secret" not in caplog.text
+    assert "apiKey" not in caplog.text
+    assert "do-not-log" not in caplog.text
+
+
+def test_the_odds_api_clients_share_request_limiter_timing():
+    fake_time = FakeTime()
+    limiter = TheOddsApiRequestLimiter(
+        cooldown_seconds=1.0,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+    first_client = TheOddsApiClient(
+        api_key="first-secret",
+        session=FakeSession([FakeResponse({"ok": True})]),
+        request_limiter=limiter,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+    second_client = TheOddsApiClient(
+        api_key="second-secret",
+        session=FakeSession([FakeResponse({"ok": True})]),
+        request_limiter=limiter,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+
+    first_client.get("sports")
+    fake_time.now += 0.25
+    second_client.get("sports")
+
+    assert fake_time.sleeps == [pytest.approx(0.75)]

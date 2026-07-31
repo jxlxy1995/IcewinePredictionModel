@@ -547,6 +547,33 @@ def test_the_odds_api_client_refuses_retry_when_recovery_budget_cannot_cover_att
     assert fake_time.sleeps == []
 
 
+def test_the_odds_api_client_propagates_extra_time_budget_error_before_first_attempt():
+    fake_time = FakeTime()
+    limiter = TheOddsApiRequestLimiter(
+        cooldown_seconds=1.0,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+    limiter.wait(TheOddsApiRecoveryBudget())
+    session = FakeSession([FakeResponse({"ok": True})])
+    client = TheOddsApiClient(
+        api_key="secret",
+        request_budget=20,
+        session=session,
+        request_limiter=limiter,
+        recovery_budget=TheOddsApiRecoveryBudget(limit_seconds=0.5),
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+
+    with pytest.raises(TheOddsApiExtraTimeBudgetExceededError):
+        client.get("sports")
+
+    assert client.request_count == 0
+    assert session.calls == []
+    assert fake_time.sleeps == []
+
+
 def test_the_odds_api_client_preflights_combined_limiter_and_backoff_wait():
     fake_time = FakeTime()
     budget = TheOddsApiRecoveryBudget(limit_seconds=49)

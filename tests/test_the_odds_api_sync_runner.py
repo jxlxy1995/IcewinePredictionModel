@@ -20,8 +20,11 @@ from icewine_prediction.odds_source_match_service import ExternalAliasInput
 from icewine_prediction.odds_provider_selection_service import THE_ODDS_API_SOURCE_NAME
 from icewine_prediction.sources.the_odds_api_client import (
     TheOddsApiApiError,
+    TheOddsApiClient,
     TheOddsApiExtraTimeBudgetExceededError,
+    TheOddsApiRecoveryBudget,
     TheOddsApiRequestBudgetExceededError,
+    TheOddsApiRequestLimiter,
 )
 from icewine_prediction.the_odds_api_sync_runner import (
     API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS,
@@ -964,6 +967,74 @@ def test_run_the_odds_api_sync_marks_current_and_remaining_matches_not_attempted
     assert len(raw_client.calls) == 1
     messages = [record.getMessage() for record in caplog.records]
     assert sum(message.startswith("the_odds_api_match_result") for message in messages) == 2
+
+
+def test_run_the_odds_api_sync_stops_batch_when_real_client_cannot_get_first_limiter_permit(
+    session,
+):
+    first = _add_match(session, home_team_name="Arsenal", away_team_name="Chelsea")
+    second = _add_match_in_league(
+        session,
+        league=first.league,
+        home_team_name="Tottenham",
+        away_team_name="Everton",
+        kickoff_time=datetime(2026, 6, 26, 19, 0, tzinfo=ZoneInfo("UTC")),
+        source_match_id="1002",
+    )
+
+    class FakeClock:
+        now = 100.0
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, seconds):
+            raise AssertionError(f"unexpected sleep: {seconds}")
+
+    class NoNetworkSession:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, params, timeout):
+            self.calls.append((url, params, timeout))
+            raise AssertionError("network request must not start without a limiter permit")
+
+    fake_clock = FakeClock()
+    limiter = TheOddsApiRequestLimiter(
+        cooldown_seconds=1.0,
+        clock=fake_clock.monotonic,
+        sleeper=fake_clock.sleep,
+    )
+    limiter.wait(TheOddsApiRecoveryBudget())
+    no_network_session = NoNetworkSession()
+    raw_client = TheOddsApiClient(
+        api_key="secret",
+        request_budget=20,
+        session=no_network_session,
+        request_limiter=limiter,
+        recovery_budget=TheOddsApiRecoveryBudget(limit_seconds=0.5),
+        clock=fake_clock.monotonic,
+        sleeper=fake_clock.sleep,
+    )
+
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=TheOddsApiSyncClient(raw_client),
+        season=2026,
+        max_matches=5,
+        match_ids={first.id, second.id},
+        now=datetime(2026, 6, 25, 0, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
+    assert result.not_attempted_match_ids == (first.id, second.id)
+    assert [(item.match_id, item.status) for item in result.match_results] == [
+        (first.id, "not_attempted"),
+        (second.id, "not_attempted"),
+    ]
+    assert result.failed_match_count == 0
+    assert result.processed_match_count == 0
+    assert result.requests_used == 0
+    assert no_network_session.calls == []
 
 
 def test_run_the_odds_api_sync_treats_request_budget_exhaustion_as_a_match_failure(session):

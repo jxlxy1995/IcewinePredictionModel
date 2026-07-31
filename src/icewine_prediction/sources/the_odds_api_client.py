@@ -366,6 +366,8 @@ class TheOddsApiClient:
                     self.request_limiter.wait(self.recovery_budget)
                 except TheOddsApiExtraTimeBudgetExceededError:
                     self.last_request_attempt_count = attempt
+                    if attempt == 1:
+                        raise
                     raise self._retry_budget_error(attempt) from None
             else:
                 try:

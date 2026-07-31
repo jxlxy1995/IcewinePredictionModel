@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from icewine_prediction.display_service import DisplayNameService, DisplayNames
 from icewine_prediction.models import Match, OddsSourceMatch
 from icewine_prediction.odds_provider_selection_service import ZQCF918_SOURCE_NAME
+from icewine_prediction.odds_source_match_service import ExternalAliasInput
 from icewine_prediction.sources.zqcf918_client import (
     ZQCF918_BASE_URL,
     ZQCF918_PINNACLE_COMPANY_ID,
@@ -74,13 +75,20 @@ class ZQCF918MatchDiscoverer:
         self,
         client: ZQCF918Client | None = None,
         display_names: DisplayNames | None = None,
+        league_aliases: list[ExternalAliasInput] | None = None,
     ) -> None:
         self.client = client or ZQCF918Client()
         self.display_service = DisplayNameService(display_names)
+        self.league_aliases = league_aliases or []
 
     def discover(self, matches: list[Match]) -> dict[int, str]:
         candidates = self.client.fetch_score_matches(type_id=1)
-        matched = _match_candidates(matches, candidates, display_service=self.display_service)
+        matched = _match_candidates(
+            matches,
+            candidates,
+            display_service=self.display_service,
+            league_aliases=self.league_aliases,
+        )
         remaining_matches = [match for match in matches if match.id not in matched]
         for match_date in _beijing_match_dates(remaining_matches):
             finished_candidates = self.client.fetch_finished_score_matches(match_date)
@@ -89,6 +97,7 @@ class ZQCF918MatchDiscoverer:
                     [match for match in remaining_matches if _beijing_match_date(match) == match_date],
                     finished_candidates,
                     display_service=self.display_service,
+                    league_aliases=self.league_aliases,
                 )
             )
             remaining_matches = [match for match in remaining_matches if match.id not in matched]
@@ -149,12 +158,17 @@ def _match_candidates(
     candidates: list[dict[str, Any]],
     *,
     display_service: DisplayNameService,
+    league_aliases: list[ExternalAliasInput] | None = None,
 ) -> dict[int, str]:
     matched: dict[int, str] = {}
     for match in matches:
         home_names = _team_name_candidates(match.home_team.canonical_name, display_service)
         away_names = _team_name_candidates(match.away_team.canonical_name, display_service)
-        league_names = _league_name_candidates(match.league.name, display_service)
+        league_names = _league_name_candidates(
+            match.league.name,
+            display_service,
+            league_aliases=league_aliases or [],
+        )
         for candidate in candidates:
             candidate_id = candidate.get("ID") or candidate.get("id") or candidate.get("matchId")
             if candidate_id is None:
@@ -223,8 +237,16 @@ def _team_name_candidates(name: str, display_service: DisplayNameService) -> lis
     return list(dict.fromkeys(_normalized_team(value) for value in values if value))
 
 
-def _league_name_candidates(name: str, display_service: DisplayNameService) -> list[str]:
+def _league_name_candidates(
+    name: str,
+    display_service: DisplayNameService,
+    *,
+    league_aliases: list[ExternalAliasInput],
+) -> list[str]:
     values = [name, display_service.display_league(name)]
+    values.extend(
+        alias.alias_name for alias in league_aliases if alias.canonical_name == name
+    )
     return list(dict.fromkeys(_normalized_team(value) for value in values if value))
 
 

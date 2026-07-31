@@ -2,12 +2,14 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from icewine_prediction.display_service import DisplayNames
+from icewine_prediction.display_service import DisplayNameService, DisplayNames
 from icewine_prediction.models import League, Match, OddsSourceMatch, Team
 from icewine_prediction.odds_provider_selection_service import ZQCF918_SOURCE_NAME
+from icewine_prediction.odds_source_match_service import ExternalAliasInput
 from icewine_prediction.zqcf918_match_service import (
     ZQCF918MatchIdUpdate,
     ZQCF918MatchDiscoverer,
+    _match_candidates,
     get_zqcf918_match_id,
     sync_zqcf918_match_ids_for_matches,
     upsert_zqcf918_match_id,
@@ -237,6 +239,47 @@ def test_discoverer_checks_finished_score_list_by_match_date(session):
 
     assert client.finished_dates == ["2026-06-26"]
     assert discovered == {match.id: "4480129"}
+
+
+def test_match_candidates_uses_zqcf918_league_alias_without_changing_display_name(session):
+    match = _add_match(
+        session,
+        league_name="Ekstraklasa (Poland)",
+        home_name="Wisla Plock",
+        away_name="Widzew \u0141\u00f3d\u017a",
+        kickoff_time=datetime(2026, 8, 1, 0, 0),
+    )
+    candidate = {
+        "ID": "4559263",
+        "league": "\u6ce2\u5170\u7532",
+        "home": "\u534e\u6c99\u666e\u6d1b\u514b",
+        "away": "\u7ef4\u5fb7\u7956\u7f57\u5179",
+        "time": "2026-08-01 00:00:00",
+    }
+    display_service = DisplayNameService(
+        DisplayNames(
+            leagues={"Ekstraklasa (Poland)": "\u6ce2\u5170\u8d85"},
+            teams={
+                "Wisla Plock": "\u534e\u6c99\u666e\u6d1b\u514b",
+                "Widzew \u0141\u00f3d\u017a": "\u7ef4\u5fb7\u7956\u7f57\u5179",
+            },
+        )
+    )
+
+    assert display_service.display_league(match.league.name) == "\u6ce2\u5170\u8d85"
+    assert _match_candidates(
+        [match],
+        [candidate],
+        display_service=display_service,
+    ) == {}
+    assert _match_candidates(
+        [match],
+        [candidate],
+        display_service=display_service,
+        league_aliases=[
+            ExternalAliasInput("Ekstraklasa (Poland)", "\u6ce2\u5170\u7532")
+        ],
+    ) == {match.id: "4559263"}
 
 
 def _add_match(

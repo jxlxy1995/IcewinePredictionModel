@@ -625,7 +625,7 @@ def run_the_odds_api_sync_for_session(
 def _log_match_start(*, trace_id: str | None, match_id: int, sport_key: str) -> None:
     logger.info(
         "the_odds_api_match_start trace_id=%s match_id=%s sport_key=%s",
-        trace_id,
+        trace_id or "-",
         match_id,
         sport_key,
     )
@@ -640,10 +640,10 @@ def _record_match_result(
     match_results.append(match_result)
     logger.info(
         "the_odds_api_match_result trace_id=%s match_id=%s status=%s error_code=%s",
-        trace_id,
+        trace_id or "-",
         match_result.match_id,
         match_result.status,
-        match_result.error_code,
+        match_result.error_code or "-",
     )
 
 
@@ -673,10 +673,10 @@ def _log_request_cache_failure(
     logger.warning(
         "the_odds_api_request_cache_failure trace_id=%s match_id=%s "
         "sport_key=%s error_code=%s",
-        trace_id,
+        trace_id or "-",
         match_id,
         sport_key,
-        request_failure.error_code,
+        request_failure.error_code or "-",
     )
 
 

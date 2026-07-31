@@ -871,7 +871,48 @@ def test_run_the_odds_api_sync_continues_after_match_request_failure(session, ca
     ) in messages
     assert (
         "the_odds_api_match_result trace_id=trace-337 "
-        f"match_id={second.id} status=success error_code=None"
+        f"match_id={second.id} status=success error_code=-"
+    ) in messages
+
+
+def test_run_the_odds_api_sync_uses_log_placeholders_for_default_trace_and_empty_cache_error_code(
+    session,
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    match = _add_match(session, home_team_name="Arsenal", away_team_name="Chelsea")
+
+    class EmptyErrorCodeClient(FakeTheOddsApiClient):
+        def get(self, endpoint, params=None):
+            self.calls.append((endpoint, params or {}))
+            self.request_count += 1
+            raise TheOddsApiApiError(
+                "current odds request failed",
+                error_code="",
+            )
+
+    result = run_the_odds_api_sync_for_session(
+        session=session,
+        client=TheOddsApiSyncClient(EmptyErrorCodeClient({})),
+        season=2026,
+        max_matches=5,
+        match_ids={match.id},
+        now=datetime(2026, 6, 25, 0, 0, tzinfo=ZoneInfo("UTC")),
+    )
+
+    assert result.match_results[0].status == "failed"
+    messages = [record.getMessage() for record in caplog.records]
+    assert (
+        "the_odds_api_match_start trace_id=- "
+        f"match_id={match.id} sport_key=soccer_epl"
+    ) in messages
+    assert (
+        "the_odds_api_request_cache_failure trace_id=- "
+        f"match_id={match.id} sport_key=soccer_epl error_code=-"
+    ) in messages
+    assert (
+        "the_odds_api_match_result trace_id=- "
+        f"match_id={match.id} status=failed error_code=request_error"
     ) in messages
 
 

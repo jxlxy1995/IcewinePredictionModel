@@ -115,6 +115,29 @@ class TheOddsApiEventMatchCandidate:
 
 
 @dataclass(frozen=True)
+class TheOddsApiCachedRequestResult:
+    events: tuple[dict[str, Any], ...] = ()
+    error_message: str | None = None
+    error_code: str | None = None
+    attempt_count: int = 1
+    retry_exhausted: bool = False
+
+    @property
+    def failed(self) -> bool:
+        return self.error_code is not None
+
+
+@dataclass(frozen=True)
+class TheOddsApiMatchSyncResult:
+    match_id: int
+    status: str
+    error_message: str | None = None
+    error_code: str | None = None
+    attempt_count: int = 1
+    retry_exhausted: bool = False
+
+
+@dataclass(frozen=True)
 class TheOddsApiSyncResult:
     processed_match_count: int
     matched_count: int
@@ -130,6 +153,14 @@ class TheOddsApiSyncResult:
     provider_requests_used: int | None = None
     provider_requests_remaining: int | None = None
     error_message: str | None = None
+    match_results: tuple[TheOddsApiMatchSyncResult, ...] = ()
+    not_attempted_match_ids: tuple[int, ...] = ()
+    trace_id: str | None = None
+    retry_count: int = 0
+    retry_success_count: int = 0
+    rate_limit_wait_seconds: float = 0.0
+    recovery_elapsed_seconds: float = 0.0
+    recovery_budget_remaining_seconds: float = 120.0
 
 
 class TheOddsApiSyncClient:
@@ -295,39 +326,68 @@ def run_the_odds_api_sync_for_session(
         from_date=from_date,
         refresh_existing=refresh_existing,
     )
-    events_by_sport_key: dict[str, list[dict[str, Any]]] = {}
+    events_by_sport_key: dict[str, TheOddsApiCachedRequestResult] = {}
+    match_results: list[TheOddsApiMatchSyncResult] = []
     processed = matched = failed = inserted = skipped_duplicates = 0
     asian = totals = winners = 0
     error_message = None
     now_utc = _as_utc(now or now_beijing())
     team_aliases = _load_team_aliases(session)
-    historical_odds_cache: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] = {}
+    historical_odds_cache: dict[
+        tuple[str, str, str, str, str], TheOddsApiCachedRequestResult
+    ] = {}
     for match in matches:
         sport_key = API_FOOTBALL_TO_THE_ODDS_API_SPORT_KEYS[str(match.league.source_league_id)]
+        request_failures: list[TheOddsApiCachedRequestResult] = []
         try:
             if _as_utc(match.kickoff_time) <= now_utc:
-                snapshots, raw_source_snapshots = _fetch_passed_kickoff_historical_snapshots(
-                    client=client,
-                    sport_key=sport_key,
-                    match=match,
-                    team_aliases=team_aliases,
-                    cache=historical_odds_cache,
+                snapshots, raw_source_snapshots, request_failures = (
+                    _fetch_passed_kickoff_historical_snapshots(
+                        client=client,
+                        sport_key=sport_key,
+                        match=match,
+                        team_aliases=team_aliases,
+                        cache=historical_odds_cache,
+                    )
                 )
                 candidate = _historical_candidate_from_snapshots(match, snapshots)
             else:
-                snapshots, raw_source_snapshots = _fetch_pre_kickoff_elapsed_historical_snapshots(
-                    client=client,
-                    sport_key=sport_key,
-                    match=match,
-                    now_utc=now_utc,
-                    team_aliases=team_aliases,
-                    cache=historical_odds_cache,
+                snapshots, raw_source_snapshots, request_failures = (
+                    _fetch_pre_kickoff_elapsed_historical_snapshots(
+                        client=client,
+                        sport_key=sport_key,
+                        match=match,
+                        now_utc=now_utc,
+                        team_aliases=team_aliases,
+                        cache=historical_odds_cache,
+                    )
                 )
                 candidate = _historical_candidate_from_snapshots(match, snapshots)
                 if candidate is None:
-                    if sport_key not in events_by_sport_key:
-                        events_by_sport_key[sport_key] = client.fetch_current_odds(sport_key)
-                    events = events_by_sport_key[sport_key]
+                    current_result = _fetch_current_odds_cached(
+                        client,
+                        sport_key,
+                        events_by_sport_key,
+                    )
+                    if current_result.failed:
+                        request_failures.append(current_result)
+                        failure_result = _match_result_from_request_failures(
+                            match.id,
+                            "failed",
+                            request_failures,
+                        )
+                        match_results.append(failure_result)
+                        error_message = error_message or failure_result.error_message
+                        _store_source_match_status(
+                            session,
+                            match,
+                            None,
+                            "failed",
+                            failure_result.error_message,
+                        )
+                        failed += 1
+                        continue
+                    events = list(current_result.events)
                     candidate = find_best_the_odds_api_event_match(
                         match,
                         events,
@@ -361,10 +421,20 @@ def run_the_odds_api_sync_for_session(
                     "no matching The Odds API event",
                 )
                 failed += 1
+                match_results.append(
+                    _failed_match_result(
+                        match.id,
+                        "no matching The Odds API event",
+                        request_failures,
+                    )
+                )
                 continue
             if not snapshots:
                 _store_source_match_status(session, match, candidate, "empty", "no Pinnacle markets")
                 failed += 1
+                match_results.append(
+                    _failed_match_result(match.id, "no Pinnacle markets", request_failures)
+                )
                 continue
             if candidate.reason == "historical sport/time/team match; standard execution timepoints":
                 main_snapshots = build_point_in_time_main_market_snapshots(
@@ -408,10 +478,36 @@ def run_the_odds_api_sync_for_session(
             asian += sum(1 for snapshot in snapshots if snapshot.market_type == "asian_handicap")
             totals += sum(1 for snapshot in snapshots if snapshot.market_type == "total_goals")
             winners += sum(1 for snapshot in snapshots if snapshot.market_type == "match_winner")
+            match_results.append(
+                _match_result_from_request_failures(
+                    match.id,
+                    "partial_success" if request_failures else "success",
+                    request_failures,
+                )
+            )
         except (TheOddsApiApiError, TheOddsApiRequestBudgetExceededError) as exc:
             error_message = str(exc)
             _store_source_match_status(session, match, None, "failed", error_message)
             failed += 1
+            if isinstance(exc, TheOddsApiApiError):
+                match_results.append(
+                    TheOddsApiMatchSyncResult(
+                        match_id=match.id,
+                        status="failed",
+                        error_message=error_message,
+                        error_code=exc.error_code,
+                        attempt_count=exc.attempt_count,
+                        retry_exhausted=exc.retry_exhausted,
+                    )
+                )
+            else:
+                match_results.append(
+                    TheOddsApiMatchSyncResult(
+                        match_id=match.id,
+                        status="failed",
+                        error_message=error_message,
+                    )
+                )
             break
     return TheOddsApiSyncResult(
         processed_match_count=processed,
@@ -428,6 +524,7 @@ def run_the_odds_api_sync_for_session(
         provider_requests_used=client.provider_requests_used,
         provider_requests_remaining=client.provider_requests_remaining,
         error_message=error_message,
+        match_results=tuple(match_results),
     )
 
 
@@ -737,8 +834,14 @@ def _fetch_passed_kickoff_historical_snapshots(
     sport_key: str,
     match: Match,
     team_aliases: list[ExternalAliasInput] | None = None,
-    cache: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] | None = None,
-) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
+    cache: dict[
+        tuple[str, str, str, str, str], TheOddsApiCachedRequestResult
+    ] | None = None,
+) -> tuple[
+    list[HistoricalOddsSnapshotInput],
+    list[HistoricalOddsSnapshotInput],
+    list[TheOddsApiCachedRequestResult],
+]:
     return _fetch_historical_snapshots_at_times(
         client=client,
         sport_key=sport_key,
@@ -756,16 +859,31 @@ def _fetch_historical_snapshots_at_times(
     match: Match,
     snapshot_times: tuple[datetime, ...],
     team_aliases: list[ExternalAliasInput] | None = None,
-    cache: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] | None = None,
-) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
+    cache: dict[
+        tuple[str, str, str, str, str], TheOddsApiCachedRequestResult
+    ] | None = None,
+) -> tuple[
+    list[HistoricalOddsSnapshotInput],
+    list[HistoricalOddsSnapshotInput],
+    list[TheOddsApiCachedRequestResult],
+]:
     snapshots: list[HistoricalOddsSnapshotInput] = []
     raw_source_snapshots: list[HistoricalOddsSnapshotInput] = []
+    request_failures: list[TheOddsApiCachedRequestResult] = []
     seen_keys: set[tuple] = set()
     for snapshot_time in snapshot_times:
-        events = _fetch_historical_odds_cached(client, sport_key, snapshot_time, cache)
+        request_result = _fetch_historical_odds_cached(
+            client,
+            sport_key,
+            snapshot_time,
+            cache,
+        )
+        if request_result.failed:
+            request_failures.append(request_result)
+            continue
         candidate = find_best_the_odds_api_event_match(
             match,
-            events,
+            list(request_result.events),
             team_aliases=team_aliases,
         )
         if candidate is None:
@@ -800,7 +918,7 @@ def _fetch_historical_snapshots_at_times(
                     snapshot_time=snapshot_time,
                 )
             )
-    return snapshots, raw_source_snapshots
+    return snapshots, raw_source_snapshots, request_failures
 
 
 def _fetch_pre_kickoff_elapsed_historical_snapshots(
@@ -810,15 +928,21 @@ def _fetch_pre_kickoff_elapsed_historical_snapshots(
     match: Match,
     now_utc: datetime,
     team_aliases: list[ExternalAliasInput] | None = None,
-    cache: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] | None = None,
-) -> tuple[list[HistoricalOddsSnapshotInput], list[HistoricalOddsSnapshotInput]]:
+    cache: dict[
+        tuple[str, str, str, str, str], TheOddsApiCachedRequestResult
+    ] | None = None,
+) -> tuple[
+    list[HistoricalOddsSnapshotInput],
+    list[HistoricalOddsSnapshotInput],
+    list[TheOddsApiCachedRequestResult],
+]:
     elapsed_snapshot_times = tuple(
         snapshot_time
         for snapshot_time in _standard_pre_kickoff_historical_snapshot_times(match.kickoff_time)
         if snapshot_time <= now_utc
     )
     if not elapsed_snapshot_times:
-        return [], []
+        return [], [], []
     return _fetch_historical_snapshots_at_times(
         client=client,
         sport_key=sport_key,
@@ -833,10 +957,10 @@ def _fetch_historical_odds_cached(
     client: TheOddsApiSyncClient,
     sport_key: str,
     snapshot_time: datetime,
-    cache: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] | None,
-) -> list[dict[str, Any]]:
-    if cache is None:
-        return client.fetch_historical_odds(sport_key, snapshot_time)
+    cache: dict[
+        tuple[str, str, str, str, str], TheOddsApiCachedRequestResult
+    ] | None,
+) -> TheOddsApiCachedRequestResult:
     key = (
         sport_key,
         _format_the_odds_api_datetime(snapshot_time),
@@ -844,9 +968,78 @@ def _fetch_historical_odds_cached(
         client.bookmaker,
         ",".join(client.markets),
     )
-    if key not in cache:
-        cache[key] = client.fetch_historical_odds(sport_key, snapshot_time)
-    return cache[key]
+    if cache is not None and key in cache:
+        return cache[key]
+    try:
+        request_result = TheOddsApiCachedRequestResult(
+            events=tuple(client.fetch_historical_odds(sport_key, snapshot_time))
+        )
+    except TheOddsApiApiError as exc:
+        request_result = _cached_request_failure(exc)
+    if cache is not None:
+        cache[key] = request_result
+    return request_result
+
+
+def _fetch_current_odds_cached(
+    client: TheOddsApiSyncClient,
+    sport_key: str,
+    cache: dict[str, TheOddsApiCachedRequestResult],
+) -> TheOddsApiCachedRequestResult:
+    if sport_key in cache:
+        return cache[sport_key]
+    try:
+        request_result = TheOddsApiCachedRequestResult(
+            events=tuple(client.fetch_current_odds(sport_key))
+        )
+    except TheOddsApiApiError as exc:
+        request_result = _cached_request_failure(exc)
+    cache[sport_key] = request_result
+    return request_result
+
+
+def _cached_request_failure(exc: TheOddsApiApiError) -> TheOddsApiCachedRequestResult:
+    return TheOddsApiCachedRequestResult(
+        error_message=str(exc),
+        error_code=exc.error_code,
+        attempt_count=exc.attempt_count,
+        retry_exhausted=exc.retry_exhausted,
+    )
+
+
+def _match_result_from_request_failures(
+    match_id: int,
+    status: str,
+    request_failures: list[TheOddsApiCachedRequestResult],
+) -> TheOddsApiMatchSyncResult:
+    first_failure = request_failures[0] if request_failures else None
+    return TheOddsApiMatchSyncResult(
+        match_id=match_id,
+        status=status,
+        error_message=first_failure.error_message if first_failure else None,
+        error_code=first_failure.error_code if first_failure else None,
+        attempt_count=max(
+            (request_result.attempt_count for request_result in request_failures),
+            default=1,
+        ),
+        retry_exhausted=any(
+            request_result.retry_exhausted for request_result in request_failures
+        ),
+    )
+
+
+def _failed_match_result(
+    match_id: int,
+    fallback_error_message: str,
+    request_failures: list[TheOddsApiCachedRequestResult],
+) -> TheOddsApiMatchSyncResult:
+    if request_failures:
+        return _match_result_from_request_failures(match_id, "failed", request_failures)
+    return TheOddsApiMatchSyncResult(
+        match_id=match_id,
+        status="failed",
+        error_message=fallback_error_message,
+    )
 
 
 def _fetch_current_alternate_snapshots(

@@ -1,9 +1,11 @@
 import logging
+import re
 import time
 from dataclasses import dataclass
 from math import isfinite
 from threading import Lock
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 import requests
 
@@ -159,6 +161,80 @@ class TheOddsApiRequestLimiter:
         finally:
             self._lock.release()
 
+    def wait_for_retry(
+        self,
+        budget: TheOddsApiRecoveryBudget,
+        backoff_seconds: float,
+        timeout_seconds: float,
+    ) -> tuple[float, float]:
+        lock_wait_started_at: float | None = None
+        if self._lock.acquire(blocking=False):
+            lock_wait_seconds = 0.0
+        else:
+            lock_wait_started_at = self._clock()
+            lock_timeout = budget.remaining_seconds
+            if not self._lock.acquire(timeout=lock_timeout):
+                lock_wait_seconds = max(
+                    lock_timeout,
+                    self._clock() - lock_wait_started_at,
+                )
+                self._charge_limiter_wait(budget, lock_wait_seconds)
+                raise TheOddsApiExtraTimeBudgetExceededError(
+                    "The Odds API recovery time budget exceeded"
+                )
+
+        try:
+            lock_acquired_at = self._clock()
+            if lock_wait_started_at is not None:
+                lock_wait_seconds = max(
+                    0.0,
+                    lock_acquired_at - lock_wait_started_at,
+                )
+            self._charge_limiter_wait(budget, lock_wait_seconds)
+
+            cooldown_wait_seconds = 0.0
+            if self._last_request_at is not None:
+                elapsed_since_request = lock_acquired_at - self._last_request_at
+                cooldown_wait_seconds = max(
+                    0.0,
+                    self.cooldown_seconds - elapsed_since_request,
+                )
+            requested_backoff_seconds = max(0.0, backoff_seconds)
+            combined_wait_seconds = max(
+                requested_backoff_seconds,
+                cooldown_wait_seconds,
+            )
+            budget.require_capacity(
+                combined_wait_seconds + max(0.0, timeout_seconds)
+            )
+
+            request_permitted_at = lock_acquired_at
+            actual_wait_seconds = 0.0
+            if combined_wait_seconds > 0.0:
+                wait_started_at = self._clock()
+                self._sleeper(combined_wait_seconds)
+                request_permitted_at = self._clock()
+                actual_wait_seconds = max(
+                    0.0,
+                    request_permitted_at - wait_started_at,
+                )
+            limiter_wait_seconds, actual_backoff_seconds = (
+                self._charge_combined_retry_wait(
+                    budget,
+                    actual_wait_seconds,
+                    requested_backoff_seconds,
+                    cooldown_wait_seconds,
+                )
+            )
+            budget.require_capacity(max(0.0, timeout_seconds))
+            self._last_request_at = request_permitted_at
+            return (
+                lock_wait_seconds + limiter_wait_seconds,
+                actual_backoff_seconds,
+            )
+        finally:
+            self._lock.release()
+
     @staticmethod
     def _charge_limiter_wait(
         budget: TheOddsApiRecoveryBudget,
@@ -172,6 +248,31 @@ class TheOddsApiRequestLimiter:
                 "The Odds API recovery time budget exceeded"
             )
         budget.add_limiter_wait(wait_seconds)
+
+    @staticmethod
+    def _charge_combined_retry_wait(
+        budget: TheOddsApiRecoveryBudget,
+        actual_wait_seconds: float,
+        backoff_seconds: float,
+        cooldown_wait_seconds: float,
+    ) -> tuple[float, float]:
+        actual_seconds = max(0.0, actual_wait_seconds)
+        if backoff_seconds >= cooldown_wait_seconds:
+            actual_backoff_seconds = actual_seconds
+            limiter_wait_seconds = 0.0
+        else:
+            actual_backoff_seconds = min(backoff_seconds, actual_seconds)
+            limiter_wait_seconds = actual_seconds - actual_backoff_seconds
+
+        if actual_seconds > budget.remaining_seconds:
+            budget.backoff_wait_seconds += actual_backoff_seconds
+            budget.limiter_wait_seconds += limiter_wait_seconds
+            raise TheOddsApiExtraTimeBudgetExceededError(
+                "The Odds API recovery time budget exceeded"
+            )
+        budget.add_backoff_wait(actual_backoff_seconds)
+        budget.add_limiter_wait(limiter_wait_seconds)
+        return limiter_wait_seconds, actual_backoff_seconds
 
 
 GLOBAL_THE_ODDS_API_REQUEST_LIMITER = TheOddsApiRequestLimiter()
@@ -201,7 +302,7 @@ class TheOddsApiClient:
         self.session = session or _build_default_session()
         self.request_limiter = request_limiter or GLOBAL_THE_ODDS_API_REQUEST_LIMITER
         self.recovery_budget = recovery_budget or TheOddsApiRecoveryBudget()
-        self.max_retries = max(0, max_retries)
+        self.max_retries = min(1, max(0, max_retries))
         self._clock = clock
         self._sleeper = sleeper
         self.trace_id = trace_id
@@ -219,13 +320,19 @@ class TheOddsApiClient:
         request_params = dict(params or {})
         request_params["apiKey"] = self.api_key
         safe_metadata = _safe_request_metadata(request_params)
+        safe_endpoint = _safe_endpoint(endpoint, self.api_key)
+        prepared_limiter_wait: float | None = None
 
         for attempt in range(1, self.max_retries + 2):
-            try:
-                limiter_wait = self.request_limiter.wait(self.recovery_budget)
-            except TheOddsApiExtraTimeBudgetExceededError:
-                self.last_request_attempt_count = attempt
-                raise self._retry_budget_error(attempt) from None
+            if prepared_limiter_wait is None:
+                try:
+                    limiter_wait = self.request_limiter.wait(self.recovery_budget)
+                except TheOddsApiExtraTimeBudgetExceededError:
+                    self.last_request_attempt_count = attempt
+                    raise self._retry_budget_error(attempt) from None
+            else:
+                limiter_wait = prepared_limiter_wait
+                prepared_limiter_wait = None
 
             started = self._clock()
             try:
@@ -247,26 +354,33 @@ class TheOddsApiClient:
                 if attempt >= self.max_retries + 1:
                     error.retry_exhausted = True
                     raise
+                if self.request_count >= self.request_budget:
+                    raise TheOddsApiRequestBudgetExceededError(
+                        "The Odds API request budget exceeded"
+                    )
                 try:
-                    actual_backoff = self._sleep_for_retry(retry_delay)
+                    retry_limiter_wait, actual_backoff = self._sleep_for_retry(
+                        retry_delay
+                    )
                 except TheOddsApiExtraTimeBudgetExceededError:
                     raise self._retry_budget_error(attempt) from None
                 self.retry_count += 1
+                prepared_limiter_wait = retry_limiter_wait
                 logger.warning(
                     "The Odds API retry trace_id=%s endpoint=%s attempt=%s "
                     "error_code=%s limiter_wait=%s backoff=%s",
                     self.trace_id,
-                    endpoint,
+                    safe_endpoint,
                     attempt,
                     error.error_code,
-                    limiter_wait,
+                    retry_limiter_wait,
                     actual_backoff,
                     extra={
                         "trace_id": self.trace_id,
-                        "endpoint": endpoint,
+                        "endpoint": safe_endpoint,
                         "attempt": attempt,
                         "error_code": error.error_code,
-                        "limiter_wait": limiter_wait,
+                        "limiter_wait": retry_limiter_wait,
                         "backoff": actual_backoff,
                     },
                 )
@@ -285,13 +399,13 @@ class TheOddsApiClient:
                 "The Odds API request succeeded trace_id=%s endpoint=%s "
                 "attempt=%s elapsed=%s metadata=%s",
                 self.trace_id,
-                endpoint,
+                safe_endpoint,
                 attempt,
                 elapsed,
                 safe_metadata,
                 extra={
                     "trace_id": self.trace_id,
-                    "endpoint": endpoint,
+                    "endpoint": safe_endpoint,
                     "attempt": attempt,
                     "elapsed": elapsed,
                     **safe_metadata,
@@ -332,7 +446,7 @@ class TheOddsApiClient:
             response.raise_for_status()
         except Exception:
             status_code = getattr(response, "status_code", None)
-            provider_message = _response_error_message(response)
+            provider_message = _response_error_message(response, self.api_key)
             details = ["The Odds API HTTP error"]
             if isinstance(status_code, int):
                 details.append(f"status={status_code}")
@@ -351,8 +465,15 @@ class TheOddsApiClient:
         payload = response.json()
         self._record_credit_headers(response)
         if isinstance(payload, dict) and payload.get("message"):
+            provider_message = _safe_provider_message(
+                payload["message"],
+                self.api_key,
+            )
+            details = ["The Odds API returned provider error"]
+            if provider_message:
+                details.append(provider_message)
             raise TheOddsApiApiError(
-                f"The Odds API returned error: {payload['message']}",
+                "; ".join(details),
                 error_code="provider_error",
             )
         return payload
@@ -369,20 +490,12 @@ class TheOddsApiClient:
             return 5.0
         return None
 
-    def _sleep_for_retry(self, seconds: float) -> float:
-        self.recovery_budget.require_capacity(seconds + self.timeout_seconds)
-        started = self._clock()
-        self._sleeper(seconds)
-        actual_seconds = max(0.0, self._clock() - started)
-        remaining_seconds = self.recovery_budget.remaining_seconds
-        if actual_seconds > remaining_seconds:
-            self.recovery_budget.backoff_wait_seconds += actual_seconds
-            raise TheOddsApiExtraTimeBudgetExceededError(
-                "The Odds API recovery time budget exceeded"
-            )
-        self.recovery_budget.add_backoff_wait(actual_seconds)
-        self.recovery_budget.require_capacity(self.timeout_seconds)
-        return actual_seconds
+    def _sleep_for_retry(self, seconds: float) -> tuple[float, float]:
+        return self.request_limiter.wait_for_retry(
+            self.recovery_budget,
+            seconds,
+            self.timeout_seconds,
+        )
 
     def _charge_retry_elapsed(self, seconds: float) -> None:
         elapsed_seconds = max(0.0, seconds)
@@ -428,7 +541,10 @@ def _build_default_session() -> requests.Session:
     return session
 
 
-def _response_error_message(response: Any) -> str | None:
+def _response_error_message(
+    response: Any,
+    api_key: str | None = None,
+) -> str | None:
     try:
         payload = response.json()
     except Exception:
@@ -436,8 +552,37 @@ def _response_error_message(response: Any) -> str | None:
     if isinstance(payload, dict):
         message = payload.get("message") or payload.get("error")
         if message:
-            return str(message)
+            return _safe_provider_message(message, api_key)
     return None
+
+
+_SENSITIVE_MESSAGE_PATTERN = re.compile(
+    r"(?i)(?:\b(?:api[_-]?key|token|authorization|password|credential)\b\s*[:=]"
+    r"|\b(?:secret|password|credential|bearer token)\b"
+    r"|https?://"
+    r"|[?&][^\s=&#?]+\s*=)"
+)
+
+
+def _safe_provider_message(message: Any, api_key: str | None) -> str | None:
+    text = str(message)
+    if api_key and str(api_key) in text:
+        return None
+    if _SENSITIVE_MESSAGE_PATTERN.search(text):
+        return None
+    return text
+
+
+def _safe_endpoint(endpoint: str, api_key: str | None) -> str:
+    path = urlsplit(str(endpoint)).path.lstrip("/")
+    path = path.replace("\r", " ").replace("\n", " ").replace("\t", " ")
+    if not path:
+        return "<root>"
+    if api_key and str(api_key) in path:
+        return "<redacted-endpoint>"
+    if _SENSITIVE_MESSAGE_PATTERN.search(path):
+        return "<redacted-endpoint>"
+    return path
 
 
 def _retry_after_seconds(headers: Any) -> float | None:

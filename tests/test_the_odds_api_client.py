@@ -1,3 +1,5 @@
+from threading import Thread
+
 import pytest
 import requests
 
@@ -37,8 +39,9 @@ class FakeSession:
 
 
 class FakeTime:
-    def __init__(self):
-        self.now = 100.0
+    def __init__(self, now=100.0, oversleep_seconds=0.0):
+        self.now = now
+        self.oversleep_seconds = oversleep_seconds
         self.sleeps = []
 
     def monotonic(self):
@@ -46,7 +49,23 @@ class FakeTime:
 
     def sleep(self, seconds):
         self.sleeps.append(seconds)
-        self.now += seconds
+        self.now += seconds + self.oversleep_seconds
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"limit_seconds": -1.0},
+        {"limit_seconds": float("nan")},
+        {"limit_seconds": float("inf")},
+        {"limiter_wait_seconds": -1.0},
+        {"backoff_wait_seconds": float("nan")},
+        {"retry_elapsed_seconds": float("inf")},
+    ],
+)
+def test_the_odds_api_recovery_budget_rejects_invalid_initial_values(kwargs):
+    with pytest.raises(ValueError):
+        TheOddsApiRecoveryBudget(**kwargs)
 
 
 def test_the_odds_api_request_limiter_charges_only_required_wait():
@@ -81,6 +100,81 @@ def test_the_odds_api_request_limiter_refuses_wait_beyond_budget():
         limiter.wait(budget)
 
     assert fake_time.sleeps == []
+
+
+def test_the_odds_api_request_limiter_does_not_wait_on_first_call_at_clock_zero():
+    fake_time = FakeTime(now=0.0)
+    budget = TheOddsApiRecoveryBudget()
+    limiter = TheOddsApiRequestLimiter(
+        cooldown_seconds=1.0,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+
+    assert limiter.wait(budget) == 0.0
+    assert fake_time.sleeps == []
+    assert budget.limiter_wait_seconds == 0.0
+
+
+def test_the_odds_api_request_limiter_charges_actual_oversleep():
+    fake_time = FakeTime(oversleep_seconds=0.5)
+    budget = TheOddsApiRecoveryBudget(limit_seconds=120.0)
+    limiter = TheOddsApiRequestLimiter(
+        cooldown_seconds=1.0,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+
+    assert limiter.wait(budget) == 0.0
+    fake_time.now += 0.25
+
+    assert limiter.wait(budget) == pytest.approx(1.25)
+    assert fake_time.sleeps == [pytest.approx(0.75)]
+    assert budget.limiter_wait_seconds == pytest.approx(1.25)
+
+
+def test_the_odds_api_request_limiter_refuses_permit_after_oversleep_exhausts_budget():
+    fake_time = FakeTime(oversleep_seconds=0.5)
+    budget = TheOddsApiRecoveryBudget(limit_seconds=1.0)
+    limiter = TheOddsApiRequestLimiter(
+        cooldown_seconds=1.0,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+
+    assert limiter.wait(budget) == 0.0
+    fake_time.now += 0.25
+
+    with pytest.raises(TheOddsApiExtraTimeBudgetExceededError):
+        limiter.wait(budget)
+
+    assert budget.remaining_seconds == 0.0
+
+
+def test_the_odds_api_request_limiter_bounds_lock_wait_by_remaining_budget():
+    budget = TheOddsApiRecoveryBudget(limit_seconds=0.05)
+    limiter = TheOddsApiRequestLimiter(cooldown_seconds=0.0)
+    errors = []
+    limiter._lock.acquire()
+
+    thread = Thread(target=lambda: _capture_limiter_error(limiter, budget, errors))
+    thread.start()
+    thread.join(timeout=1.0)
+    completed_within_budget = not thread.is_alive()
+    limiter._lock.release()
+    thread.join(timeout=1.0)
+
+    assert completed_within_budget
+    assert len(errors) == 1
+    assert isinstance(errors[0], TheOddsApiExtraTimeBudgetExceededError)
+    assert budget.remaining_seconds == 0.0
+
+
+def _capture_limiter_error(limiter, budget, errors):
+    try:
+        limiter.wait(budget)
+    except Exception as exc:
+        errors.append(exc)
 
 
 def test_the_odds_api_client_adds_api_key_and_counts_requests():

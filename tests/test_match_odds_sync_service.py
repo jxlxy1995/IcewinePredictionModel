@@ -637,6 +637,79 @@ def test_legacy_sync_new_snapshot_wins_over_unchanged_stale_source_failure(sessi
     assert result["success"][0]["primary_refresh_error"] is None
 
 
+def test_legacy_sync_prefers_changed_partial_source_status_over_new_snapshot_inference(session):
+    match = _add_match(session)
+    source_match = OddsSourceMatch(
+        match_id=match.id,
+        source_name=THE_ODDS_API_SOURCE_NAME,
+        source_fixture_id="legacy-event",
+        matched_at=datetime(2026, 6, 25, 18, 50, tzinfo=ZoneInfo("UTC")),
+        match_confidence=Decimal("0.5000"),
+        match_reason="old failure",
+        historical_odds_status="failed",
+        historical_odds_checked_at=datetime(
+            2026,
+            6,
+            25,
+            18,
+            50,
+            tzinfo=ZoneInfo("UTC"),
+        ),
+        historical_odds_error="old_error",
+    )
+    session.add(source_match)
+    session.commit()
+
+    def fake_legacy_sync(**kwargs):
+        source_match.historical_odds_status = "partial_success"
+        source_match.historical_odds_checked_at = datetime(
+            2026,
+            6,
+            26,
+            18,
+            50,
+            tzinfo=ZoneInfo("UTC"),
+        )
+        source_match.historical_odds_error = "read_timeout"
+        session.add(
+            _snapshot(
+                match_id=match.id,
+                source_name=THE_ODDS_API_SOURCE_NAME,
+                odds=Decimal("1.97"),
+            )
+        )
+        session.commit()
+        return _the_odds_api_result(
+            requests_used=2,
+            inserted_snapshot_count=1,
+            match_results=(),
+            trace_id=kwargs["trace_id"],
+        )
+
+    def unexpected_fallback(**kwargs):
+        raise AssertionError("fallback must not run after a new trusted primary snapshot")
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id],
+        the_odds_api_syncer=fake_legacy_sync,
+        zqcf918_syncer=unexpected_fallback,
+    )
+
+    assert result["failed"] == []
+    assert result["success"] == [
+        {
+            "match_id": match.id,
+            "message": "赔率已刷新",
+            "source": THE_ODDS_API_SOURCE_NAME,
+            "attempt_count": 1,
+            "retried": False,
+            "primary_refresh_status": "partial_success",
+            "primary_refresh_error": "read_timeout",
+        }
+    ]
+
+
 def test_session_runner_binds_explicit_recovery_budget_to_raw_client(session):
     class RawClient:
         request_count = 0

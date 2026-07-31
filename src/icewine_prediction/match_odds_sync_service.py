@@ -188,16 +188,20 @@ def run_match_odds_sync_for_session(
         if selected_provider != MatchOddsSyncProvider.THE_ODDS_API:
             continue
 
-        _merge_new_the_odds_api_snapshot_results(
+        new_snapshot_match_ids = _new_the_odds_api_snapshot_match_ids(
             session=session,
             match_ids=season_match_ids,
             snapshot_ids_before=the_odds_api_snapshot_ids_before,
-            primary_results=primary_results,
         )
         _merge_the_odds_api_source_match_results(
             session=session,
             match_ids=season_match_ids,
             source_match_states_before=source_match_states_before,
+            new_snapshot_match_ids=new_snapshot_match_ids,
+            primary_results=primary_results,
+        )
+        _merge_new_the_odds_api_snapshot_results(
+            new_snapshot_match_ids=new_snapshot_match_ids,
             primary_results=primary_results,
         )
         zqcf918_match_ids = _zqcf918_fallback_match_ids(session, matches, season_match_ids)
@@ -353,6 +357,7 @@ def _merge_the_odds_api_source_match_results(
     session: Session,
     match_ids: set[int],
     source_match_states_before: dict[int, tuple[Any, ...]],
+    new_snapshot_match_ids: set[int],
     primary_results: dict[int, TheOddsApiMatchSyncResult],
 ) -> None:
     rows = (
@@ -370,6 +375,8 @@ def _merge_the_odds_api_source_match_results(
             continue
         status = row.historical_odds_status
         normalized_status = status if status in {"success", "partial_success"} else "failed"
+        if normalized_status == "failed" and row.match_id in new_snapshot_match_ids:
+            normalized_status = "partial_success"
         primary_results[row.match_id] = TheOddsApiMatchSyncResult(
             match_id=row.match_id,
             status=normalized_status,
@@ -387,11 +394,24 @@ def _merge_the_odds_api_source_match_results(
 
 def _merge_new_the_odds_api_snapshot_results(
     *,
+    new_snapshot_match_ids: set[int],
+    primary_results: dict[int, TheOddsApiMatchSyncResult],
+) -> None:
+    for match_id in new_snapshot_match_ids:
+        if match_id in primary_results:
+            continue
+        primary_results[match_id] = TheOddsApiMatchSyncResult(
+            match_id=match_id,
+            status="success",
+        )
+
+
+def _new_the_odds_api_snapshot_match_ids(
+    *,
     session: Session,
     match_ids: set[int],
     snapshot_ids_before: set[int],
-    primary_results: dict[int, TheOddsApiMatchSyncResult],
-) -> None:
+) -> set[int]:
     rows = (
         session.query(HistoricalOddsSnapshot.id, HistoricalOddsSnapshot.match_id)
         .filter(HistoricalOddsSnapshot.match_id.in_(match_ids))
@@ -399,13 +419,11 @@ def _merge_new_the_odds_api_snapshot_results(
         .filter(HistoricalOddsSnapshot.bookmaker == PINNACLE_BOOKMAKER)
         .all()
     )
-    for snapshot_id, match_id in rows:
-        if snapshot_id in snapshot_ids_before or match_id in primary_results:
-            continue
-        primary_results[match_id] = TheOddsApiMatchSyncResult(
-            match_id=match_id,
-            status="success",
-        )
+    return {
+        match_id
+        for snapshot_id, match_id in rows
+        if snapshot_id not in snapshot_ids_before
+    }
 
 
 def _the_odds_api_snapshot_ids(session: Session, match_ids: set[int]) -> set[int]:

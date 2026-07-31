@@ -620,9 +620,12 @@ def _odds_summary_lines(odds_sync_result: Any) -> list[str]:
     if "not_attempted" not in odds_sync_result:
         return [f"赔率刷新：成功{success_count} 失败{failed_count} 跳过{skipped_count}"]
 
-    lines = [
+    summary_line = (
         f"赔率刷新：成功{success_count} 失败{failed_count} 未尝试{not_attempted_count}"
-    ]
+    )
+    if skipped_count > 0:
+        summary_line += f" 跳过{skipped_count}"
+    lines = [summary_line]
     retry_count = _safe_nonnegative_int(odds_sync_result.get("retry_count"))
     if retry_count > 0:
         recovered_count = _safe_nonnegative_int(

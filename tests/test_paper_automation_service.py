@@ -584,6 +584,19 @@ def test_odds_summary_lines_preserves_legacy_three_count_format():
     ]
 
 
+def test_odds_summary_lines_includes_skipped_count_for_structured_payload():
+    odds_result = {
+        "success": [],
+        "failed": [],
+        "skipped": [3],
+        "not_attempted": [],
+    }
+
+    assert paper_automation_service._odds_summary_lines(odds_result) == [
+        "赔率刷新：成功0 失败0 未尝试0 跳过1"
+    ]
+
+
 def test_execute_task_does_not_overwrite_task_recovered_by_another_session(tmp_path):
     now = datetime(2026, 6, 15, 18, 21, tzinfo=BEIJING)
     kickoff = datetime(2026, 6, 15, 18, 30, tzinfo=BEIJING)

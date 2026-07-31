@@ -52,6 +52,13 @@ class FakeTime:
         self.now += seconds + self.oversleep_seconds
 
 
+class AdvancingFakeTime(FakeTime):
+    def monotonic(self):
+        current = self.now
+        self.now += 0.1
+        return current
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -116,6 +123,20 @@ def test_the_odds_api_request_limiter_does_not_wait_on_first_call_at_clock_zero(
     assert budget.limiter_wait_seconds == 0.0
 
 
+def test_the_odds_api_request_limiter_does_not_charge_immediate_lock_acquisition():
+    fake_time = AdvancingFakeTime(now=0.0)
+    budget = TheOddsApiRecoveryBudget(limit_seconds=0.0)
+    limiter = TheOddsApiRequestLimiter(
+        cooldown_seconds=0.0,
+        clock=fake_time.monotonic,
+        sleeper=fake_time.sleep,
+    )
+
+    assert limiter.wait(budget) == 0.0
+    assert fake_time.sleeps == []
+    assert budget.limiter_wait_seconds == 0.0
+
+
 def test_the_odds_api_request_limiter_charges_actual_oversleep():
     fake_time = FakeTime(oversleep_seconds=0.5)
     budget = TheOddsApiRecoveryBudget(limit_seconds=120.0)
@@ -148,6 +169,8 @@ def test_the_odds_api_request_limiter_refuses_permit_after_oversleep_exhausts_bu
     with pytest.raises(TheOddsApiExtraTimeBudgetExceededError):
         limiter.wait(budget)
 
+    assert budget.limiter_wait_seconds == pytest.approx(1.25)
+    assert budget.consumed_seconds == pytest.approx(1.25)
     assert budget.remaining_seconds == 0.0
 
 

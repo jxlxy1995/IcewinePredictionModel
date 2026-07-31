@@ -95,21 +95,29 @@ class TheOddsApiRequestLimiter:
         self._lock = Lock()
 
     def wait(self, budget: TheOddsApiRecoveryBudget) -> float:
-        wait_started_at = self._clock()
-        lock_timeout = budget.remaining_seconds
-        if not self._lock.acquire(timeout=lock_timeout):
-            lock_wait_seconds = max(
-                lock_timeout,
-                self._clock() - wait_started_at,
-            )
-            self._charge_limiter_wait(budget, lock_wait_seconds)
-            raise TheOddsApiExtraTimeBudgetExceededError(
-                "The Odds API recovery time budget exceeded"
-            )
+        lock_wait_started_at: float | None = None
+        if self._lock.acquire(blocking=False):
+            lock_wait_seconds = 0.0
+        else:
+            lock_wait_started_at = self._clock()
+            lock_timeout = budget.remaining_seconds
+            if not self._lock.acquire(timeout=lock_timeout):
+                lock_wait_seconds = max(
+                    lock_timeout,
+                    self._clock() - lock_wait_started_at,
+                )
+                self._charge_limiter_wait(budget, lock_wait_seconds)
+                raise TheOddsApiExtraTimeBudgetExceededError(
+                    "The Odds API recovery time budget exceeded"
+                )
 
         try:
             lock_acquired_at = self._clock()
-            lock_wait_seconds = max(0.0, lock_acquired_at - wait_started_at)
+            if lock_wait_started_at is not None:
+                lock_wait_seconds = max(
+                    0.0,
+                    lock_acquired_at - lock_wait_started_at,
+                )
             self._charge_limiter_wait(budget, lock_wait_seconds)
 
             required_wait_seconds = 0.0
@@ -120,14 +128,16 @@ class TheOddsApiRequestLimiter:
                     self.cooldown_seconds - elapsed_since_request,
                 )
             budget.require_capacity(required_wait_seconds)
+            request_permitted_at = lock_acquired_at
+            pacing_wait_seconds = 0.0
             if required_wait_seconds > 0.0:
+                pacing_wait_started_at = self._clock()
                 self._sleeper(required_wait_seconds)
-
-            request_permitted_at = self._clock()
-            pacing_wait_seconds = max(
-                0.0,
-                request_permitted_at - lock_acquired_at,
-            )
+                request_permitted_at = self._clock()
+                pacing_wait_seconds = max(
+                    0.0,
+                    request_permitted_at - pacing_wait_started_at,
+                )
             self._charge_limiter_wait(budget, pacing_wait_seconds)
             self._last_request_at = request_permitted_at
             return lock_wait_seconds + pacing_wait_seconds
@@ -142,7 +152,7 @@ class TheOddsApiRequestLimiter:
         wait_seconds = max(0.0, seconds)
         remaining_seconds = budget.remaining_seconds
         if wait_seconds > remaining_seconds:
-            budget.add_limiter_wait(remaining_seconds)
+            budget.limiter_wait_seconds += wait_seconds
             raise TheOddsApiExtraTimeBudgetExceededError(
                 "The Odds API recovery time budget exceeded"
             )

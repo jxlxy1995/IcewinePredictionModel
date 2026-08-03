@@ -116,7 +116,8 @@ describe("paperSnapshotReviewWorkspace", () => {
       }
     };
 
-    expect(buildPaperSnapshotReviewCards(allWorkspace).at(-1)).toEqual({
+    const allCards = buildPaperSnapshotReviewCards(allWorkspace);
+    expect(allCards[allCards.length - 1]).toEqual({
       label: "去重排除",
       value: "2"
     });

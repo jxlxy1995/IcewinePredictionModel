@@ -105,7 +105,8 @@ import {
   buildPaperSnapshotReviewPresetRange,
   buildPaperSnapshotReviewRows,
   defaultPaperSnapshotReviewFilters,
-  paperSnapshotReviewPresetOptions
+  paperSnapshotReviewPresetOptions,
+  paperSnapshotReviewSourceOptions
 } from "../paperSnapshotReviewWorkspace";
 import {
   formatPaperBatchRecordMessage,
@@ -309,7 +310,7 @@ const viewText: Record<ViewKey, { title: string; subtitle: string }> = {
   },
   paperSnapshotReview: {
     title: "推荐快照回顾",
-    subtitle: "按开赛时间回看 historical_backfill 快照，诊断市场、盘口、手数和策略组合"
+    subtitle: "按开赛时间回看推荐快照，诊断市场、盘口、手数和策略组合"
   },
   odds: {
     title: "赔率走势",
@@ -2871,12 +2872,15 @@ function PaperSnapshotReviewView({
             />
           </label>
           <select
+            aria-label="快照来源"
             onChange={(event) => onFiltersChange({ snapshot_source: event.target.value })}
             value={filters.snapshot_source}
           >
-            <option value="historical_backfill">historical_backfill</option>
-            <option value="manual_record">manual_record</option>
-            <option value="automation">automation</option>
+            {paperSnapshotReviewSourceOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
           <button disabled={isBusy} onClick={onRefresh} type="button">
             <RefreshCw size={16} />
@@ -2924,6 +2928,14 @@ function PaperSnapshotReviewView({
         </Panel>
         <Panel title="按手数限制">
           <PaperSnapshotReviewGroupTable groups={workspace.groups.by_stake_cap_reason} />
+        </Panel>
+      </section>
+      <section className="grid snapshot-review-grid">
+        <Panel title="按来源">
+          <PaperSnapshotReviewGroupTable groups={workspace.groups.by_snapshot_source} />
+        </Panel>
+        <Panel title="按信号数">
+          <PaperSnapshotReviewGroupTable groups={workspace.groups.by_signal_count} />
         </Panel>
       </section>
       <section className="grid snapshot-review-grid">

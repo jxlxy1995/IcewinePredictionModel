@@ -1422,6 +1422,12 @@ def test_web_console_api_paper_snapshot_review_returns_diagnostics(tmp_path):
     assert response.status_code == 200
     payload = response.json()
     assert payload["filters"]["snapshot_source"] == "historical_backfill"
+    assert payload["deduplication"] == {
+        "applied": False,
+        "input_group_count": 2,
+        "selected_group_count": 2,
+        "excluded_group_count": 0,
+    }
     assert payload["summary"] == {
         "group_count": 2,
         "settled_groups": 2,
@@ -1434,9 +1440,71 @@ def test_web_console_api_paper_snapshot_review_returns_diagnostics(tmp_path):
     }
     assert payload["groups"]["by_market_type"][0]["group_name"] == "asian_handicap"
     assert payload["groups"]["by_confidence_bucket"][0]["group_name"] == "60-64"
+    assert payload["groups"]["by_snapshot_source"][0]["group_name"] == "historical_backfill"
     assert payload["samples"]["high_confidence_losses"] == []
     assert payload["samples"]["low_stake_wins"] == []
     assert payload["samples"]["pending"] == []
+
+
+def test_web_console_api_paper_snapshot_review_all_deduplicates_and_reports_sources(tmp_path):
+    engine = create_memory_database()
+    initialize_database(engine)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        match = _seed_web_snapshot_match(session)
+        record = _paper_snapshot_record(
+            match,
+            strategy_key="asian_away_cover_hgb_edge_v1",
+            strategy_display_name="Asian away edge",
+            edge=Decimal("0.2100"),
+        )
+        session.add(record)
+        session.flush()
+        historical = _paper_snapshot(
+            record,
+            group_key=f"{match.id}:asian_handicap:away_cover",
+            confidence_score=55,
+            suggested_stake_units=Decimal("0.50"),
+            stake_cap_reason="historical",
+            signal_families='["asian_away_hgb"]',
+        )
+        automation = _paper_snapshot(
+            record,
+            group_key=f"{match.id}:asian_handicap:away_cover",
+            confidence_score=85,
+            suggested_stake_units=Decimal("1.50"),
+            stake_cap_reason="automation",
+            signal_families='["asian_away_hgb"]',
+        )
+        automation.snapshot_source = "automation"
+        automation.is_backfilled = False
+        session.add_all([historical, automation])
+        session.commit()
+
+    client = TestClient(
+        create_web_app(
+            session_factory=session_factory,
+            log_dir=tmp_path,
+            start_paper_automation_scheduler=False,
+        )
+    )
+    response = client.get("/api/paper-snapshot-review?snapshot_source=all")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filters"]["snapshot_source"] == "all"
+    assert payload["summary"]["group_count"] == 1
+    assert payload["summary"]["suggested_stake_units"] == "1.50"
+    assert payload["deduplication"] == {
+        "applied": True,
+        "input_group_count": 2,
+        "selected_group_count": 1,
+        "excluded_group_count": 1,
+    }
+    assert [
+        group["group_name"]
+        for group in payload["groups"]["by_snapshot_source"]
+    ] == ["automation"]
 
 
 def _paper_snapshot_record(

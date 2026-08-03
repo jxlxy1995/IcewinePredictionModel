@@ -1049,7 +1049,7 @@ def create_web_app(
                         session,
                         from_date=_parse_optional_datetime(from_date),
                         to_date=_parse_optional_datetime(to_date),
-                        snapshot_source=snapshot_source,
+                        snapshot_source=None if snapshot_source == "all" else snapshot_source,
                         snapshot_version=snapshot_version,
                     ),
                     from_date=from_date,
@@ -2606,6 +2606,12 @@ def build_paper_snapshot_review_payload(
             "snapshot_source": snapshot_source,
             "snapshot_version": snapshot_version,
         },
+        "deduplication": {
+            "applied": workspace.deduplication.applied,
+            "input_group_count": workspace.deduplication.input_group_count,
+            "selected_group_count": workspace.deduplication.selected_group_count,
+            "excluded_group_count": workspace.deduplication.excluded_group_count,
+        },
         "summary": build_paper_snapshot_review_summary_payload(workspace.summary),
         "groups": {
             "by_market_type": build_paper_snapshot_review_group_list(workspace.by_market_type),
@@ -2626,6 +2632,10 @@ def build_paper_snapshot_review_payload(
                 sort_by="group_name",
             ),
             "by_league": build_paper_snapshot_review_group_list(workspace.by_league),
+            "by_snapshot_source": build_paper_snapshot_review_group_list(
+                workspace.by_snapshot_source,
+                sort_by="group_name",
+            ),
         },
         "samples": {
             "high_confidence_losses": [

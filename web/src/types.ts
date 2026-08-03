@@ -542,6 +542,12 @@ export type PaperSnapshotReviewWorkspace = {
     snapshot_source: string;
     snapshot_version: string;
   };
+  deduplication: {
+    applied: boolean;
+    input_group_count: number;
+    selected_group_count: number;
+    excluded_group_count: number;
+  };
   summary: PaperSnapshotReviewSummary;
   groups: {
     by_market_type: PaperSnapshotReviewGroupSummary[];
@@ -553,6 +559,7 @@ export type PaperSnapshotReviewWorkspace = {
     by_signal_family_combo: PaperSnapshotReviewGroupSummary[];
     by_signal_count: PaperSnapshotReviewGroupSummary[];
     by_league: PaperSnapshotReviewGroupSummary[];
+    by_snapshot_source: PaperSnapshotReviewGroupSummary[];
   };
   samples: {
     high_confidence_losses: PaperSnapshotReviewSample[];

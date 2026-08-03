@@ -711,6 +711,12 @@ export const mockPaperSnapshotReviewWorkspace: PaperSnapshotReviewWorkspace = {
     snapshot_source: "historical_backfill",
     snapshot_version: "paper_confidence_v1"
   },
+  deduplication: {
+    applied: false,
+    input_group_count: 850,
+    selected_group_count: 850,
+    excluded_group_count: 0
+  },
   summary: {
     group_count: 850,
     settled_groups: 848,
@@ -730,7 +736,8 @@ export const mockPaperSnapshotReviewWorkspace: PaperSnapshotReviewWorkspace = {
     by_line_bucket: [],
     by_signal_family_combo: [],
     by_signal_count: [],
-    by_league: []
+    by_league: [],
+    by_snapshot_source: []
   },
   samples: {
     high_confidence_losses: [],

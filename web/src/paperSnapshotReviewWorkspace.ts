@@ -45,6 +45,13 @@ export const paperSnapshotReviewPresetOptions: Array<{ key: PaperSnapshotReviewP
   { key: "lastMonth", label: "上月" }
 ];
 
+export const paperSnapshotReviewSourceOptions = [
+  { label: "全部来源（All）", value: "all" },
+  { label: "historical_backfill", value: "historical_backfill" },
+  { label: "manual_record", value: "manual_record" },
+  { label: "automation", value: "automation" }
+] as const;
+
 export function defaultPaperSnapshotReviewFilters(now = new Date()): PaperSnapshotReviewFilters {
   return {
     ...buildPaperSnapshotReviewPresetRange("all", now),
@@ -55,7 +62,7 @@ export function defaultPaperSnapshotReviewFilters(now = new Date()): PaperSnapsh
 export function buildPaperSnapshotReviewCards(
   workspace: PaperSnapshotReviewWorkspace
 ): PaperSnapshotReviewCard[] {
-  return [
+  const cards: PaperSnapshotReviewCard[] = [
     { label: "快照组数", value: workspace.summary.group_count.toLocaleString() },
     { label: "已结算", value: workspace.summary.settled_groups.toLocaleString() },
     { label: "Pending", value: workspace.summary.pending_groups.toLocaleString() },
@@ -63,6 +70,13 @@ export function buildPaperSnapshotReviewCards(
     { label: "Flat ROI", value: formatRatioAsPercent(workspace.summary.flat_roi) },
     { label: "Weighted ROI", value: formatRatioAsPercent(workspace.summary.weighted_roi) }
   ];
+  if (workspace.filters.snapshot_source === "all") {
+    cards.push({
+      label: "去重排除",
+      value: workspace.deduplication.excluded_group_count.toLocaleString()
+    });
+  }
+  return cards;
 }
 
 export function buildPaperSnapshotReviewRows(

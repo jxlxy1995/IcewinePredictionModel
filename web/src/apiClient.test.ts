@@ -124,6 +124,12 @@ const apiPayloads: Record<string, unknown> = {
       snapshot_source: "historical_backfill",
       snapshot_version: "paper_confidence_v1"
     },
+    deduplication: {
+      applied: false,
+      input_group_count: 850,
+      selected_group_count: 850,
+      excluded_group_count: 0
+    },
     summary: {
       group_count: 850,
       settled_groups: 848,
@@ -143,7 +149,8 @@ const apiPayloads: Record<string, unknown> = {
       by_line_bucket: [],
       by_signal_family_combo: [],
       by_signal_count: [],
-      by_league: []
+      by_league: [],
+      by_snapshot_source: []
     },
     samples: {
       high_confidence_losses: [],
@@ -273,6 +280,17 @@ describe("apiClient", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/paper-snapshot-review?from_date=2026-05-01T00%3A00&snapshot_source=historical_backfill&to_date=2026-06-23T23%3A59"
+    );
+  });
+
+  it("loads all paper snapshot sources explicitly", async () => {
+    const fetchMock = vi.fn(async () => Response.json(apiPayloads["/api/paper-snapshot-review"]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await loadPaperSnapshotReviewWorkspace({ snapshot_source: "all" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/paper-snapshot-review?snapshot_source=all"
     );
   });
 

@@ -25,6 +25,11 @@ MONEY_QUANT = Decimal("0.001")
 RATIO_QUANT = Decimal("0.0000")
 STAKE_QUANT = Decimal("0.00")
 HISTORICAL_BACKFILL_SOURCE = "historical_backfill"
+SNAPSHOT_REVIEW_SOURCE_PRIORITY = {
+    "automation": 0,
+    "manual_record": 1,
+    "historical_backfill": 3,
+}
 SNAPSHOT_REPORT_CSV_FIELDNAMES = [
     "snapshot_id",
     "snapshot_source",
@@ -121,6 +126,14 @@ class SnapshotReport:
 
 
 @dataclass(frozen=True)
+class SnapshotReviewDeduplication:
+    applied: bool
+    input_group_count: int
+    selected_group_count: int
+    excluded_group_count: int
+
+
+@dataclass(frozen=True)
 class SnapshotReviewWorkspace:
     snapshots: list[PaperRecommendationGroupSnapshot]
     summary: SnapshotReportSummary
@@ -133,6 +146,8 @@ class SnapshotReviewWorkspace:
     by_signal_family_combo: dict[str, SnapshotReportGroup]
     by_signal_count: dict[str, SnapshotReportGroup]
     by_league: dict[str, SnapshotReportGroup]
+    by_snapshot_source: dict[str, SnapshotReportGroup]
+    deduplication: SnapshotReviewDeduplication
     high_confidence_losses: list[PaperRecommendationGroupSnapshot]
     low_stake_wins: list[PaperRecommendationGroupSnapshot]
     pending_snapshots: list[PaperRecommendationGroupSnapshot]
@@ -316,7 +331,7 @@ def build_snapshot_review_workspace(
     from_date: datetime | None = None,
     to_date: datetime | None = None,
     snapshot_version: str = PAPER_CONFIDENCE_SNAPSHOT_VERSION,
-    snapshot_source: str = HISTORICAL_BACKFILL_SOURCE,
+    snapshot_source: str | None = HISTORICAL_BACKFILL_SOURCE,
 ) -> SnapshotReviewWorkspace:
     report = build_snapshot_report(
         session,
@@ -325,7 +340,19 @@ def build_snapshot_review_workspace(
         snapshot_version=snapshot_version,
         snapshot_source=snapshot_source,
     )
-    settled = [snapshot for snapshot in report.snapshots if _snapshot_status(snapshot) == "settled"]
+    input_snapshots = report.snapshots
+    snapshots = (
+        _deduplicate_snapshot_review_groups(input_snapshots)
+        if snapshot_source is None
+        else input_snapshots
+    )
+    deduplication = SnapshotReviewDeduplication(
+        applied=snapshot_source is None,
+        input_group_count=len(input_snapshots),
+        selected_group_count=len(snapshots),
+        excluded_group_count=len(input_snapshots) - len(snapshots),
+    )
+    settled = [snapshot for snapshot in snapshots if _snapshot_status(snapshot) == "settled"]
     high_confidence_losses = [
         snapshot
         for snapshot in settled
@@ -338,30 +365,62 @@ def build_snapshot_review_workspace(
         if _snapshot_stake(snapshot) <= Decimal("0.50") and _snapshot_weighted_profit(snapshot) > Decimal("0")
     ]
     low_stake_wins.sort(key=_snapshot_weighted_profit, reverse=True)
-    pending = [snapshot for snapshot in report.snapshots if _snapshot_status(snapshot) == "pending"]
+    pending = [snapshot for snapshot in snapshots if _snapshot_status(snapshot) == "pending"]
     pending.sort(key=lambda snapshot: (_snapshot_kickoff_time(snapshot) or snapshot.created_at, snapshot.id or 0))
     return SnapshotReviewWorkspace(
-        snapshots=report.snapshots,
-        summary=report.summary,
-        by_market_type=_group_snapshot_report(report.snapshots, lambda snapshot: snapshot.market_type),
+        snapshots=snapshots,
+        summary=_summarize_snapshots(snapshots),
+        by_market_type=_group_snapshot_report(snapshots, lambda snapshot: snapshot.market_type),
         by_market_side=_group_snapshot_report(
-            report.snapshots,
+            snapshots,
             lambda snapshot: f"{snapshot.market_type}:{snapshot.side}",
         ),
-        by_confidence_bucket=_group_snapshot_report(report.snapshots, _confidence_bucket),
+        by_confidence_bucket=_group_snapshot_report(snapshots, _confidence_bucket),
         by_stake_bucket=_group_snapshot_report(
-            report.snapshots,
+            snapshots,
             lambda snapshot: _format_decimal(snapshot.suggested_stake_units, STAKE_QUANT),
         ),
-        by_stake_cap_reason=_group_snapshot_report(report.snapshots, lambda snapshot: snapshot.stake_cap_reason),
-        by_line_bucket=_group_snapshot_report(report.snapshots, lambda snapshot: snapshot.line_bucket or "unknown"),
-        by_signal_family_combo=_group_snapshot_report(report.snapshots, _signal_family_combo),
-        by_signal_count=_group_snapshot_report(report.snapshots, _signal_count_bucket),
-        by_league=_group_snapshot_report(report.snapshots, _snapshot_league_name),
+        by_stake_cap_reason=_group_snapshot_report(snapshots, lambda snapshot: snapshot.stake_cap_reason),
+        by_line_bucket=_group_snapshot_report(snapshots, lambda snapshot: snapshot.line_bucket or "unknown"),
+        by_signal_family_combo=_group_snapshot_report(snapshots, _signal_family_combo),
+        by_signal_count=_group_snapshot_report(snapshots, _signal_count_bucket),
+        by_league=_group_snapshot_report(snapshots, _snapshot_league_name),
+        by_snapshot_source=_group_snapshot_report(
+            snapshots,
+            lambda snapshot: snapshot.snapshot_source,
+        ),
+        deduplication=deduplication,
         high_confidence_losses=high_confidence_losses[:20],
         low_stake_wins=low_stake_wins[:20],
         pending_snapshots=pending[:50],
     )
+
+
+def _deduplicate_snapshot_review_groups(
+    snapshots: list[PaperRecommendationGroupSnapshot],
+) -> list[PaperRecommendationGroupSnapshot]:
+    selected: dict[str, PaperRecommendationGroupSnapshot] = {}
+    for snapshot in snapshots:
+        current = selected.get(snapshot.group_key)
+        if current is None or _snapshot_review_candidate_is_preferred(snapshot, current):
+            selected[snapshot.group_key] = snapshot
+    return sorted(
+        selected.values(),
+        key=lambda snapshot: (snapshot.created_at, snapshot.id or 0),
+    )
+
+
+def _snapshot_review_candidate_is_preferred(
+    candidate: PaperRecommendationGroupSnapshot,
+    current: PaperRecommendationGroupSnapshot,
+) -> bool:
+    candidate_priority = SNAPSHOT_REVIEW_SOURCE_PRIORITY.get(candidate.snapshot_source, 2)
+    current_priority = SNAPSHOT_REVIEW_SOURCE_PRIORITY.get(current.snapshot_source, 2)
+    if candidate_priority != current_priority:
+        return candidate_priority < current_priority
+    if candidate.created_at != current.created_at:
+        return candidate.created_at > current.created_at
+    return (candidate.id or 0) > (current.id or 0)
 
 
 def format_snapshot_report(report: SnapshotReport) -> str:

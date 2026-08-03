@@ -21,6 +21,7 @@ from icewine_prediction.paper_recommendation_group_snapshot_service import (
     PAPER_CONFIDENCE_SNAPSHOT_VERSION,
     backfill_group_snapshots,
     build_snapshot_report,
+    build_snapshot_review_workspace,
     create_group_snapshots_for_record_ids,
     format_snapshot_report,
     write_snapshot_report_csv,
@@ -557,6 +558,131 @@ def test_build_snapshot_report_can_filter_snapshot_source(session):
 
     assert report.summary.group_count == 1
     assert list(report.by_snapshot_source) == ["historical_backfill"]
+
+
+def test_build_snapshot_review_workspace_all_sources_prefers_real_automation_snapshot(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    snapshots = []
+    for source, stake in [
+        ("historical_backfill", "0.50"),
+        ("future_source", "0.75"),
+        ("manual_record", "1.00"),
+        ("automation", "1.50"),
+    ]:
+        snapshot = _snapshot(match, record)
+        snapshot.snapshot_source = source
+        snapshot.suggested_stake_units = Decimal(stake)
+        snapshot.is_backfilled = source == "historical_backfill"
+        snapshots.append(snapshot)
+    session.add_all(snapshots)
+    session.commit()
+
+    workspace = build_snapshot_review_workspace(session, snapshot_source=None)
+
+    assert workspace.summary.group_count == 1
+    assert workspace.snapshots[0].snapshot_source == "automation"
+    assert workspace.snapshots[0].suggested_stake_units == Decimal("1.50")
+    assert workspace.deduplication.applied is True
+    assert workspace.deduplication.input_group_count == 4
+    assert workspace.deduplication.selected_group_count == 1
+    assert workspace.deduplication.excluded_group_count == 3
+    assert list(workspace.by_snapshot_source) == ["automation"]
+
+
+def test_build_snapshot_review_workspace_all_sources_uses_source_fallback_order(session):
+    first_match = _seed_match(session)
+    second_match = _seed_match(
+        session,
+        source_match_id="fixture-2",
+        kickoff_time=datetime(2026, 6, 23, 19, 0, tzinfo=BEIJING),
+    )
+    first_record = _paper_record(session, first_match)
+    second_record = _paper_record(session, second_match)
+    snapshots = []
+    for match, record, sources in [
+        (first_match, first_record, ["historical_backfill", "future_source", "manual_record"]),
+        (second_match, second_record, ["historical_backfill", "future_source"]),
+    ]:
+        for source in sources:
+            snapshot = _snapshot(match, record)
+            snapshot.snapshot_source = source
+            snapshot.is_backfilled = source == "historical_backfill"
+            snapshots.append(snapshot)
+    session.add_all(snapshots)
+    session.commit()
+
+    workspace = build_snapshot_review_workspace(session, snapshot_source=None)
+
+    assert {
+        snapshot.group_key: snapshot.snapshot_source
+        for snapshot in workspace.snapshots
+    } == {
+        f"{first_match.id}:asian_handicap:away_cover": "manual_record",
+        f"{second_match.id}:asian_handicap:away_cover": "future_source",
+    }
+
+
+def test_build_snapshot_review_workspace_all_sources_prefers_latest_snapshot_within_source(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    older = _snapshot(match, record)
+    older.snapshot_source = "manual_record"
+    older.created_at = datetime(2026, 6, 22, 12, 0, tzinfo=BEIJING)
+    older.suggested_stake_units = Decimal("0.75")
+    newer = _snapshot(match, record)
+    newer.snapshot_source = "manual_record"
+    newer.created_at = datetime(2026, 6, 22, 13, 0, tzinfo=BEIJING)
+    newer.suggested_stake_units = Decimal("1.25")
+    newer.signal_record_ids_json = json.dumps([record.id, record.id + 1000])
+    session.add_all([older, newer])
+    session.commit()
+
+    workspace = build_snapshot_review_workspace(session, snapshot_source=None)
+
+    assert workspace.summary.group_count == 1
+    assert workspace.snapshots[0].id == newer.id
+    assert workspace.snapshots[0].suggested_stake_units == Decimal("1.25")
+
+
+def test_build_snapshot_review_workspace_all_sources_uses_larger_id_when_created_at_ties(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    first = _snapshot(match, record)
+    first.snapshot_source = "manual_record"
+    first.created_at = datetime(2026, 6, 22, 13, 0, tzinfo=BEIJING)
+    first.suggested_stake_units = Decimal("0.75")
+    second = _snapshot(match, record)
+    second.snapshot_source = "manual_record"
+    second.created_at = first.created_at
+    second.suggested_stake_units = Decimal("1.25")
+    second.signal_record_ids_json = json.dumps([record.id, record.id + 1000])
+    session.add_all([first, second])
+    session.commit()
+
+    workspace = build_snapshot_review_workspace(session, snapshot_source=None)
+
+    assert second.id > first.id
+    assert workspace.snapshots[0].id == second.id
+    assert workspace.snapshots[0].suggested_stake_units == Decimal("1.25")
+
+
+def test_build_snapshot_review_workspace_specific_source_keeps_existing_row_semantics(session):
+    match = _seed_match(session)
+    record = _paper_record(session, match)
+    first = _snapshot(match, record)
+    second = _snapshot(match, record)
+    second.signal_record_ids_json = json.dumps([record.id, record.id + 1000])
+    session.add_all([first, second])
+    session.commit()
+
+    workspace = build_snapshot_review_workspace(session, snapshot_source="manual_record")
+
+    assert workspace.summary.group_count == 2
+    assert workspace.deduplication.applied is False
+    assert workspace.deduplication.input_group_count == 2
+    assert workspace.deduplication.selected_group_count == 2
+    assert workspace.deduplication.excluded_group_count == 0
 
 
 def test_parse_cli_snapshot_dates_use_start_and_end_of_day():

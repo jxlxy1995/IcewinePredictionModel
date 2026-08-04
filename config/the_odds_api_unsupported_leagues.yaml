@@ -3,6 +3,10 @@ unsupported_leagues:
     name: Eerste Divisie
     country: Netherlands
     reason: no_the_odds_api_sport_key
+  - api_football_id: 99 # 日职乙
+    name: J2 League
+    country: Japan
+    reason: no_the_odds_api_sport_key
   - api_football_id: 283 # 罗甲
     name: Liga I
     country: Romania

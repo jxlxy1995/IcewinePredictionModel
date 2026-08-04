@@ -182,7 +182,7 @@ leagues:
   - name: J2 League
     country: Japan
     api_football_id: 99
-    enabled: false
+    enabled: true
     priority: 60
   - name: K League 1
     country: South-Korea

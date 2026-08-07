@@ -105,7 +105,7 @@ def test_sync_zqcf918_match_ids_loads_league_aliases_for_default_discoverer(
     captured = {}
 
     class CapturingDiscoverer:
-        def __init__(self, *, league_aliases=None):
+        def __init__(self, *, league_aliases=None, team_aliases=None):
             captured["league_aliases"] = league_aliases
 
         def discover(self, matches):
@@ -329,6 +329,80 @@ def test_match_candidates_uses_zqcf918_league_alias_without_changing_display_nam
             ExternalAliasInput("Ekstraklasa (Poland)", "\u6ce2\u5170\u7532")
         ],
     ) == {match.id: "4559263"}
+
+
+def test_match_candidates_uses_zqcf918_team_alias(session):
+    match = _add_match(
+        session,
+        league_name="Eerste Divisie (Netherlands)",
+        home_name="Dordrecht",
+        away_name="Jong Ajax",
+        kickoff_time=datetime(2026, 8, 8, 2, 0),
+    )
+    candidate = {
+        "ID": "4551767",
+        "league": "荷乙",
+        "home": "多德勒支",
+        "away": "阿贾克斯U21",
+        "time": "2026-08-08 02:00:00",
+    }
+    display_service = DisplayNameService(
+        DisplayNames(
+            leagues={"Eerste Divisie (Netherlands)": "荷乙"},
+            teams={"Dordrecht": "多德勒支", "Jong Ajax": "阿贾克斯青年队"},
+        )
+    )
+
+    assert _match_candidates(
+        [match],
+        [candidate],
+        display_service=display_service,
+        team_aliases=[ExternalAliasInput("Jong Ajax", "阿贾克斯U21")],
+    ) == {match.id: "4551767"}
+
+
+def test_sync_zqcf918_match_ids_loads_team_aliases_for_default_discoverer(
+    session,
+    tmp_path,
+    monkeypatch,
+):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "external_aliases.yaml").write_text(
+        "\n".join(
+            [
+                "aliases:",
+                "  - entity_type: team",
+                "    source_name: zqcf918",
+                "    canonical_name: Jong Ajax",
+                "    alias_name: 阿贾克斯U21",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    captured = {}
+
+    class CapturingDiscoverer:
+        def __init__(self, *, league_aliases=None, team_aliases=None):
+            captured["league_aliases"] = league_aliases
+            captured["team_aliases"] = team_aliases
+
+        def discover(self, matches):
+            return {}
+
+    monkeypatch.setattr(
+        zqcf918_match_service,
+        "ZQCF918MatchDiscoverer",
+        CapturingDiscoverer,
+    )
+    match = _add_match(session, home_name="Dordrecht", away_name="Jong Ajax")
+
+    sync_zqcf918_match_ids_for_matches(session, [match])
+
+    assert captured["team_aliases"] == [
+        ExternalAliasInput("Jong Ajax", "阿贾克斯U21")
+    ]
 
 
 def _add_match(

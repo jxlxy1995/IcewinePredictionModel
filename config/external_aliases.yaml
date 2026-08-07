@@ -411,6 +411,10 @@ aliases:
     source_name: oddspapi
     canonical_name: UCD
     alias_name: University College Dublin
+  - entity_type: team
+    source_name: zqcf918
+    canonical_name: Jong Ajax
+    alias_name: 阿贾克斯U21
   - entity_type: league
     source_name: zqcf918
     canonical_name: Ekstraklasa (Poland)

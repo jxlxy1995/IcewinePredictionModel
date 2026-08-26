@@ -26,30 +26,26 @@ from icewine_prediction.the_odds_api_sync_runner import (
 )
 
 
-def test_run_match_odds_sync_defaults_to_the_odds_api_and_reports_success(session):
+def test_run_match_odds_sync_defaults_to_oddspapi_and_reports_success(session):
     match = _add_match(session)
     calls = []
 
-    def fake_the_odds_api_sync(**kwargs):
+    def fake_oddspapi_sync(**kwargs):
         calls.append(kwargs)
         session.add(
             _snapshot(
                 match_id=match.id,
-                source_name=THE_ODDS_API_SOURCE_NAME,
+                source_name=ODDSPAPI_SOURCE_NAME,
                 odds=Decimal("1.95"),
             )
         )
         session.commit()
-        return _the_odds_api_result(
-            requests_used=3,
-            credits_used=90,
-            inserted_snapshot_count=1,
-        )
+        return type("OddspapiResult", (), {"requests_used": 3})()
 
     result = run_match_odds_sync_for_session(
         session=session,
         match_ids=[match.id],
-        the_odds_api_syncer=fake_the_odds_api_sync,
+        oddspapi_syncer=fake_oddspapi_sync,
     )
 
     assert calls
@@ -58,7 +54,55 @@ def test_run_match_odds_sync_defaults_to_the_odds_api_and_reports_success(sessio
     assert result["failed"] == []
     assert result["skipped"] == []
     assert result["requests"] == 3
-    assert result["credits"] == 90
+    assert result["credits"] == 0
+
+
+def test_run_match_odds_sync_follows_ordered_provider_chain(session):
+    matches = [
+        _add_match(
+            session,
+            league_name=f"League {index}",
+            source_league_id=str(39 + index),
+            home_team_name=f"Arsenal {index}",
+            away_team_name=f"Chelsea {index}",
+            source_match_id=str(1001 + index),
+        )
+        for index in range(3)
+    ]
+    calls = []
+
+    def fake_oddspapi_sync(**kwargs):
+        calls.append(("oddspapi", set(kwargs["match_ids"])))
+        session.add(_snapshot(match_id=matches[0].id, source_name=ODDSPAPI_SOURCE_NAME, odds=Decimal("1.90")))
+        session.commit()
+        return type("OddspapiResult", (), {"requests_used": 1})()
+
+    def fake_the_odds_api_sync(**kwargs):
+        calls.append(("the_odds_api", set(kwargs["match_ids"])))
+        session.add(_snapshot(match_id=matches[1].id, source_name=THE_ODDS_API_SOURCE_NAME, odds=Decimal("1.91")))
+        session.commit()
+        return _the_odds_api_result(requests_used=2, credits_used=60, inserted_snapshot_count=1)
+
+    def fake_zqcf918_sync(**kwargs):
+        calls.append(("zqcf918", set(kwargs["match_ids"])))
+        session.add(_snapshot(match_id=matches[2].id, source_name=ZQCF918_SOURCE_NAME, odds=Decimal("1.92")))
+        session.commit()
+        return {"success": [{"match_id": matches[2].id}], "failed": [], "skipped": [], "requests": 3, "credits": 0}
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id for match in matches],
+        oddspapi_syncer=fake_oddspapi_sync,
+        the_odds_api_syncer=fake_the_odds_api_sync,
+        zqcf918_syncer=fake_zqcf918_sync,
+    )
+
+    assert calls == [
+        ("oddspapi", {matches[0].id, matches[1].id, matches[2].id}),
+        ("the_odds_api", {matches[1].id, matches[2].id}),
+        ("zqcf918", {matches[2].id}),
+    ]
+    assert _success_match_ids(result) == sorted(match.id for match in matches)
 
 
 def test_run_match_odds_sync_does_not_overwrite_legacy_oddspapi_snapshots(session):
@@ -80,6 +124,7 @@ def test_run_match_odds_sync_does_not_overwrite_legacy_oddspapi_snapshots(sessio
     result = run_match_odds_sync_for_session(
         session=session,
         match_ids=[match.id],
+        provider=MatchOddsSyncProvider.THE_ODDS_API,
         the_odds_api_syncer=fake_the_odds_api_sync,
     )
 
@@ -99,7 +144,7 @@ def test_has_trusted_historical_odds_accepts_legacy_source(session):
     assert has_trusted_historical_odds(session, match.id) is True
 
 
-def test_has_trusted_historical_odds_accepts_sbobet_fallback(session):
+def test_has_trusted_historical_odds_rejects_sbobet_fallback(session):
     match = _add_match(session)
     session.add(
         _snapshot(
@@ -111,7 +156,7 @@ def test_has_trusted_historical_odds_accepts_sbobet_fallback(session):
     )
     session.commit()
 
-    assert has_trusted_historical_odds(session, match.id) is True
+    assert has_trusted_historical_odds(session, match.id) is False
 
 
 def test_run_match_odds_sync_supports_explicit_legacy_provider(session):
@@ -136,7 +181,7 @@ def test_run_match_odds_sync_supports_explicit_legacy_provider(session):
     assert _success_match_ids(result) == [match.id]
 
 
-def test_run_match_odds_sync_falls_back_to_sbobet_for_verified_fallback_league(session):
+def test_run_match_odds_sync_does_not_use_sbobet_for_verified_fallback_league(session):
     match = _add_match(
         session,
         league_name="Urvalsdeild",
@@ -173,10 +218,10 @@ def test_run_match_odds_sync_falls_back_to_sbobet_for_verified_fallback_league(s
     assert the_odds_api_calls
     assert oddspapi_calls
     assert oddspapi_calls[0]["match_ids"] == {match.id}
-    assert oddspapi_calls[0]["bookmaker"] == "sbobet"
+    assert oddspapi_calls[0].get("bookmaker") != "sbobet"
     assert result["requests"] == 7
     assert result["credits"] == 60
-    assert _success_match_ids(result) == [match.id]
+    assert _success_match_ids(result) == []
 
 
 def test_run_match_odds_sync_does_not_fallback_to_sbobet_for_non_fallback_league(session):
@@ -197,14 +242,14 @@ def test_run_match_odds_sync_does_not_fallback_to_sbobet_for_non_fallback_league
         oddspapi_syncer=fake_oddspapi_sync,
     )
 
-    assert oddspapi_calls == []
-    assert result["requests"] == 2
+    assert oddspapi_calls
+    assert result["requests"] == 7
     assert result["credits"] == 60
     assert _success_match_ids(result) == []
     assert [item["match_id"] for item in result["failed"]] == [match.id]
 
 
-def test_run_match_odds_sync_falls_back_to_zqcf918_before_sbobet(session):
+def test_run_match_odds_sync_falls_back_to_zqcf918(session):
     match = _add_match(
         session,
         league_name="Urvalsdeild",
@@ -237,8 +282,8 @@ def test_run_match_odds_sync_falls_back_to_zqcf918_before_sbobet(session):
 
     assert zqcf918_calls
     assert zqcf918_calls[0]["match_ids"] == {match.id}
-    assert oddspapi_calls == []
-    assert result["requests"] == 5
+    assert oddspapi_calls
+    assert result["requests"] == 10
     assert result["credits"] == 60
     assert _success_match_ids(result) == [match.id]
 
@@ -286,9 +331,9 @@ def test_run_match_odds_sync_uses_sbobet_when_zqcf918_has_no_odds(session):
     )
 
     assert oddspapi_calls
-    assert oddspapi_calls[0]["bookmaker"] == "sbobet"
+    assert oddspapi_calls[0].get("bookmaker") != "sbobet"
     assert result["requests"] == 10
-    assert _success_match_ids(result) == [match.id]
+    assert _success_match_ids(result) == []
 
 
 def test_run_match_odds_sync_preserves_the_odds_api_primary_failure_reason(session):
@@ -322,6 +367,7 @@ def test_run_match_odds_sync_preserves_the_odds_api_primary_failure_reason(sessi
     result = run_match_odds_sync_for_session(
         session=session,
         match_ids=[match.id],
+        provider=MatchOddsSyncProvider.THE_ODDS_API,
         the_odds_api_syncer=fake_the_odds_api_sync,
         zqcf918_syncer=fake_zqcf918_sync,
     )
@@ -393,6 +439,7 @@ def test_run_match_odds_sync_shares_trace_and_recovery_budget_across_seasons(ses
     result = run_match_odds_sync_for_session(
         session=session,
         match_ids=[first.id, second.id],
+        provider=MatchOddsSyncProvider.THE_ODDS_API,
         the_odds_api_syncer=fake_the_odds_api_sync,
     )
 
@@ -624,6 +671,7 @@ def test_run_match_odds_sync_keeps_raised_provider_error_at_batch_level(session)
     result = run_match_odds_sync_for_session(
         session=session,
         match_ids=[first.id, second.id],
+        provider=MatchOddsSyncProvider.THE_ODDS_API,
         the_odds_api_syncer=fake_the_odds_api_sync,
         zqcf918_syncer=fake_zqcf918_sync,
     )
@@ -716,6 +764,7 @@ def test_run_match_odds_sync_uses_existing_trusted_odds_after_primary_refresh_fa
     result = run_match_odds_sync_for_session(
         session=session,
         match_ids=[match.id],
+        provider=MatchOddsSyncProvider.THE_ODDS_API,
         the_odds_api_syncer=fake_the_odds_api_sync,
     )
 

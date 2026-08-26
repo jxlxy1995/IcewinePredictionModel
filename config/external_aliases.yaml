@@ -221,6 +221,14 @@ aliases:
     alias_name: Argentinos Juniors
   - entity_type: team
     source_name: oddspapi
+    canonical_name: Tigre
+    alias_name: CA Tigre
+  - entity_type: team
+    source_name: oddspapi
+    canonical_name: Atletico Paranaense
+    alias_name: Athletico Paranaense
+  - entity_type: team
+    source_name: oddspapi
     canonical_name: Gimnasia L.P.
     alias_name: Gimnasia y Esgrima La Plata
   - entity_type: team

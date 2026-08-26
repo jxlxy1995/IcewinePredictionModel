@@ -6,10 +6,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from icewine_prediction.models import HistoricalOddsSnapshot, Match, OddsSourceMatch
-from icewine_prediction.oddspapi_sync_runner import (
-    SBOBET_FALLBACK_API_FOOTBALL_LEAGUE_IDS,
-    run_oddspapi_sync_result,
-)
+from icewine_prediction.oddspapi_sync_runner import run_oddspapi_sync_result
 from icewine_prediction.odds_provider_selection_service import (
     PINNACLE_BOOKMAKER,
     THE_ODDS_API_SOURCE_NAME,
@@ -43,7 +40,7 @@ def run_match_odds_sync_for_session(
     *,
     session: Session,
     match_ids: list[int],
-    provider: MatchOddsSyncProvider | str = MatchOddsSyncProvider.THE_ODDS_API,
+    provider: MatchOddsSyncProvider | str = MatchOddsSyncProvider.ODDSPAPI,
     the_odds_api_syncer: Callable[..., Any] | None = None,
     oddspapi_syncer: Callable[..., Any] = run_oddspapi_sync_result,
     zqcf918_syncer: Callable[..., Any] = run_zqcf918_sync_for_session,
@@ -118,24 +115,58 @@ def run_match_odds_sync_for_session(
 
     for season in seasons:
         season_match_ids = {match.id for match in matches if match.season == season}
-        result = None
-        try:
-            result = _run_provider_sync(
-                provider=selected_provider,
-                session=session,
-                season=season,
-                match_ids=season_match_ids,
-                the_odds_api_syncer=the_odds_api_syncer,
-                oddspapi_syncer=oddspapi_syncer,
-                trace_id=trace_id,
-                recovery_budget=recovery_budget,
-            )
-        except Exception as exc:
-            error_message = str(exc)
-            session.rollback()
-            batch_errors.append(error_message)
+        unresolved_ids = set(season_match_ids)
 
-        if result is not None:
+        if selected_provider == MatchOddsSyncProvider.ODDSPAPI:
+            oddspapi_result = None
+            try:
+                oddspapi_result = _run_provider_sync(
+                    provider=MatchOddsSyncProvider.ODDSPAPI,
+                    session=session,
+                    season=season,
+                    match_ids=unresolved_ids,
+                    the_odds_api_syncer=the_odds_api_syncer,
+                    oddspapi_syncer=oddspapi_syncer,
+                    trace_id=trace_id,
+                    recovery_budget=recovery_budget,
+                )
+            except Exception as exc:
+                session.rollback()
+                batch_errors.append(str(exc))
+                oddspapi_result = type("OddspapiFailure", (), {"error_message": str(exc)})()
+            requests_used += int(getattr(oddspapi_result, "requests_used", 0) or 0)
+            credits_used += int(getattr(oddspapi_result, "credits_used", 0) or 0)
+            _merge_oddspapi_primary_results(
+                session=session,
+                match_ids=unresolved_ids,
+                result=oddspapi_result,
+                primary_results=primary_results,
+            )
+            unresolved_ids = _unresolved_match_ids(session, unresolved_ids)
+
+        if unresolved_ids and (selected_provider == MatchOddsSyncProvider.ODDSPAPI or selected_provider == MatchOddsSyncProvider.THE_ODDS_API):
+            the_odds_api_ids = set(unresolved_ids)
+            if selected_provider == MatchOddsSyncProvider.ODDSPAPI:
+                fallback_invoked_ids.update(the_odds_api_ids)
+            result = None
+            try:
+                result = _run_provider_sync(
+                    provider=MatchOddsSyncProvider.THE_ODDS_API,
+                    session=session,
+                    season=season,
+                    match_ids=the_odds_api_ids,
+                    the_odds_api_syncer=the_odds_api_syncer,
+                    oddspapi_syncer=oddspapi_syncer,
+                    trace_id=trace_id,
+                    recovery_budget=recovery_budget,
+                )
+            except Exception as exc:
+                session.rollback()
+                if selected_provider == MatchOddsSyncProvider.ODDSPAPI:
+                    for match_id in the_odds_api_ids:
+                        _record_fallback_error(fallback_errors, match_id, str(exc))
+                else:
+                    batch_errors.append(str(exc))
             requests_used += int(getattr(result, "requests_used", 0) or 0)
             credits_used += int(getattr(result, "credits_used", 0) or 0)
             retry_count += int(getattr(result, "retry_count", 0) or 0)
@@ -156,77 +187,48 @@ def run_match_odds_sync_for_session(
                     if provider_requests_remaining is None
                     else min(provider_requests_remaining, remaining_value)
                 )
-            result_rate_limit_wait_seconds = max(
-                result_rate_limit_wait_seconds,
-                float(getattr(result, "rate_limit_wait_seconds", 0.0) or 0.0),
-            )
-            result_recovery_elapsed_seconds = max(
-                result_recovery_elapsed_seconds,
-                float(getattr(result, "recovery_elapsed_seconds", 0.0) or 0.0),
-            )
-            result_recovery_budget_remaining_seconds = min(
-                result_recovery_budget_remaining_seconds,
-                float(
-                    getattr(
-                        result,
-                        "recovery_budget_remaining_seconds",
-                        recovery_budget.limit_seconds,
-                    )
-                ),
-            )
-            if selected_provider == MatchOddsSyncProvider.THE_ODDS_API:
+            result_rate_limit_wait_seconds = max(result_rate_limit_wait_seconds, float(getattr(result, "rate_limit_wait_seconds", 0.0) or 0.0))
+            result_recovery_elapsed_seconds = max(result_recovery_elapsed_seconds, float(getattr(result, "recovery_elapsed_seconds", 0.0) or 0.0))
+            result_recovery_budget_remaining_seconds = min(result_recovery_budget_remaining_seconds, float(getattr(result, "recovery_budget_remaining_seconds", recovery_budget.limit_seconds)))
+            if result is not None:
                 _merge_the_odds_api_primary_results(
                     result=result,
-                    season_match_ids=season_match_ids,
+                    season_match_ids=the_odds_api_ids,
                     primary_results=primary_results,
                     not_attempted_ids=not_attempted_ids,
                 )
-            elif getattr(result, "error_message", None):
-                for match_id in season_match_ids:
-                    primary_results[match_id] = TheOddsApiMatchSyncResult(
-                        match_id=match_id,
-                        status="failed",
-                        error_message=str(result.error_message),
-                        error_code=_error_code_from_value(result.error_message),
-                    )
+                new_snapshot_match_ids = _new_the_odds_api_snapshot_match_ids(
+                    session=session,
+                    match_ids=the_odds_api_ids,
+                    snapshot_ids_before=the_odds_api_snapshot_ids_before,
+                )
+                _merge_the_odds_api_source_match_results(
+                    session=session,
+                    match_ids=the_odds_api_ids,
+                    source_match_states_before=source_match_states_before,
+                    new_snapshot_match_ids=new_snapshot_match_ids,
+                    primary_results=primary_results,
+                )
+                _merge_new_the_odds_api_snapshot_results(
+                    new_snapshot_match_ids=new_snapshot_match_ids,
+                    primary_results=primary_results,
+                )
+            unresolved_ids = _unresolved_match_ids(session, unresolved_ids)
 
-        if selected_provider != MatchOddsSyncProvider.THE_ODDS_API:
-            continue
-
-        new_snapshot_match_ids = _new_the_odds_api_snapshot_match_ids(
-            session=session,
-            match_ids=season_match_ids,
-            snapshot_ids_before=the_odds_api_snapshot_ids_before,
-        )
-        _merge_the_odds_api_source_match_results(
-            session=session,
-            match_ids=season_match_ids,
-            source_match_states_before=source_match_states_before,
-            new_snapshot_match_ids=new_snapshot_match_ids,
-            primary_results=primary_results,
-        )
-        _merge_new_the_odds_api_snapshot_results(
-            new_snapshot_match_ids=new_snapshot_match_ids,
-            primary_results=primary_results,
-        )
-        zqcf918_match_ids = _zqcf918_fallback_match_ids(session, matches, season_match_ids)
-        if zqcf918_match_ids:
-            fallback_invoked_ids.update(zqcf918_match_ids)
+        if unresolved_ids:
+            fallback_invoked_ids.update(unresolved_ids)
+            fallback_attempted_ids.update(unresolved_ids)
             try:
                 zqcf918_result = zqcf918_syncer(
                     session=session,
-                    match_ids=zqcf918_match_ids,
+                    match_ids=unresolved_ids,
                 )
                 requests_used += int(zqcf918_result.get("requests", 0) or 0)
                 credits_used += int(zqcf918_result.get("credits", 0) or 0)
-                for item in zqcf918_result.get("success", []):
-                    fallback_attempted_ids.add(int(item["match_id"]))
                 for item in zqcf918_result.get("failed", []):
-                    match_id = int(item["match_id"])
-                    fallback_attempted_ids.add(match_id)
                     _record_fallback_error(
                         fallback_errors,
-                        match_id,
+                        int(item["match_id"]),
                         str(item.get("message") or "zqcf918 failed"),
                     )
                 for item in zqcf918_result.get("skipped", []):
@@ -236,38 +238,9 @@ def run_match_odds_sync_for_session(
                         str(item.get("message") or "zqcf918 skipped"),
                     )
             except Exception as exc:
-                error_message = str(exc)
                 session.rollback()
-                fallback_attempted_ids.update(zqcf918_match_ids)
-                for match_id in zqcf918_match_ids:
-                    _record_fallback_error(fallback_errors, match_id, error_message)
-
-        sbobet_match_ids = _sbobet_fallback_match_ids(session, matches, season_match_ids)
-        if sbobet_match_ids:
-            fallback_invoked_ids.update(sbobet_match_ids)
-            fallback_attempted_ids.update(sbobet_match_ids)
-            try:
-                fallback_result = _run_sbobet_fallback_sync(
-                    session=session,
-                    season=season,
-                    match_ids=sbobet_match_ids,
-                    oddspapi_syncer=oddspapi_syncer,
-                )
-                requests_used += int(getattr(fallback_result, "requests_used", 0) or 0)
-                credits_used += int(getattr(fallback_result, "credits_used", 0) or 0)
-                fallback_error_message = getattr(fallback_result, "error_message", None)
-                if fallback_error_message:
-                    for match_id in sbobet_match_ids:
-                        _record_fallback_error(
-                            fallback_errors,
-                            match_id,
-                            str(fallback_error_message),
-                        )
-            except Exception as exc:
-                error_message = str(exc)
-                session.rollback()
-                for match_id in sbobet_match_ids:
-                    _record_fallback_error(fallback_errors, match_id, error_message)
+                for match_id in unresolved_ids:
+                    _record_fallback_error(fallback_errors, match_id, str(exc))
 
     success: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
@@ -728,21 +701,6 @@ def _run_provider_sync(
     )
 
 
-def _sbobet_fallback_match_ids(
-    session: Session,
-    matches: list[Match],
-    season_match_ids: set[int],
-) -> set[int]:
-    fallback_ids = set()
-    for match in matches:
-        if match.id not in season_match_ids or has_trusted_historical_odds(session, match.id):
-            continue
-        league_id = getattr(match.league, "source_league_id", None)
-        if str(league_id) in SBOBET_FALLBACK_API_FOOTBALL_LEAGUE_IDS:
-            fallback_ids.add(match.id)
-    return fallback_ids
-
-
 def _zqcf918_fallback_match_ids(
     session: Session,
     matches: list[Match],
@@ -755,21 +713,31 @@ def _zqcf918_fallback_match_ids(
     }
 
 
-def _run_sbobet_fallback_sync(
+def _unresolved_match_ids(session: Session, match_ids: set[int]) -> set[int]:
+    return {
+        match_id for match_id in match_ids
+        if not has_trusted_historical_odds(session, match_id)
+    }
+
+
+def _merge_oddspapi_primary_results(
     *,
     session: Session,
-    season: int,
     match_ids: set[int],
-    oddspapi_syncer: Callable[..., Any],
-) -> Any:
-    return oddspapi_syncer(
-        season=season,
-        max_matches=len(match_ids),
-        request_budget=max(50, len(match_ids) * 20),
-        timeout_seconds=40,
-        max_snapshots_per_match=151,
-        match_ids=match_ids,
-        historical_odds_cooldown_seconds=7.5,
-        refresh_pre_kickoff_existing=True,
-        bookmaker="sbobet",
-    )
+    result: Any,
+    primary_results: dict[int, TheOddsApiMatchSyncResult],
+) -> None:
+    error_message = getattr(result, "error_message", None)
+    for match_id in match_ids:
+        if has_trusted_historical_odds(session, match_id):
+            primary_results[match_id] = TheOddsApiMatchSyncResult(
+                match_id=match_id,
+                status="success",
+            )
+        elif error_message:
+            primary_results[match_id] = TheOddsApiMatchSyncResult(
+                match_id=match_id,
+                status="failed",
+                error_message=str(error_message),
+                error_code=_error_code_from_value(error_message),
+            )

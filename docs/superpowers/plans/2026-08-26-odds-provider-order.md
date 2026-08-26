@@ -65,21 +65,19 @@ Expected: all tests pass.
 ### Task 3: Validate the remaining eight matches without persistence
 
 **Files:**
-- Modify: `src/icewine_prediction/oddspapi_sync_runner.py`
-- Modify: `src/icewine_prediction/cli.py`
-- Test: `tests/test_oddspapi_sync_runner.py`
+- Temporary: `.tmp/oddspapi_probe_20260826.sqlite3` (gitignored)
 
-- [ ] **Step 1: Add a dry-run option to the single-match Oddspapi fetch path**
+- [x] **Step 1: Run the existing fetch path against a temporary SQLite copy**
 
-Expose a `persist=False`/`--dry-run` path that still performs fixture, market, and historical-odds requests, reports match and market counts, and skips writes to `historical_odds_snapshots`, `historical_odds_raw_snapshots`, and source-match persistence.
+Copy `local_data/icewine_prediction.sqlite3` to a gitignored temporary database and run the existing real Oddspapi sync against the remaining eight match IDs. This exercises the complete fixture, market, historical-odds, mapping, and persistence path without changing the formal database.
 
-- [ ] **Step 2: Add a failing dry-run test**
+- [x] **Step 2: Compare availability and coverage**
 
-Use a fake client and a test session; assert the report contains successful market counts while both snapshot tables remain empty.
+Compare each temporary-database result with the existing The Odds API/Pinnacle rows by fixture status, confidence, market types, snapshot count, and error category.
 
-- [ ] **Step 3: Implement the minimal dry-run behavior and verify it**
+- [x] **Step 3: Preserve the formal database**
 
-Run the new focused test, then run dry-run for the remaining eight IDs with the same 2026 window and compare the returned market counts and fixture confidence against existing The Odds API rows.
+Do not copy temporary snapshots back to the formal database. Remove only the temporary file when no longer needed.
 
 ### Task 4: Add aliases and document the rollout
 

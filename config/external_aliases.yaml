@@ -415,6 +415,18 @@ aliases:
     source_name: zqcf918
     canonical_name: Jong Ajax
     alias_name: 阿贾克斯U21
+  - entity_type: team
+    source_name: the_odds_api
+    canonical_name: Guimaraes
+    alias_name: Vitória SC
+  - entity_type: team
+    source_name: the_odds_api
+    canonical_name: Erzurumspor FK
+    alias_name: Erzurum BB
+  - entity_type: team
+    source_name: the_odds_api
+    canonical_name: Wisla Plock
+    alias_name: Wisła Płock
   - entity_type: league
     source_name: zqcf918
     canonical_name: Ekstraklasa (Poland)

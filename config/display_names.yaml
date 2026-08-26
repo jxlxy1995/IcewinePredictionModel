@@ -120,11 +120,14 @@ teams:
   Aarhus: 奥胡斯
   Aarhus Fremad: 奥胡斯费马
   Aberdeen: 阿伯丁
+  Abha: 艾卜哈
+  Academico Viseu: 维塞乌
   Adelaide United: 阿德莱德联
   Afturelding: 阿费查尔丁
   Ajax: 阿贾克斯
   Akhmat: 格罗兹尼
   Akron: 阿克伦陶里亚蒂
+  Al Diriyah: 迪里耶
   Al Khaleej Saihat: 塞哈特海湾
   Al Kholood: 拉斯永恒
   Al Najma: 纳杰马体育
@@ -134,6 +137,7 @@ teams:
   Al Taawon: 布赖代合作
   Al-Ahli Jeddah: 吉达国民
   Al-Ettifaq: 达曼协作
+  Al-Faisaly FC: 费萨里
   Al-Fateh: 哈萨征服
   Al-Fayha: 费哈
   Al-Hazm: 哈森姆
@@ -150,6 +154,7 @@ teams:
   Almere City FC: 阿尔梅勒城
   Almeria: 阿尔梅里亚
   Alverca: 艾华卡
+  Amed: 阿梅德
   Amiens: 亚眠
   Anderlecht: 安德莱赫特
   Angers: 昂热
@@ -159,6 +164,7 @@ teams:
   Antwerp: 安特卫普
   Arbroath: 阿布罗斯
   Arema FC: 阿雷马
+  Arezzo: 阿雷佐
   Argentina: 阿根廷
   Argentinos JRS: 阿根廷青年人
   Arges Pitesti: 阿格斯
@@ -169,6 +175,7 @@ teams:
   Arsenal: 阿森纳
   Asan Mugunghwa: 忠南牙山
   Asane: 阿萨纳
+  Ascoli: 阿斯科利
   Asteras Tripolis: 特里波利斯
   Aston Villa: 阿斯顿维拉
   Atalanta: 亚特兰大
@@ -190,7 +197,7 @@ teams:
   Austria Lustenau: 奥地利卢斯特瑙
   Austria Vienna: 奥地利维也纳
   Auxerre: 欧塞尔
-  Avellino: 阿维利诺
+  Avellino: 阿韦利诺
   Avispa Fukuoka: 福冈黄蜂
   B 93: B93哥本哈根
   BK Hacken: 赫根
@@ -212,6 +219,7 @@ teams:
   Beijing Guoan: 北京国安
   Belgium: 比利时
   Belgrano Cordoba: 贝尔格拉诺
+  Benevento: 贝内文托
   Benfica: 本菲卡
   Beşiktaş: 贝西克塔斯
   Bhayangkara FC: 巴杨卡拉泗水联
@@ -239,6 +247,7 @@ teams:
   Brighton: 布莱顿
   Brisbane Roar: 布里斯班狮吼
   Bristol City: 布里斯托尔城
+  Bromley: 布罗姆利
   Brondby: 布隆德比
   Bryne: 布莱尼
   Bucheon FC 1995: 富川FC
@@ -253,6 +262,7 @@ teams:
   CSKA Moscow: 莫斯科中央陆军
   Cadiz: 加的斯
   Cagliari: 卡利亚里
+  Cambridge United: 剑桥联
   Cambuur: 坎布尔
   Canada: 加拿大
   Cape Verde Islands: 佛得角
@@ -264,6 +274,7 @@ teams:
   Ceara: 塞阿拉
   Celje: 采列
   Celta Vigo: 塞尔塔
+  Celta de Vigo II: 塞尔塔B队
   Celtic: 凯尔特人
   Central Coast Mariners: 中央海岸水手
   Central Cordoba de Santiago: 科尔多瓦中央
@@ -332,6 +343,7 @@ teams:
   Derby: 德比郡
   Derry City: 德里城
   Dewa United: 德瓦
+  Dijon: 第戎
   Dinamo Bucuresti: 布加勒斯特迪纳摩
   Dinamo Makhachkala: 马哈奇卡拉
   Dinamo Minsk: 明斯克迪纳摩
@@ -357,9 +369,12 @@ teams:
   Eintracht Braunschweig: 布伦瑞克
   Eintracht Frankfurt: 法兰克福
   Elche: 埃尔切
+  Eldense: 埃登斯
   Emmen: 埃门
   Empoli: 恩波利
+  Energie Cottbus: 科特布斯
   England: 英格兰
+  Erzurumspor FK: 埃尔祖鲁姆体育
   Esbjerg: 埃斯比约
   Espanyol: 西班牙人
   Estac Troyes: 特鲁瓦
@@ -519,7 +534,7 @@ teams:
   IFK Varnamo: IFK瓦纳默
   IK brage: 布莱格
   Ilves: 埃尔维斯
-  Imabari: FC金治
+  Imabari: FC今治
   Incheon United: 仁川联
   Independ. Rivadavia: 门多萨独立
   Independiente: 阿根廷独立
@@ -529,6 +544,7 @@ teams:
   Inter Turku: 图尔库国际
   Internacional: 巴西国际
   Ipswich: 伊普斯维奇
+  Iraklis 1908: 伊拉克里斯
   Iran: 伊朗
   Iraq: 伊拉克
   Ivory Coast: 科特迪瓦
@@ -556,6 +572,7 @@ teams:
   KV Mechelen: 梅赫伦
   KVC Westerlo: 韦斯特洛
   Kairat Almaty: 凯拉特
+  Kalamata: 卡拉马塔
   Kalmar FF: 卡尔马
   Karlsruher SC: 卡尔斯鲁厄
   Kashima: 鹿岛鹿角
@@ -569,12 +586,13 @@ teams:
   Kifisia: 基菲萨
   Kilmarnock: 基尔马诺克
   Klubi-04: 克鲁比04
-  Kocaelispor: 高尔卡利
+  Kocaelispor: 科贾埃利体育
   Kolding IF: 科灵
   Kongsvinger: 康斯文格
   Konyaspor: 科尼亚
   Kooteepee: KTP科特卡
   Korona Kielce: 凯尔采科罗纳
+  Kortrijk: 科特赖克
   Kristiansund BK: 克里斯蒂安松
   Krylia Sovetov: 苏维埃之翼
   KuPS: 古比斯
@@ -635,6 +653,7 @@ teams:
   Mansfield Town: 曼斯菲尔德
   Mantova: 曼托瓦
   Mariehamn: 玛丽港
+  Maritimo: 马里迪莫
   Marseille: 马赛
   Mazatlán: 马萨特兰
   Meizhou Kejia: 梅州客家
@@ -646,6 +665,7 @@ teams:
   Middelfart: 米德法特
   Middlesbrough: 米德尔斯堡
   Millwall: 米尔沃尔
+  Milton Keynes Dons: 米尔顿凯恩斯
   Minnesota United FC: 明尼苏达联
   Mirandes: 米兰德斯
   Mirassol: 米拉索
@@ -689,6 +709,7 @@ teams:
   Norway: 挪威
   Norwich: 诺维奇
   Nottingham Forest: 诺丁汉森林
+  Notts County: 诺茨郡
   Nublense: 努布伦斯
   O'Higgins: 奥伊金斯
   ODD Ballklubb: 奥德
@@ -813,10 +834,12 @@ teams:
   SHANGHAI SIPG: 上海海港
   SJK: 塞纳乔其
   SJK Akatemia: SJK学院
+  SK Beveren: SK贝弗伦
   ST Johnstone: 圣约翰斯通
   ST Mirren: 圣米伦
   SV Darmstadt 98: 达姆斯塔特
   SV Elversberg: 艾禾斯堡
+  Sabadell: 萨瓦德尔
   Sagan Tosu: 鸟栖砂岩
   Saint Etienne: 圣埃蒂安
   Sampdoria: 桑普多利亚
@@ -863,6 +886,7 @@ teams:
   Slavia Praha: 布拉格斯拉维亚
   Sligo Rovers: 斯莱戈流浪者
   Slovan Bratislava: 布拉迪斯拉发
+  Sochaux: 索肖
   Sogndal: 松达尔
   Sonderjyske: 桑德捷斯基
   South Africa: 南非
@@ -904,6 +928,7 @@ teams:
   Talleres Cordoba: 塔勒雷斯
   Tegevajaro Miyazaki: 宫崎棒牛鸟
   Telstar: 特尔斯达
+  Tenerife: 特内里费
   Thor Akureyri: 托尔阿克雷里
   Tianjin Teda: 天津津门虎
   Tigre: 提格雷
@@ -972,8 +997,10 @@ teams:
   Vestri: 维斯特里
   VfB Stuttgart: 斯图加特
   VfL Bochum: 波鸿
+  VfL Osnabrück: 奥斯纳布吕克
   VfL Wolfsburg: 沃尔夫斯堡
   Viborg: 维堡
+  Vicenza Virtus: 维琴察
   Viking: 维京
   Vikingur Reykjavik: 维京古
   Villarreal: 比利亚雷亚尔
@@ -1013,3 +1040,4 @@ teams:
   Zrinjski: 日林斯基
   Zulte Waregem: 瓦勒海姆
   hodd: 贺特
+  Çorum FK: 科鲁姆

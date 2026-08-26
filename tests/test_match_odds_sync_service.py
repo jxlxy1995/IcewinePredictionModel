@@ -57,6 +57,45 @@ def test_run_match_odds_sync_defaults_to_oddspapi_and_reports_success(session):
     assert result["credits"] == 0
 
 
+def test_run_match_odds_sync_skips_oddspapi_when_disabled(monkeypatch, session):
+    match = _add_match(session)
+    oddspapi_calls = []
+    the_odds_api_calls = []
+
+    def fake_oddspapi_sync(**kwargs):
+        oddspapi_calls.append(kwargs)
+        raise AssertionError("Oddspapi must be skipped while disabled")
+
+    def fake_the_odds_api_sync(**kwargs):
+        the_odds_api_calls.append(kwargs)
+        session.add(
+            _snapshot(
+                match_id=match.id,
+                source_name=THE_ODDS_API_SOURCE_NAME,
+                odds=Decimal("1.91"),
+            )
+        )
+        session.commit()
+        return _the_odds_api_result(
+            requests_used=2,
+            inserted_snapshot_count=1,
+            match_results=(TheOddsApiMatchSyncResult(match_id=match.id, status="success"),),
+        )
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id],
+        oddspapi_syncer=fake_oddspapi_sync,
+        the_odds_api_syncer=fake_the_odds_api_sync,
+        oddspapi_enabled=False,
+    )
+
+    assert oddspapi_calls == []
+    assert the_odds_api_calls[0]["match_ids"] == {match.id}
+    assert _success_match_ids(result) == [match.id]
+    assert result["success"][0]["source"] == THE_ODDS_API_SOURCE_NAME
+
+
 def test_run_match_odds_sync_follows_ordered_provider_chain(session):
     matches = [
         _add_match(

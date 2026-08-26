@@ -2551,6 +2551,7 @@ def test_web_console_api_default_odds_syncer_uses_match_odds_sync_service(tmp_pa
     assert response.status_code == 200
     assert calls
     assert calls[0]["match_ids"] == [match_id]
+    assert calls[0]["oddspapi_enabled"] is False
     assert response.json()["sync_run"]["requests_used"] == 2
     assert response.json()["report"]["requests_used"] == 2
     assert response.json()["report"]["credits_used"] == 60

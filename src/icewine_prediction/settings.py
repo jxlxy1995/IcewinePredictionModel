@@ -31,6 +31,7 @@ class SyncSettings:
     sync_odds: bool
     sync_results: bool
     budget_guard_enabled: bool
+    oddspapi_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,7 @@ def load_project_settings(config_dir: Path = Path("config")) -> ProjectSettings:
         sync_odds=bool(sync_raw["sync_odds"]),
         sync_results=bool(sync_raw["sync_results"]),
         budget_guard_enabled=bool(sync_raw["budget_guard_enabled"]),
+        oddspapi_enabled=bool(sync_raw.get("oddspapi_enabled", True)),
     )
     return ProjectSettings(
         api_football_key=os.getenv("API_FOOTBALL_KEY"),

@@ -32,6 +32,7 @@ default_source: api_football
 sync_odds: true
 sync_results: true
 budget_guard_enabled: true
+oddspapi_enabled: false
 """,
         encoding="utf-8",
     )
@@ -47,6 +48,7 @@ budget_guard_enabled: true
     assert settings.sources["api_football"].daily_request_budget == 100
     assert settings.leagues[0].name == "Premier League"
     assert settings.sync.default_days == 3
+    assert settings.sync.oddspapi_enabled is False
 
 
 def test_load_project_settings_reads_bom_env_file(tmp_path, monkeypatch):
@@ -81,6 +83,7 @@ budget_guard_enabled: true
     settings = load_project_settings(config_dir)
 
     assert settings.api_football_key == "secret-key"
+    assert settings.sync.oddspapi_enabled is True
 
 
 def test_default_league_whitelist_contains_mainstream_leagues():

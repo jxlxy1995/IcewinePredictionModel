@@ -44,6 +44,7 @@ def run_match_odds_sync_for_session(
     the_odds_api_syncer: Callable[..., Any] | None = None,
     oddspapi_syncer: Callable[..., Any] = run_oddspapi_sync_result,
     zqcf918_syncer: Callable[..., Any] = run_zqcf918_sync_for_session,
+    oddspapi_enabled: bool = True,
 ) -> SyncResultPayload:
     trace_id = uuid4().hex[:12]
     recovery_budget = TheOddsApiRecoveryBudget(limit_seconds=120.0)
@@ -82,6 +83,8 @@ def run_match_odds_sync_for_session(
         )
 
     selected_provider = MatchOddsSyncProvider(provider)
+    if selected_provider == MatchOddsSyncProvider.ODDSPAPI and not oddspapi_enabled:
+        selected_provider = MatchOddsSyncProvider.THE_ODDS_API
     the_odds_api_syncer = the_odds_api_syncer or run_default_the_odds_api_sync_for_session
     eligible_match_ids = {match.id for match in matches if match.season is not None}
     trusted_sources_before = {

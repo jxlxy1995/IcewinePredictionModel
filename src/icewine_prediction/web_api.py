@@ -3191,7 +3191,12 @@ def _is_live_match_for_result_sync(match: Match, *, now: datetime | None = None)
 
 def _run_match_list_odds_sync(match_ids: list[int]) -> dict[str, Any]:
     with _open_session_for_web_sync() as session:
-        return run_match_odds_sync_for_session(session=session, match_ids=match_ids)
+        settings = load_project_settings()
+        return run_match_odds_sync_for_session(
+            session=session,
+            match_ids=match_ids,
+            oddspapi_enabled=settings.sync.oddspapi_enabled,
+        )
 
 
 def _run_zqcf918_match_id_sync(match_ids: list[int]) -> dict[str, Any]:

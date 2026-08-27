@@ -2193,7 +2193,7 @@ def test_oddspapi_sync_client_requests_fixture_and_historical_odds_payloads():
         {
             "sportId": 10,
             "fixtureId": "oddspapi-fixture-1",
-            "bookmakers": "pinnacle",
+            "bookmakers": "pinnacle+30",
         },
     )
     assert raw_client.calls[2] == (
@@ -2201,7 +2201,7 @@ def test_oddspapi_sync_client_requests_fixture_and_historical_odds_payloads():
         {
             "sportId": 10,
             "fixtureId": "oddspapi-fixture-1",
-            "bookmakers": "pinnacle",
+            "bookmakers": "pinnacle+30",
         },
     )
 

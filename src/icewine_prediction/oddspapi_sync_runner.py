@@ -33,6 +33,7 @@ from icewine_prediction.sources.oddspapi_client import (
     OddsPapiClient,
     OddsPapiRequestBudgetExceededError,
 )
+from icewine_prediction.sources.oddspapi_bookmaker import to_api_bookmaker_slug
 from icewine_prediction.sources.oddspapi_market_mapper import map_markets
 from icewine_prediction.sources.oddspapi_odds_mapper import map_historical_odds
 from icewine_prediction.time_utils import now_beijing
@@ -278,7 +279,7 @@ class OddsPapiSyncClient:
         params = {
             "sportId": SOCCER_SPORT_ID,
             "fixtureId": source_fixture_id,
-            "bookmakers": self.bookmaker,
+            "bookmakers": to_api_bookmaker_slug(self.bookmaker),
         }
         if outcome_id is not None:
             params["outcomeId"] = outcome_id
@@ -327,7 +328,7 @@ class OddsPapiSyncClient:
             {
                 "sportId": SOCCER_SPORT_ID,
                 "fixtureId": source_fixture_id,
-                "bookmakers": self.bookmaker,
+                "bookmakers": to_api_bookmaker_slug(self.bookmaker),
             },
         )
         with GLOBAL_MARKET_DEFINITIONS_CACHE_LOCK:

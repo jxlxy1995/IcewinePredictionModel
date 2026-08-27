@@ -78,6 +78,80 @@ def test_map_historical_odds_keeps_selected_bookmakers_fulltime_handicap_and_tot
     assert {snapshots[2].outcome_side, snapshots[3].outcome_side} == {"over", "under"}
 
 
+def test_map_historical_odds_normalizes_pinnacle_plus_30_flat_response():
+    payload = [
+        {
+            "bookmaker": "pinnacle+30",
+            "timestamp": "2026-05-23T18:00:00Z",
+            "markets": [
+                {
+                    "marketId": 1070,
+                    "marketName": "Asian Handicap",
+                    "marketType": "spreads",
+                    "period": "fulltime",
+                    "handicap": -0.25,
+                    "outcomes": [{"name": "Mallorca", "price": 1.91, "side": "home"}],
+                }
+            ],
+        }
+    ]
+
+    snapshots = map_historical_odds(
+        payload,
+        match_id=42,
+        source_fixture_id="oddspapi-fixture",
+    )
+
+    assert len(snapshots) == 1
+    assert snapshots[0].bookmaker == "pinnacle"
+
+
+def test_map_historical_odds_normalizes_pinnacle_plus_30_nested_response():
+    payload = {
+        "fixtureId": "oddspapi-fixture",
+        "bookmakers": {
+            "pinnacle+30": {
+                "markets": {
+                    "1070": {
+                        "outcomes": {
+                            "1070": {
+                                "players": {
+                                    "0": [
+                                        {
+                                            "createdAt": "2026-05-23T18:00:00Z",
+                                            "price": 1.91,
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    }
+    markets = [
+        {
+            "marketId": 1070,
+            "marketName": "Asian Handicap",
+            "marketType": "spreads",
+            "handicap": -0.25,
+            "period": "fulltime",
+            "outcomes": [{"outcomeId": 1070, "outcomeName": "1"}],
+        }
+    ]
+
+    snapshots = map_historical_odds(
+        payload,
+        match_id=42,
+        source_fixture_id="oddspapi-fixture",
+        market_definitions=markets,
+    )
+
+    assert len(snapshots) == 1
+    assert snapshots[0].bookmaker == "pinnacle"
+
+
 def test_map_historical_odds_defaults_to_pinnacle_only_for_nested_payloads():
     payload = {
         "fixtureId": "oddspapi-fixture",

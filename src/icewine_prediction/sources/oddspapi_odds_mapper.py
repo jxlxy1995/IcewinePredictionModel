@@ -5,6 +5,7 @@ import json
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from icewine_prediction.sources.oddspapi_bookmaker import normalize_bookmaker_slug
 from icewine_prediction.sources.oddspapi_market_mapper import map_markets
 
 SELECTED_BOOKMAKERS = {"pinnacle"}
@@ -35,7 +36,10 @@ def map_historical_odds(
     selected_bookmakers: set[str] | None = None,
     market_definitions: list[dict[str, Any]] | None = None,
 ) -> list[MappedHistoricalOddsSnapshot]:
-    bookmaker_whitelist = selected_bookmakers or SELECTED_BOOKMAKERS
+    bookmaker_whitelist = {
+        normalize_bookmaker_slug(value)
+        for value in (selected_bookmakers or SELECTED_BOOKMAKERS)
+    }
     if isinstance(payload, dict):
         return _map_nested_historical_odds(
             payload=payload,
@@ -60,7 +64,7 @@ def _map_flat_historical_odds(
 ) -> list[MappedHistoricalOddsSnapshot]:
     snapshots = []
     for bookmaker_item in payload:
-        bookmaker = str(bookmaker_item.get("bookmaker", "")).lower()
+        bookmaker = normalize_bookmaker_slug(bookmaker_item.get("bookmaker", ""))
         if bookmaker not in bookmaker_whitelist:
             continue
         snapshot_time = _parse_snapshot_time(bookmaker_item.get("timestamp"))
@@ -111,7 +115,7 @@ def _map_nested_historical_odds(
     }
     outcome_names_by_market_and_outcome = _build_outcome_name_map(market_definitions)
     for bookmaker, bookmaker_payload in (payload.get("bookmakers") or {}).items():
-        bookmaker = str(bookmaker).lower()
+        bookmaker = normalize_bookmaker_slug(bookmaker)
         if bookmaker not in bookmaker_whitelist:
             continue
         for market_id, market_payload in (bookmaker_payload.get("markets") or {}).items():

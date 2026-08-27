@@ -57,6 +57,25 @@ def test_run_match_odds_sync_defaults_to_oddspapi_and_reports_success(session):
     assert result["credits"] == 0
 
 
+def test_run_match_odds_sync_uses_six_second_oddspapi_historical_cooldown(session):
+    match = _add_match(session)
+    calls = []
+
+    def fake_oddspapi_sync(**kwargs):
+        calls.append(kwargs)
+        session.add(_snapshot(match_id=match.id, source_name=ODDSPAPI_SOURCE_NAME, odds=Decimal("1.95")))
+        session.commit()
+        return type("OddspapiResult", (), {"requests_used": 1})()
+
+    run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id],
+        oddspapi_syncer=fake_oddspapi_sync,
+    )
+
+    assert calls[0]["historical_odds_cooldown_seconds"] == 6.0
+
+
 def test_run_match_odds_sync_skips_oddspapi_when_disabled(monkeypatch, session):
     match = _add_match(session)
     oddspapi_calls = []

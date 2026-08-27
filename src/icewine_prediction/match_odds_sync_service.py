@@ -699,7 +699,7 @@ def _run_provider_sync(
         timeout_seconds=40,
         max_snapshots_per_match=151,
         match_ids=match_ids,
-        historical_odds_cooldown_seconds=7.5,
+        historical_odds_cooldown_seconds=6.0,
         refresh_pre_kickoff_existing=True,
     )
 

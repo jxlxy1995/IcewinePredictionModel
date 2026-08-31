@@ -700,6 +700,7 @@ export type ExecutionTimepointCoverageCell = {
   available: boolean;
   snapshot_time: string | null;
   market_line: string | null;
+  source_name?: string | null;
 };
 
 export type ExecutionTimepointCoverageRow = {
@@ -716,6 +717,9 @@ export type ExecutionTimepointCoverage = {
   health_key: "high" | "medium" | "low" | "none" | string;
   health_label: string;
   bookmaker: string | null;
+  core_available_count?: number;
+  core_total_count?: number;
+  core_complete?: boolean;
 };
 
 export type ExecutionTimepointAsianHandicapOdds = {
@@ -723,6 +727,7 @@ export type ExecutionTimepointAsianHandicapOdds = {
   market_line: string | null;
   home_odds: string | null;
   away_odds: string | null;
+  source_name?: string | null;
 };
 
 export type ExecutionTimepointTotalGoalsOdds = {
@@ -730,6 +735,7 @@ export type ExecutionTimepointTotalGoalsOdds = {
   market_line: string | null;
   over_odds: string | null;
   under_odds: string | null;
+  source_name?: string | null;
 };
 
 export type ExecutionTimepointMatchWinnerOdds = {
@@ -737,6 +743,7 @@ export type ExecutionTimepointMatchWinnerOdds = {
   home_odds: string | null;
   draw_odds: string | null;
   away_odds: string | null;
+  source_name?: string | null;
 };
 
 export type ExecutionTimepointOddsTableRow = {

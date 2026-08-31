@@ -1380,6 +1380,69 @@ th {
   color: #94a3b8;
 }
 
+.coverage-cell.available.source-oddspapi {
+  background: #dbeafe;
+  border: 1px solid #93c5fd;
+  color: #1d4ed8;
+}
+
+.coverage-cell.available.source-the-odds-api {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+}
+
+.coverage-cell.available.source-zqcf918 {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #b91c1c;
+}
+
+.coverage-source-legend {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 6px 0 8px;
+}
+
+.execution-coverage-summary {
+  color: #475569;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.coverage-source-legend-item {
+  align-items: center;
+  color: #64748b;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 5px;
+}
+
+.coverage-source-swatch {
+  border: 1px solid transparent;
+  border-radius: 3px;
+  display: inline-block;
+  height: 10px;
+  width: 10px;
+}
+
+.coverage-source-swatch.source-oddspapi {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.coverage-source-swatch.source-the-odds-api {
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
+.coverage-source-swatch.source-zqcf918 {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
 .coverage-add-button {
   align-items: center;
   background: #ffffff;

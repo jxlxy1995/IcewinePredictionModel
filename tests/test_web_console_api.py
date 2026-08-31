@@ -2152,6 +2152,8 @@ def test_web_console_api_returns_match_list_workspace_and_detail(tmp_path):
     detail = detail_response.json()
     assert detail["home_team_logo_url"] == "home.png"
     assert detail["execution_timepoint_coverage"]["total_count"] == 18
+    assert detail["execution_timepoint_coverage"]["core_total_count"] == 12
+    assert detail["execution_timepoint_coverage"]["core_complete"] is False
     assert detail["execution_timepoint_coverage"]["bookmaker"] == "pinnacle"
     assert detail["execution_timepoint_coverage"]["targets"] == [
         "T-60",
@@ -2161,6 +2163,8 @@ def test_web_console_api_returns_match_list_workspace_and_detail(tmp_path):
         "T-15",
         "T-10",
     ]
+    assert detail["execution_timepoint_coverage"]["rows"][0]["cells"][0]["source_name"] is None
+    assert detail["execution_timepoint_odds_table"]["rows"][0]["asian_handicap"]["source_name"] is None
     assert detail["has_odds"] is True
     assert detail["team_data_note"] == "待接入"
     assert detail["paper_recommendation_summary"]["label"] == "暂无纸面推荐记录"

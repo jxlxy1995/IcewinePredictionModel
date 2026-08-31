@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -32,13 +32,7 @@ def test_run_match_odds_sync_defaults_to_oddspapi_and_reports_success(session):
 
     def fake_oddspapi_sync(**kwargs):
         calls.append(kwargs)
-        session.add(
-            _snapshot(
-                match_id=match.id,
-                source_name=ODDSPAPI_SOURCE_NAME,
-                odds=Decimal("1.95"),
-            )
-        )
+        session.add_all(_standard_snapshots(match, ODDSPAPI_SOURCE_NAME))
         session.commit()
         return type("OddspapiResult", (), {"requests_used": 3})()
 
@@ -131,19 +125,19 @@ def test_run_match_odds_sync_follows_ordered_provider_chain(session):
 
     def fake_oddspapi_sync(**kwargs):
         calls.append(("oddspapi", set(kwargs["match_ids"])))
-        session.add(_snapshot(match_id=matches[0].id, source_name=ODDSPAPI_SOURCE_NAME, odds=Decimal("1.90")))
+        session.add_all(_standard_snapshots(matches[0], ODDSPAPI_SOURCE_NAME))
         session.commit()
         return type("OddspapiResult", (), {"requests_used": 1})()
 
     def fake_the_odds_api_sync(**kwargs):
         calls.append(("the_odds_api", set(kwargs["match_ids"])))
-        session.add(_snapshot(match_id=matches[1].id, source_name=THE_ODDS_API_SOURCE_NAME, odds=Decimal("1.91")))
+        session.add_all(_standard_snapshots(matches[1], THE_ODDS_API_SOURCE_NAME))
         session.commit()
         return _the_odds_api_result(requests_used=2, credits_used=60, inserted_snapshot_count=1)
 
     def fake_zqcf918_sync(**kwargs):
         calls.append(("zqcf918", set(kwargs["match_ids"])))
-        session.add(_snapshot(match_id=matches[2].id, source_name=ZQCF918_SOURCE_NAME, odds=Decimal("1.92")))
+        session.add_all(_standard_snapshots(matches[2], ZQCF918_SOURCE_NAME))
         session.commit()
         return {"success": [{"match_id": matches[2].id}], "failed": [], "skipped": [], "requests": 3, "credits": 0}
 
@@ -161,6 +155,77 @@ def test_run_match_odds_sync_follows_ordered_provider_chain(session):
         ("zqcf918", {matches[2].id}),
     ]
     assert _success_match_ids(result) == sorted(match.id for match in matches)
+
+
+def test_run_match_odds_sync_falls_back_from_partial_oddspapi_coverage(session):
+    match = _add_match(session)
+    calls = []
+
+    def fake_oddspapi_sync(**kwargs):
+        calls.append("oddspapi")
+        session.add_all(
+            _standard_snapshots(
+                match,
+                ODDSPAPI_SOURCE_NAME,
+                targets=(60, 30, 25, 20),
+            )
+        )
+        session.commit()
+        return type("OddspapiResult", (), {"requests_used": 1})()
+
+    def fake_the_odds_api_sync(**kwargs):
+        calls.append("the_odds_api")
+        session.add_all(_standard_snapshots(match, THE_ODDS_API_SOURCE_NAME))
+        session.commit()
+        return _the_odds_api_result(
+            requests_used=2,
+            inserted_snapshot_count=18,
+            match_results=(TheOddsApiMatchSyncResult(match_id=match.id, status="success"),),
+        )
+
+    def unexpected_zqcf918_sync(**kwargs):
+        raise AssertionError("zqcf918 must not run after The Odds API completes coverage")
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id],
+        oddspapi_syncer=fake_oddspapi_sync,
+        the_odds_api_syncer=fake_the_odds_api_sync,
+        zqcf918_syncer=unexpected_zqcf918_sync,
+    )
+
+    assert calls == ["oddspapi", "the_odds_api"]
+    assert _success_match_ids(result) == [match.id]
+
+
+def test_run_match_odds_sync_does_not_fallback_for_optional_match_winner_gap(session):
+    match = _add_match(session)
+    calls = []
+
+    def fake_oddspapi_sync(**kwargs):
+        calls.append("oddspapi")
+        session.add_all(
+            _standard_snapshots(
+                match,
+                ODDSPAPI_SOURCE_NAME,
+                market_types=("asian_handicap", "total_goals"),
+            )
+        )
+        session.commit()
+        return type("OddspapiResult", (), {"requests_used": 1})()
+
+    def unexpected_the_odds_api_sync(**kwargs):
+        raise AssertionError("The Odds API must not run when core markets are complete")
+
+    result = run_match_odds_sync_for_session(
+        session=session,
+        match_ids=[match.id],
+        oddspapi_syncer=fake_oddspapi_sync,
+        the_odds_api_syncer=unexpected_the_odds_api_sync,
+    )
+
+    assert calls == ["oddspapi"]
+    assert _success_match_ids(result) == [match.id]
 
 
 def test_run_match_odds_sync_does_not_overwrite_legacy_oddspapi_snapshots(session):
@@ -223,7 +288,7 @@ def test_run_match_odds_sync_supports_explicit_legacy_provider(session):
 
     def fake_legacy_sync(**kwargs):
         calls.append(kwargs)
-        session.add(_snapshot(match_id=match.id, source_name=ODDSPAPI_SOURCE_NAME, odds=Decimal("1.90")))
+        session.add_all(_standard_snapshots(match, ODDSPAPI_SOURCE_NAME))
         session.commit()
         return type("LegacyResult", (), {"requests_used": 4})()
 
@@ -1085,6 +1150,44 @@ def _snapshot(
         snapshot_time=datetime(2026, 6, 26, 18, 50, tzinfo=ZoneInfo("UTC")),
         period="full_time",
     )
+
+
+def _standard_snapshots(
+    match: Match,
+    source_name: str,
+    *,
+    targets: tuple[int, ...] = (60, 30, 25, 20, 15, 10),
+    market_types: tuple[str, ...] = ("asian_handicap", "total_goals", "match_winner"),
+) -> list[HistoricalOddsSnapshot]:
+    markets = {
+        "asian_handicap": (("home", "away"), Decimal("-0.25")),
+        "total_goals": (("over", "under"), Decimal("2.50")),
+        "match_winner": (("home", "draw", "away"), Decimal("0.00")),
+    }
+    snapshots = []
+    for target in targets:
+        snapshot_time = match.kickoff_time - timedelta(minutes=target)
+        for market_type, (sides, line) in markets.items():
+            if market_type not in market_types:
+                continue
+            for side in sides:
+                snapshots.append(
+                    HistoricalOddsSnapshot(
+                        match_id=match.id,
+                        source_name=source_name,
+                        source_fixture_id=f"{source_name}-event",
+                        bookmaker="pinnacle",
+                        market_type=market_type,
+                        market_id=f"{source_name}:{market_type}:{target}:{side}",
+                        market_name=market_type,
+                        market_line=line,
+                        outcome_side=side,
+                        odds=Decimal("1.90"),
+                        snapshot_time=snapshot_time,
+                        period="full_time",
+                    )
+                )
+    return snapshots
 
 
 def _the_odds_api_result(

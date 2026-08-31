@@ -78,7 +78,7 @@ const detail: MatchDetail = {
         market_type: "asian_handicap",
         market_label: "亚盘",
         cells: [
-          { target_minutes: 60, label: "T-60", available: true, snapshot_time: "2026-05-30T12:00:00+08:00", market_line: "-0.50" },
+          { target_minutes: 60, label: "T-60", available: true, snapshot_time: "2026-05-30T12:00:00+08:00", market_line: "-0.50", source_name: "oddspapi" },
           { target_minutes: 30, label: "T-30", available: false, snapshot_time: null, market_line: null },
           { target_minutes: 25, label: "T-25", available: false, snapshot_time: null, market_line: null },
           { target_minutes: 20, label: "T-20", available: false, snapshot_time: null, market_line: null },
@@ -95,7 +95,7 @@ const detail: MatchDetail = {
           { target_minutes: 25, label: "T-25", available: false, snapshot_time: null, market_line: null },
           { target_minutes: 20, label: "T-20", available: false, snapshot_time: null, market_line: null },
           { target_minutes: 15, label: "T-15", available: false, snapshot_time: null, market_line: null },
-          { target_minutes: 10, label: "T-10", available: true, snapshot_time: "2026-05-30T12:50:00+08:00", market_line: "2.50" }
+          { target_minutes: 10, label: "T-10", available: true, snapshot_time: "2026-05-30T12:50:00+08:00", market_line: "2.50", source_name: "the_odds_api" }
         ]
       },
       {
@@ -121,19 +121,22 @@ const detail: MatchDetail = {
           snapshot_time: "2026-05-30T12:00:00+08:00",
           market_line: "0.00",
           home_odds: "1.900",
-          away_odds: "1.910"
+          away_odds: "1.910",
+          source_name: "oddspapi"
         },
         total_goals: {
           snapshot_time: "2026-05-30T12:01:00+08:00",
           market_line: "2.50",
           over_odds: "1.950",
-          under_odds: "1.850"
+          under_odds: "1.850",
+          source_name: "the_odds_api"
         },
         match_winner: {
           snapshot_time: "2026-05-30T12:02:00+08:00",
           home_odds: "2.890",
           draw_odds: "3.930",
-          away_odds: "2.280"
+          away_odds: "2.280",
+          source_name: "zqcf918"
         }
       },
       {
@@ -249,19 +252,22 @@ describe("matchListWorkspace", () => {
       bookmakerLabel: "Pinnacle",
       canClearSbobet: false,
       summary: "2/18",
+      coreSummary: "2/12",
       healthClassName: "coverage-health coverage-health-low",
       healthLabel: "偏低"
     });
     expect(buildExecutionTimepointCoverageView(detail.execution_timepoint_coverage).rows[0].cells[0]).toMatchObject({
       canCreateManualOdds: false,
-      className: "coverage-cell available",
+      className: "coverage-cell available source-oddspapi",
       marketType: "asian_handicap",
+      sourceName: "oddspapi",
+      sourceLabel: "Oddspapi",
       targetMinutes: 60,
       title: "T-60 · 2026-05-30 12:00 · 盘口 -0.50"
     });
     expect(buildExecutionTimepointCoverageView(detail.execution_timepoint_coverage).rows[0].cells[1]).toMatchObject({
       canCreateManualOdds: true,
-      className: "coverage-cell missing",
+      className: "coverage-cell missing source-missing",
       marketType: "asian_handicap",
       targetMinutes: 30,
       title: "T-30 · 缺失"
@@ -278,21 +284,24 @@ describe("matchListWorkspace", () => {
         line: "0.00",
         home: "1.900",
         away: "1.910",
-        isMissing: false
+        isMissing: false,
+        sourceName: "oddspapi"
       },
       totalGoals: {
         time: "05-30 12:01",
         line: "2.50",
         over: "1.950",
         under: "1.850",
-        isMissing: false
+        isMissing: false,
+        sourceName: "the_odds_api"
       },
       matchWinner: {
         time: "05-30 12:02",
         home: "2.890",
         draw: "3.930",
         away: "2.280",
-        isMissing: false
+        isMissing: false,
+        sourceName: "zqcf918"
       }
     });
     expect(view.rows[1].totalGoals).toMatchObject({

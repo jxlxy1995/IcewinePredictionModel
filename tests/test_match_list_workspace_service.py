@@ -655,14 +655,14 @@ def test_match_detail_includes_standard_execution_timepoint_coverage(session):
     assert detail is not None
     coverage = detail.execution_timepoint_coverage
     assert coverage.bookmaker == "pinnacle"
-    assert coverage.available_count == 2
+    assert coverage.available_count == 3
     assert coverage.total_count == 18
     assert coverage.health_key == "low"
     asian = next(row for row in coverage.rows if row.market_type == "asian_handicap")
     total = next(row for row in coverage.rows if row.market_type == "total_goals")
     winner = next(row for row in coverage.rows if row.market_type == "match_winner")
     assert [cell.available for cell in asian.cells] == [True, False, False, False, False, False]
-    assert [cell.available for cell in total.cells] == [False, False, False, False, False, True]
+    assert [cell.available for cell in total.cells] == [False, False, False, False, True, True]
     assert [cell.available for cell in winner.cells] == [False, False, False, False, False, False]
 
 
@@ -782,6 +782,8 @@ def test_match_detail_execution_timepoint_coverage_prefers_the_odds_api(session)
     asian = next(row for row in coverage.rows if row.market_type == "asian_handicap")
     assert coverage.available_count == 2
     assert [cell.available for cell in asian.cells] == [True, False, False, False, False, True]
+    assert asian.cells[0].source_name == "oddspapi"
+    assert asian.cells[-1].source_name == "the_odds_api"
     assert asian.cells[-1].market_line == "-0.25"
 
 

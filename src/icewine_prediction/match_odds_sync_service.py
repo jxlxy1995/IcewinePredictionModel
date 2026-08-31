@@ -6,6 +6,10 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from icewine_prediction.models import HistoricalOddsSnapshot, Match, OddsSourceMatch
+from icewine_prediction.execution_timepoint_coverage_service import (
+    get_standard_execution_timepoint_coverage,
+    has_complete_core_execution_timepoint_coverage,
+)
 from icewine_prediction.oddspapi_sync_runner import run_oddspapi_sync_result
 from icewine_prediction.odds_provider_selection_service import (
     PINNACLE_BOOKMAKER,
@@ -145,12 +149,14 @@ def run_match_odds_sync_for_session(
                 result=oddspapi_result,
                 primary_results=primary_results,
             )
+            _log_standard_timepoint_coverage(session, unresolved_ids, stage="oddspapi")
             unresolved_ids = _unresolved_match_ids(session, unresolved_ids)
 
         if unresolved_ids and (selected_provider == MatchOddsSyncProvider.ODDSPAPI or selected_provider == MatchOddsSyncProvider.THE_ODDS_API):
             the_odds_api_ids = set(unresolved_ids)
             if selected_provider == MatchOddsSyncProvider.ODDSPAPI:
                 fallback_invoked_ids.update(the_odds_api_ids)
+            _log_standard_timepoint_coverage(session, the_odds_api_ids, stage="the_odds_api_before")
             result = None
             try:
                 result = _run_provider_sync(
@@ -216,11 +222,13 @@ def run_match_odds_sync_for_session(
                     new_snapshot_match_ids=new_snapshot_match_ids,
                     primary_results=primary_results,
                 )
+                _log_standard_timepoint_coverage(session, the_odds_api_ids, stage="the_odds_api_after")
             unresolved_ids = _unresolved_match_ids(session, unresolved_ids)
 
         if unresolved_ids:
             fallback_invoked_ids.update(unresolved_ids)
             fallback_attempted_ids.update(unresolved_ids)
+            _log_standard_timepoint_coverage(session, unresolved_ids, stage="zqcf918_before")
             try:
                 zqcf918_result = zqcf918_syncer(
                     session=session,
@@ -240,6 +248,7 @@ def run_match_odds_sync_for_session(
                         int(item["match_id"]),
                         str(item.get("message") or "zqcf918 skipped"),
                     )
+                _log_standard_timepoint_coverage(session, unresolved_ids, stage="zqcf918_after")
             except Exception as exc:
                 session.rollback()
                 for match_id in unresolved_ids:
@@ -719,8 +728,44 @@ def _zqcf918_fallback_match_ids(
 def _unresolved_match_ids(session: Session, match_ids: set[int]) -> set[int]:
     return {
         match_id for match_id in match_ids
-        if not has_trusted_historical_odds(session, match_id)
+        if not has_complete_core_execution_timepoint_coverage(session, match_id)
     }
+
+
+def _log_standard_timepoint_coverage(
+    session: Session,
+    match_ids: set[int],
+    *,
+    stage: str,
+) -> None:
+    for match_id in sorted(match_ids):
+        coverage = get_standard_execution_timepoint_coverage(session, match_id)
+        if coverage is None:
+            logger.info(
+                "standard_timepoint_coverage stage=%s match_id=%s core=0/12 full=0/18 missing=match_not_found",
+                stage,
+                match_id,
+            )
+            continue
+        missing_full = ",".join(
+            f"{market_type}:T-{target}"
+            for market_type, target in coverage.missing_cells
+        ) or "-"
+        missing_core = ",".join(
+            f"{market_type}:T-{target}"
+            for market_type, target in coverage.core_missing_cells
+        ) or "-"
+        logger.info(
+            "standard_timepoint_coverage stage=%s match_id=%s core=%s/%s full=%s/%s missing_core=%s missing_full=%s",
+            stage,
+            match_id,
+            coverage.core_available_count,
+            coverage.core_total_count,
+            coverage.available_count,
+            coverage.total_count,
+            missing_core,
+            missing_full,
+        )
 
 
 def _merge_oddspapi_primary_results(

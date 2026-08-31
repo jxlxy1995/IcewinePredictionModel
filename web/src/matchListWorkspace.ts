@@ -40,6 +40,7 @@ export type MatchTimeFilterChange = {
 
 export type ExecutionTimepointCoverageView = {
   summary: string;
+  coreSummary: string;
   healthClassName: string;
   healthLabel: string;
   bookmaker: string | null;
@@ -56,6 +57,8 @@ export type ExecutionTimepointCoverageView = {
       className: string;
       marketType: string;
       targetMinutes: number;
+      sourceName: string | null;
+      sourceLabel: string;
       title: string;
     }[];
   }[];
@@ -70,6 +73,7 @@ export type ExecutionTimepointOddsTableView = {
       home: string;
       away: string;
       isMissing: boolean;
+      sourceName: string | null;
     };
     totalGoals: {
       time: string;
@@ -77,6 +81,7 @@ export type ExecutionTimepointOddsTableView = {
       over: string;
       under: string;
       isMissing: boolean;
+      sourceName: string | null;
     };
     matchWinner: {
       time: string;
@@ -84,9 +89,29 @@ export type ExecutionTimepointOddsTableView = {
       draw: string;
       away: string;
       isMissing: boolean;
+      sourceName: string | null;
     };
   }[];
 };
+
+export const EXECUTION_TIMEPOINT_SOURCE_PRESENTATIONS: Record<
+  string,
+  { className: string; label: string }
+> = {
+  oddspapi: { className: "source-oddspapi", label: "Oddspapi" },
+  the_odds_api: { className: "source-the-odds-api", label: "The Odds API" },
+  zqcf918: { className: "source-zqcf918", label: "zqcf918" }
+};
+
+function sourcePresentation(sourceName: string | null | undefined) {
+  if (!sourceName) {
+    return { className: "source-missing", label: "未覆盖" };
+  }
+  return EXECUTION_TIMEPOINT_SOURCE_PRESENTATIONS[sourceName] ?? {
+    className: "source-missing",
+    label: sourceName
+  };
+}
 
 export function buildMatchFreshnessCards(workspace: MatchListWorkspace): MatchFreshnessCard[] {
   return [
@@ -145,8 +170,13 @@ export function buildExecutionTimepointCoverageView(
 ): ExecutionTimepointCoverageView {
   const bookmaker = coverage.bookmaker?.toLowerCase() ?? null;
   const isSbobet = bookmaker === "sbobet";
+  const coreAvailableCount = coverage.core_available_count ?? coverage.rows
+    .filter((row) => row.market_type === "asian_handicap" || row.market_type === "total_goals")
+    .reduce((count, row) => count + row.cells.filter((cell) => cell.available).length, 0);
+  const coreTotalCount = coverage.core_total_count ?? 12;
   return {
     summary: `${coverage.available_count}/${coverage.total_count}`,
+    coreSummary: `${coreAvailableCount}/${coreTotalCount}`,
     healthClassName: `coverage-health coverage-health-${coverage.health_key}`,
     healthLabel: coverage.health_label,
     bookmaker,
@@ -160,9 +190,11 @@ export function buildExecutionTimepointCoverageView(
         label: cell.label,
         available: cell.available,
         canCreateManualOdds: !cell.available && !isSbobet,
-        className: `coverage-cell ${cell.available ? "available" : "missing"}`,
+        className: `coverage-cell ${cell.available ? "available" : "missing"} ${sourcePresentation(cell.source_name).className}`,
         marketType: row.market_type,
         targetMinutes: cell.target_minutes,
+        sourceName: cell.source_name ?? null,
+        sourceLabel: sourcePresentation(cell.source_name).label,
         title: cell.available
           ? `${cell.label} · ${formatDateTime(cell.snapshot_time)} · 盘口 ${cell.market_line ?? "-"}`
           : `${cell.label} · 缺失`
@@ -182,21 +214,24 @@ export function buildExecutionTimepointOddsTableView(
         line: row.asian_handicap.market_line ?? "-",
         home: row.asian_handicap.home_odds ?? "-",
         away: row.asian_handicap.away_odds ?? "-",
-        isMissing: row.asian_handicap.snapshot_time == null
+        isMissing: row.asian_handicap.snapshot_time == null,
+        sourceName: row.asian_handicap.source_name ?? null
       },
       totalGoals: {
         time: formatCompactDateTime(row.total_goals.snapshot_time),
         line: row.total_goals.market_line ?? "-",
         over: row.total_goals.over_odds ?? "-",
         under: row.total_goals.under_odds ?? "-",
-        isMissing: row.total_goals.snapshot_time == null
+        isMissing: row.total_goals.snapshot_time == null,
+        sourceName: row.total_goals.source_name ?? null
       },
       matchWinner: {
         time: formatCompactDateTime(row.match_winner.snapshot_time),
         home: row.match_winner.home_odds ?? "-",
         draw: row.match_winner.draw_odds ?? "-",
         away: row.match_winner.away_odds ?? "-",
-        isMissing: row.match_winner.snapshot_time == null
+        isMissing: row.match_winner.snapshot_time == null,
+        sourceName: row.match_winner.source_name ?? null
       }
     }))
   };

@@ -17,6 +17,9 @@ from icewine_prediction.execution_timepoint_service import (
     DEFAULT_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES,
     select_execution_timepoint_pair,
 )
+from icewine_prediction.execution_timepoint_coverage_service import (
+    evaluate_standard_execution_timepoint_coverage,
+)
 from icewine_prediction.historical_training_sample_service import _pair_market_snapshots
 from icewine_prediction.models import (
     DataSyncRun,
@@ -136,6 +139,7 @@ class ExecutionTimepointCoverageCell:
     available: bool
     snapshot_time: str | None
     market_line: str | None
+    source_name: str | None
 
 
 @dataclass(frozen=True)
@@ -154,12 +158,16 @@ class ExecutionTimepointCoverage:
     health_key: str
     health_label: str
     bookmaker: str | None
+    core_available_count: int
+    core_total_count: int
+    core_complete: bool
 
 
 @dataclass(frozen=True)
 class ExecutionTimepointAsianHandicapOdds:
     snapshot_time: str | None
     market_line: str | None
+    source_name: str | None
     home_odds: str | None
     away_odds: str | None
 
@@ -170,6 +178,7 @@ class ExecutionTimepointTotalGoalsOdds:
     market_line: str | None
     over_odds: str | None
     under_odds: str | None
+    source_name: str | None
 
 
 @dataclass(frozen=True)
@@ -178,6 +187,7 @@ class ExecutionTimepointMatchWinnerOdds:
     home_odds: str | None
     draw_odds: str | None
     away_odds: str | None
+    source_name: str | None
 
 
 @dataclass(frozen=True)
@@ -488,22 +498,17 @@ def _execution_timepoint_coverage(
 ) -> ExecutionTimepointCoverage:
     bookmaker = _selected_bookmaker(snapshots)
     kickoff_time = _snapshot_timeline_kickoff_time(match)
+    evaluated = evaluate_standard_execution_timepoint_coverage(
+        snapshots,
+        kickoff_time=kickoff_time,
+        target_minutes=EXECUTION_TIMEPOINT_TARGETS,
+        market_types=tuple(market_type for market_type, _market_label in EXECUTION_TIMEPOINT_MARKETS),
+    )
     rows: list[ExecutionTimepointCoverageRow] = []
-    available_count = 0
     for market_type, market_label in EXECUTION_TIMEPOINT_MARKETS:
-        pairs = _pair_market_snapshots(
-            [snapshot for snapshot in snapshots if snapshot.market_type == market_type],
-            market_type=market_type,
-        )
         cells = []
         for target in EXECUTION_TIMEPOINT_TARGETS:
-            selected = _select_priority_execution_timepoint_pair(
-                pairs,
-                kickoff_time=kickoff_time,
-                target_minutes_before_kickoff=target,
-            )
-            if selected is not None:
-                available_count += 1
+            selected = evaluated.cell(market_type, target).selected_pair
             cells.append(
                 ExecutionTimepointCoverageCell(
                     target_minutes=target,
@@ -517,6 +522,7 @@ def _execution_timepoint_coverage(
                     market_line=(
                         f"{selected.market_line:.2f}" if selected is not None else None
                     ),
+                    source_name=(selected.source_name if selected is not None else None),
                 )
             )
         rows.append(
@@ -527,15 +533,21 @@ def _execution_timepoint_coverage(
             )
         )
     total_count = len(EXECUTION_TIMEPOINT_TARGETS) * len(EXECUTION_TIMEPOINT_MARKETS)
-    health_key, health_label = _execution_timepoint_health(available_count, total_count)
+    health_key, health_label = _execution_timepoint_health(
+        evaluated.core_available_count,
+        evaluated.core_total_count,
+    )
     return ExecutionTimepointCoverage(
         targets=[f"T-{target}" for target in EXECUTION_TIMEPOINT_TARGETS],
         rows=rows,
-        available_count=available_count,
+        available_count=evaluated.available_count,
         total_count=total_count,
         health_key=health_key,
         health_label=health_label,
         bookmaker=bookmaker,
+        core_available_count=evaluated.core_available_count,
+        core_total_count=evaluated.core_total_count,
+        core_complete=evaluated.core_complete,
     )
 
 
@@ -543,23 +555,18 @@ def _execution_timepoint_odds_table(
     match: Match,
     snapshots: list[HistoricalOddsSnapshot],
 ) -> ExecutionTimepointOddsTable:
-    pairs_by_market = {
-        market_type: _pair_market_snapshots(
-            [snapshot for snapshot in snapshots if snapshot.market_type == market_type],
-            market_type=market_type,
-        )
-        for market_type, _market_label in EXECUTION_TIMEPOINT_MARKETS
-    }
     kickoff_time = _snapshot_timeline_kickoff_time(match)
+    evaluated = evaluate_standard_execution_timepoint_coverage(
+        snapshots,
+        kickoff_time=kickoff_time,
+        target_minutes=EXECUTION_TIMEPOINT_TARGETS,
+        market_types=tuple(market_type for market_type, _market_label in EXECUTION_TIMEPOINT_MARKETS),
+    )
     rows: list[ExecutionTimepointOddsTableRow] = []
     for target in EXECUTION_TIMEPOINT_TARGETS:
         selected = {
-            market_type: _select_priority_execution_timepoint_pair(
-                pairs,
-                kickoff_time=kickoff_time,
-                target_minutes_before_kickoff=target,
-            )
-            for market_type, pairs in pairs_by_market.items()
+            market_type: evaluated.cell(market_type, target).selected_pair
+            for market_type, _market_label in EXECUTION_TIMEPOINT_MARKETS
         }
         rows.append(
             ExecutionTimepointOddsTableRow(
@@ -601,12 +608,14 @@ def _format_asian_handicap_timepoint_odds(pair) -> ExecutionTimepointAsianHandic
             market_line=None,
             home_odds=None,
             away_odds=None,
+            source_name=None,
         )
     return ExecutionTimepointAsianHandicapOdds(
         snapshot_time=_format_utc_beijing_datetime(pair.snapshot_time),
         market_line=f"{pair.market_line:.2f}",
         home_odds=_format_odds(pair.side_a_odds),
         away_odds=_format_odds(pair.side_b_odds),
+        source_name=pair.source_name,
     )
 
 
@@ -617,12 +626,14 @@ def _format_total_goals_timepoint_odds(pair) -> ExecutionTimepointTotalGoalsOdds
             market_line=None,
             over_odds=None,
             under_odds=None,
+            source_name=None,
         )
     return ExecutionTimepointTotalGoalsOdds(
         snapshot_time=_format_utc_beijing_datetime(pair.snapshot_time),
         market_line=f"{pair.market_line:.2f}",
         over_odds=_format_odds(pair.side_a_odds),
         under_odds=_format_odds(pair.side_b_odds),
+        source_name=pair.source_name,
     )
 
 
@@ -633,12 +644,14 @@ def _format_match_winner_timepoint_odds(pair) -> ExecutionTimepointMatchWinnerOd
             home_odds=None,
             draw_odds=None,
             away_odds=None,
+            source_name=None,
         )
     return ExecutionTimepointMatchWinnerOdds(
         snapshot_time=_format_utc_beijing_datetime(pair.snapshot_time),
         home_odds=_format_odds(pair.side_a_odds),
         draw_odds=_format_odds(pair.side_b_odds),
         away_odds=_format_odds(pair.side_c_odds) if pair.side_c_odds is not None else None,
+        source_name=pair.source_name,
     )
 
 

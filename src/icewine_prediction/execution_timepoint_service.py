@@ -13,6 +13,7 @@ BOOKMAKER_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES = {
     "sbobet": 10,
 }
 SOURCE_BOOKMAKER_EXECUTION_TIMEPOINT_TOLERANCE_MINUTES = {
+    ("oddspapi", "pinnacle"): 6,
     ("zqcf918", "pinnacle"): 10,
 }
 

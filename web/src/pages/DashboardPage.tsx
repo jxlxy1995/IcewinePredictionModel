@@ -127,6 +127,7 @@ import {
 import {
   buildExecutionTimepointOddsTableView,
   buildExecutionTimepointCoverageView,
+  EXECUTION_TIMEPOINT_SOURCE_PRESENTATIONS,
   buildMatchFreshnessCards,
   buildMatchSyncSummary,
   buildMatchTimeFilterChange,
@@ -1916,9 +1917,18 @@ function ExecutionTimepointCoverageMatrix({
             清除 SBOBet 赔率组
           </button>
         )}
+        <span className="execution-coverage-summary">核心 {coverage.coreSummary} · 完整 {coverage.summary}</span>
         <strong className={coverage.healthClassName}>
           {coverage.healthLabel} · {coverage.summary}
         </strong>
+      </div>
+      <div className="coverage-source-legend" aria-label="赔率来源">
+        {Object.entries(EXECUTION_TIMEPOINT_SOURCE_PRESENTATIONS).map(([sourceName, source]) => (
+          <span className="coverage-source-legend-item" key={sourceName}>
+            <i aria-hidden="true" className={`coverage-source-swatch ${source.className}`} />
+            {source.label}
+          </span>
+        ))}
       </div>
       <div className="execution-coverage-grid">
         <div className="coverage-corner" />
@@ -1931,7 +1941,12 @@ function ExecutionTimepointCoverageMatrix({
           <div className="coverage-row" key={row.marketLabel}>
             <div className="coverage-market">{row.marketLabel}</div>
             {row.cells.map((cell) => (
-              <span className={cell.className} key={`${row.marketLabel}-${cell.label}`} title={cell.title}>
+              <span
+                aria-label={`${cell.sourceLabel} ${cell.title}`}
+                className={cell.className}
+                key={`${row.marketLabel}-${cell.label}`}
+                title={cell.title}
+              >
                 {!cell.canCreateManualOdds ? (
                   "✓"
                 ) : (
@@ -2051,15 +2066,15 @@ function ExecutionTimepointOddsTable({ detail }: { detail: MatchDetail }) {
           {table.rows.map((row) => (
             <tr key={row.label}>
               <th className="timepoint-label">{row.label}</th>
-              <td className={row.asianHandicap.isMissing ? "missing" : ""}>{row.asianHandicap.time}</td>
+              <td className={row.asianHandicap.isMissing ? "missing" : ""} title={row.asianHandicap.sourceName ?? "未覆盖"}>{row.asianHandicap.time}</td>
               <td className={row.asianHandicap.isMissing ? "missing numeric" : "numeric"}>{row.asianHandicap.line}</td>
               <td className={row.asianHandicap.isMissing ? "missing numeric" : "numeric"}>{row.asianHandicap.home}</td>
               <td className={row.asianHandicap.isMissing ? "missing numeric" : "numeric"}>{row.asianHandicap.away}</td>
-              <td className={row.totalGoals.isMissing ? "missing" : ""}>{row.totalGoals.time}</td>
+              <td className={row.totalGoals.isMissing ? "missing" : ""} title={row.totalGoals.sourceName ?? "未覆盖"}>{row.totalGoals.time}</td>
               <td className={row.totalGoals.isMissing ? "missing numeric" : "numeric"}>{row.totalGoals.line}</td>
               <td className={row.totalGoals.isMissing ? "missing numeric" : "numeric"}>{row.totalGoals.over}</td>
               <td className={row.totalGoals.isMissing ? "missing numeric" : "numeric"}>{row.totalGoals.under}</td>
-              <td className={row.matchWinner.isMissing ? "missing" : ""}>{row.matchWinner.time}</td>
+              <td className={row.matchWinner.isMissing ? "missing" : ""} title={row.matchWinner.sourceName ?? "未覆盖"}>{row.matchWinner.time}</td>
               <td className={row.matchWinner.isMissing ? "missing numeric" : "numeric"}>{row.matchWinner.home}</td>
               <td className={row.matchWinner.isMissing ? "missing numeric" : "numeric"}>{row.matchWinner.draw}</td>
               <td className={row.matchWinner.isMissing ? "missing numeric" : "numeric"}>{row.matchWinner.away}</td>

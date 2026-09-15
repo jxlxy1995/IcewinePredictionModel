@@ -14,6 +14,12 @@ This document is for future Codex sessions working in this repository.
 - Asian handicap line is stored from the home-team perspective: `-0.50` means home gives 0.5 and away recommendation is `客队 +0.50`; `+0.25` means home receives 0.25 and away recommendation is `客队 -0.25`.
 - Prefer exact local commands and file paths. The user shares the same workspace.
 
+## Model And Signal Approval
+
+- Research authorization does not authorize replacing an existing production model or adding a signal to the recommendation workflow. Both require the user's explicit approval and confirmation after reviewing concrete results.
+- Keep existing models, signals, scoring, and stake rules unchanged during offline research. Report candidates and proposed changes for review before any production or paper-recommendation integration.
+- The user confirmed this boundary on 2026-09-15. Preserve it across future sessions.
+
 ## Repo And Runtime
 
 - Repo path: `D:\project\IcewinePredictionModel`

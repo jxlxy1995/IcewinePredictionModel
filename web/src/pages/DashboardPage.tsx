@@ -236,6 +236,11 @@ export function shouldAutoLoadLazyView(view: ViewKey): boolean {
   return view !== "paperTracking" && view !== "records";
 }
 
+export function formatInitialDashboardLoadError(error: unknown): string {
+  const detail = error instanceof Error ? error.message : "未知错误";
+  return `读取控制台数据失败：${detail}`;
+}
+
 export async function refreshMatchDetailWithOddsTrend({
   matchId,
   loadDetail,
@@ -327,6 +332,8 @@ export function DashboardPage() {
   const [activeView, setActiveView] = useState<ViewKey>(initialDashboardView);
   const [data, setData] = useState<DashboardData>(mockDashboardData);
   const [isLoading, setIsLoading] = useState(true);
+  const [initialLoadError, setInitialLoadError] = useState<string | null>(null);
+  const [initialLoadAttempt, setInitialLoadAttempt] = useState(0);
   const [oddsTrends, setOddsTrends] = useState<MatchOddsTrends>(mockDashboardData.oddsTrends);
   const [selectedOddsMatchId, setSelectedOddsMatchId] = useState<number>(
     mockDashboardData.oddsTrends.match_id
@@ -398,23 +405,27 @@ export function DashboardPage() {
 
   useEffect(() => {
     let isMounted = true;
-    loadDashboardData().then((loadedData) => {
-      if (!isMounted) {
-        return;
-      }
-      setData(loadedData);
-      setDoneDisplayTranslationKeys(new Set(loadedData.doneDisplayTranslationKeys));
-      setOddsTrends(loadedData.oddsTrends);
-      setSelectedOddsMatchId(loadedData.oddsTrends.match_id);
-      setIsLoading(false);
-    });
+    loadDashboardData()
+      .then((loadedData) => {
+        if (!isMounted) return;
+        setData(loadedData);
+        setDoneDisplayTranslationKeys(new Set(loadedData.doneDisplayTranslationKeys));
+        setOddsTrends(loadedData.oddsTrends);
+        setSelectedOddsMatchId(loadedData.oddsTrends.match_id);
+      })
+      .catch((error: unknown) => {
+        if (isMounted) setInitialLoadError(formatInitialDashboardLoadError(error));
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [initialLoadAttempt]);
 
   useEffect(() => {
-    if (isLoading || loadedLazyViews.has(activeView)) {
+    if (isLoading || initialLoadError || loadedLazyViews.has(activeView)) {
       return;
     }
     const markLazyViewLoaded = () => {
@@ -501,6 +512,7 @@ export function DashboardPage() {
     data.matchesWithOdds,
     isLoading,
     loadedLazyViews,
+    initialLoadError,
     matchListFilters,
     paperSnapshotReviewFilters
   ]);
@@ -530,8 +542,11 @@ export function DashboardPage() {
     if (isLoading) {
       return "正在加载";
     }
+    if (initialLoadError) {
+      return "加载失败";
+    }
     return data.source === "api" ? "真实接口" : "Mock 数据";
-  }, [data.source, isLoading]);
+  }, [data.source, initialLoadError, isLoading]);
 
   return (
     <div className="shell">
@@ -562,6 +577,27 @@ export function DashboardPage() {
           </div>
           <span className="status-dot">{statusText}</span>
         </section>
+
+        {initialLoadError ? (
+          <section aria-live="polite" className="initial-load-error" role="alert">
+            <CircleAlert size={20} />
+            <span>{initialLoadError}</span>
+            <button
+              onClick={() => {
+                setInitialLoadError(null);
+                setIsLoading(true);
+                setInitialLoadAttempt((attempt) => attempt + 1);
+              }}
+              type="button"
+            >
+              <RefreshCw size={16} />
+              重试
+            </button>
+          </section>
+        ) : isLoading ? (
+          <div className="empty-state">正在读取控制台数据</div>
+        ) : (
+          <>
 
         {activeView === "overview" && <OverviewView data={data} oddsTrends={oddsTrends} />}
         {activeView === "matchList" && (
@@ -1151,6 +1187,8 @@ export function DashboardPage() {
                 .finally(() => setIsCreatingAutomationTask(false));
             }}
           />
+        )}
+          </>
         )}
       </main>
     </div>

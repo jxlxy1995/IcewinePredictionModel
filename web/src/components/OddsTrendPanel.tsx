@@ -11,6 +11,9 @@ type OddsTrendPanelProps = {
 
 export function OddsTrendPanel({ compactHeader = false, trends }: OddsTrendPanelProps) {
   const availability = summarizeOddsTrendAvailability(trends);
+  if (trends.match_id === 0) {
+    return <div className="empty-state">暂无赔率走势数据</div>;
+  }
   return (
     <>
       {!compactHeader && (

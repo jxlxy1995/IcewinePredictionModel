@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   dashboardNavItems,
+  formatInitialDashboardLoadError,
   refreshMatchDetailWithOddsTrend,
   initialDashboardView,
   shouldAutoLoadLazyView
@@ -10,6 +11,12 @@ import { mockDashboardData, mockMatchDetail } from "./mockData";
 import type { MatchDetail, MatchOddsTrends } from "./types";
 
 describe("dashboard navigation", () => {
+  it("turns an initial API failure into a visible dashboard error", () => {
+    expect(formatInitialDashboardLoadError(new Error("database unavailable"))).toBe(
+      "读取控制台数据失败：database unavailable"
+    );
+  });
+
   it("keeps only active workflow pages in the sidebar", () => {
     expect(dashboardNavItems.map((item) => item.key)).toEqual([
       "matchList",

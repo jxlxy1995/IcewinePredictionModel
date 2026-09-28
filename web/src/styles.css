@@ -1612,6 +1612,30 @@ th {
   padding: 10px 12px;
 }
 
+.initial-load-error {
+  align-items: center;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  color: #991b1b;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.initial-load-error button {
+  align-items: center;
+  background: #991b1b;
+  border: 0;
+  border-radius: 5px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  padding: 7px 11px;
+}
+
 .inline-success {
   background: #dcfce7;
   border: 1px solid #86efac;

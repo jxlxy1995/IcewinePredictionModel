@@ -89,7 +89,8 @@ export async function loadDashboardData(): Promise<DashboardData> {
       paperSnapshotReview: mockPaperSnapshotReviewWorkspace,
       matchList: mockMatchListWorkspace
     };
-  } catch {
+  } catch (error) {
+    if (import.meta.env.PROD) throw error;
     return {
       ...mockDashboardData,
       teamDisplayWorkspaces: mockDashboardData.teamDisplayWorkspaces,
@@ -101,7 +102,16 @@ export async function loadDashboardData(): Promise<DashboardData> {
 async function loadFirstOddsTrend(matchesWithOdds: MatchWithOdds[]): Promise<MatchOddsTrends> {
   const matchId = matchesWithOdds[0]?.match_id;
   if (!matchId) {
-    return mockOddsTrends;
+    return {
+      match_id: 0,
+      league_name: "",
+      home_team_name: "",
+      away_team_name: "",
+      kickoff_time: "",
+      asian_handicap: [],
+      total_goals: [],
+      match_winner: []
+    };
   }
   return getJsonOrFallback<MatchOddsTrends>(`/api/matches/${matchId}/odds-trends`, mockOddsTrends);
 }
@@ -132,7 +142,8 @@ export async function loadTeamDisplayNameWorkspace(
     return await getJson<TeamDisplayNameWorkspace>(
       `/api/display/team-name-workspace?league_id=${leagueId}&season=${season}`
     );
-  } catch {
+  } catch (error) {
+    if (import.meta.env.PROD) throw error;
     const workspace =
       mockTeamDisplayNameWorkspaces.find(
         (item) => item.league_id === leagueId && item.season === season
@@ -240,7 +251,8 @@ export async function loadMatchListWorkspace(params: {
   const suffix = query.toString() ? `?${query.toString()}` : "";
   try {
     return await getJson<MatchListWorkspace>(`/api/match-list/workspace${suffix}`);
-  } catch {
+  } catch (error) {
+    if (import.meta.env.PROD) throw error;
     return mockMatchListWorkspace;
   }
 }
@@ -248,7 +260,8 @@ export async function loadMatchListWorkspace(params: {
 export async function loadMatchDetail(matchId: number): Promise<MatchDetail> {
   try {
     return await getJson<MatchDetail>(`/api/matches/${matchId}/detail`);
-  } catch {
+  } catch (error) {
+    if (import.meta.env.PROD) throw error;
     return mockMatchDetail;
   }
 }
@@ -470,7 +483,8 @@ async function getJson<T>(path: string): Promise<T> {
 async function getJsonOrFallback<T>(path: string, fallback: T): Promise<T> {
   try {
     return await getJson<T>(path);
-  } catch {
+  } catch (error) {
+    if (import.meta.env.PROD) throw error;
     return fallback;
   }
 }

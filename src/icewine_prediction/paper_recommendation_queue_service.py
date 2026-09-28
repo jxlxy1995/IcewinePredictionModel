@@ -31,6 +31,7 @@ from icewine_prediction.baseline_total_goals_model_service import (
     _target_label as _total_goals_target_label,
 )
 from icewine_prediction.config import BEIJING_TIMEZONE
+from icewine_prediction.artifact_path import resolve_artifact_path
 from icewine_prediction.display_service import DisplayNameService
 from icewine_prediction.feature_service import (
     MatchOddsFeatures,
@@ -328,7 +329,7 @@ def _resolve_feature_csv_path(session: Session, feature_csv_path: Path | None) -
     )
     if latest_successful_run is None or not latest_successful_run.dynamic_feature_path:
         return DEFAULT_FEATURE_CSV_PATH
-    return Path(latest_successful_run.dynamic_feature_path)
+    return resolve_artifact_path(latest_successful_run.dynamic_feature_path)
 
 
 def write_paper_recommendation_queue_report(

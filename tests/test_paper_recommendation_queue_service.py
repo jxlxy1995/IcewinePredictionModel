@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 import icewine_prediction.paper_recommendation_queue_service as queue_service
+from icewine_prediction.artifact_path import resolve_artifact_path
 from icewine_prediction.models import HistoricalOddsSnapshot, League, Match, OddsSnapshot, Team, TrainingRun
 from icewine_prediction.paper_strategy_registry import ASIAN_AWAY_COVER_HGB_EDGE_V1_KEY
 from icewine_prediction.paper_recommendation_queue_service import (
@@ -318,7 +319,7 @@ def test_build_paper_recommendation_queue_uses_latest_successful_training_featur
         hours=1,
     )
 
-    assert captured == [Path("local_data/training/latest.csv")]
+    assert captured == [resolve_artifact_path("local_data/training/latest.csv")]
 
 
 def test_build_paper_recommendation_queue_allows_explicit_feature_path_override(
@@ -401,7 +402,7 @@ def test_build_paper_recommendation_queue_reuses_cached_scorer_for_same_feature_
         hours=1,
     )
 
-    assert captured == [feature_path]
+    assert captured == [resolve_artifact_path(str(feature_path))]
 
 
 def test_train_paper_queue_scorer_passes_numpy_labels_to_calibrated_model(monkeypatch):

@@ -1,0 +1,24 @@
+[Unit]
+Description=Icewine prediction web service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+Group=__SERVICE_USER__
+WorkingDirectory=__PROJECT_ROOT__
+Environment=PYTHONPATH=src
+Environment=PYTHONIOENCODING=utf-8
+EnvironmentFile=-__ENV_FILE__
+ExecStart=__VENV_PATH__/bin/python -m uvicorn icewine_web:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=__PROJECT_ROOT__/local_data __PROJECT_ROOT__/logs __PROJECT_ROOT__/docs __PROJECT_ROOT__/config __PROJECT_ROOT__/.web
+
+[Install]
+WantedBy=multi-user.target

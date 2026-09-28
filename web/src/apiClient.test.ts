@@ -182,6 +182,28 @@ const apiPayloads: Record<string, unknown> = {
 describe("apiClient", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("does not show mock matches when a production API request fails", async () => {
+    vi.stubEnv("PROD", true);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: 503 })));
+
+    await expect(loadMatchListWorkspace()).rejects.toThrow("unavailable");
+    await expect(loadDashboardData()).rejects.toThrow("unavailable");
+  });
+
+  it("does not hide a secondary dashboard API failure in production", async () => {
+    vi.stubEnv("PROD", true);
+    vi.stubGlobal("fetch", vi.fn(async (rawUrl: string) => {
+      const url = rawUrl.replace(/^http:\/\/127\.0\.0\.1:\d+/, "");
+      if (url === "/api/workers") {
+        return new Response("workers unavailable", { status: 503 });
+      }
+      return Response.json(apiPayloads[url]);
+    }));
+
+    await expect(loadDashboardData()).rejects.toThrow("workers unavailable");
   });
 
   it("loads only lightweight dashboard data on initial page load", async () => {
@@ -201,6 +223,21 @@ describe("apiClient", () => {
     expect(fetchMock).not.toHaveBeenCalledWith("/api/paper-recommendations/workspace");
     expect(fetchMock).not.toHaveBeenCalledWith("/api/match-list/workspace");
     expect(fetchMock).not.toHaveBeenCalledWith("/api/oddspapi/backfill-audit?season=2025");
+  });
+
+  it("does not return mock odds when production has no matches with odds", async () => {
+    vi.stubEnv("PROD", true);
+    vi.stubGlobal("fetch", vi.fn(async (rawUrl: string) => {
+      const url = rawUrl.replace(/^http:\/\/127\.0\.0\.1:\d+/, "");
+      return Response.json(apiPayloads[url]);
+    }));
+
+    const data = await loadDashboardData();
+
+    expect(data.oddsTrends.match_id).toBe(0);
+    expect(data.oddsTrends.asian_handicap).toEqual([]);
+    expect(data.oddsTrends.total_goals).toEqual([]);
+    expect(data.oddsTrends.match_winner).toEqual([]);
   });
 
   it("keeps local dashboard data when one secondary core endpoint fails", async () => {

@@ -7,6 +7,7 @@ import typer
 from sqlalchemy import text
 
 from icewine_prediction.alias_service import add_external_alias, list_external_aliases
+from icewine_prediction.artifact_path import resolve_artifact_path
 from icewine_prediction.baseline_training_dataset_service import (
     BaselineTrainingDataset,
     build_baseline_training_dataset,
@@ -1669,7 +1670,7 @@ def _latest_successful_dynamic_feature_path(session) -> Path:
     )
     if run is None or not run.dynamic_feature_path:
         raise typer.BadParameter("未找到成功训练运行的动态特征 CSV，请使用 --feature-csv-path 指定")
-    return Path(run.dynamic_feature_path)
+    return resolve_artifact_path(run.dynamic_feature_path)
 
 
 @records_app.command("pending")

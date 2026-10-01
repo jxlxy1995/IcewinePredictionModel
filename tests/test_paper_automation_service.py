@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import json
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -50,6 +51,7 @@ from icewine_prediction.paper_automation_service import (
 from icewine_prediction.paper_strategy_registry import DEFAULT_STRATEGY
 from icewine_prediction.paper_recommendation_tracking_service import (
     create_paper_record_from_queue_row,
+    settle_paper_records,
 )
 
 
@@ -465,6 +467,219 @@ def test_format_bark_messages_returns_empty_candidate_notice():
     messages = format_paper_automation_bark_messages(groups=[], recorded_count=0)
 
     assert messages == [BarkMessage(title="纸面自动任务：已记录 0 条", body="没有记录到候选")]
+
+
+@pytest.mark.parametrize("include_other_group", [False, True])
+@pytest.mark.parametrize("filter_enabled", [False, True])
+def test_execute_task_hides_observation_group_but_keeps_records_and_settlement(
+    include_other_group, filter_enabled, tmp_path, monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "paper_automation.yaml").write_text(
+        f"bark_observation_filter_enabled: {str(filter_enabled).lower()}\n", encoding="utf-8",
+    )
+    now = datetime(2026, 10, 1, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 10, 1, 18, 30, tzinfo=BEIJING)
+    sent_messages = []
+    with _session() as session:
+        match = _seed_match(session, kickoff)
+        task = _seed_running_task(
+            session, match_window_start=kickoff, match_window_end=kickoff, now=now,
+        )
+        home_row = replace(
+            _queue_row(match),
+            side="home_cover",
+            recommended_handicap="主队 -0.50",
+            line_bucket="home_favorite",
+            risk_tags=("line_bucket:home_favorite",),
+            strategy_key="asian_home_cover_hgb_favorite_bucket_v1",
+            strategy_display_name="亚盘主队让球",
+        )
+        away_row = replace(_queue_row(match), recommended_handicap="客队 +0.50")
+        rows = [home_row, away_row] if include_other_group else [home_row]
+        result = execute_paper_automation_task(
+            session, task.id, now=now,
+            odds_syncer=lambda match_ids: {"ok": match_ids},
+            queue_builder=lambda session_arg, task_arg: _queue_report(rows),
+            bark_push_url="https://example.com/bark/test",
+            bark_sender=lambda push_url, message: sent_messages.append(message)
+            or BarkPushResult(success=True),
+        )
+        body = "\n".join(message.body for message in sent_messages)
+        if filter_enabled:
+            assert "主队 -0.50" not in body
+            assert body.count("本批已隐藏：仅纸面观察信号。") == 1
+        else:
+            assert "主队 -0.50" in body
+            assert "本批已隐藏：" not in body
+        assert "没有记录到候选" not in body
+        if include_other_group:
+            assert "客队 +0.50" in body
+            assert "推荐1.50手" in body
+        elif filter_enabled:
+            assert body == "本批已隐藏：仅纸面观察信号。"
+        assert result.status == "success"
+        assert result.notification_status == "sent"
+        records = session.query(PaperRecommendationRecord).all()
+        snapshots = session.query(PaperRecommendationGroupSnapshot).all()
+        assert len(records) == len(snapshots) == len(rows)
+        home_snapshot = next(s for s in snapshots if s.side == "home_cover")
+        assert home_snapshot.suggested_stake_units == Decimal("1.50")
+        assert home_snapshot.representative_market_line == Decimal("-0.50")
+        assert home_snapshot.status == "pending"
+        payload = json.loads(session.get(PaperAutomationTask, task.id).result_payload)
+        assert payload["snapshot_ids"] == [s.id for s in snapshots]
+        assert payload["bark"]["observation_filter"]["enabled"] is filter_enabled
+        assert payload["bark"]["observation_filter"]["snapshot_ids"] == (
+            [home_snapshot.id] if filter_enabled else []
+        )
+        assert payload["bark"]["observation_filter"]["group_keys"] == (
+            [home_snapshot.group_key] if filter_enabled else []
+        )
+        assert payload["bark"]["observation_filter"]["rule_id"] == "home_minus_050_single_stake_150_v1"
+        match.status = "finished"
+        match.home_score = 0
+        match.away_score = 1
+        session.commit()
+        settle_paper_records(session, settled_at=kickoff + timedelta(hours=3))
+        home_record = session.get(PaperRecommendationRecord, home_snapshot.representative_record_id)
+        assert home_record.status == "settled"
+        assert home_record.profit_units == Decimal("-1.000")
+        assert home_snapshot.suggested_stake_units == Decimal("1.50")
+
+
+@pytest.mark.parametrize("changes", [
+    {},
+    {"market_type": "total_goals"},
+    {"logical_side": "away_cover"},
+    {"suggested_stake_units": Decimal("1.25")},
+    {"signal_record_ids": (1, 2)},
+    {"representative_market_line": Decimal("-0.25")},
+    {"representative_market_line": Decimal("0.50")},
+])
+def test_bark_observation_rule_requires_all_four_conditions(changes):
+    group = replace(
+        _confidence_group(1), logical_side="home_cover",
+        representative_market_line=Decimal("-0.50"),
+    )
+    group = replace(group, **changes)
+    assert bark_notification_service.is_paper_observation_group(group) is (not changes)
+
+
+@pytest.mark.parametrize("observation,zero_stake,notice", [
+    (True, False, "本批已隐藏：仅纸面观察信号。"),
+    (False, True, "本批已隐藏：0手推荐。"),
+    (True, True, "本批已隐藏：仅纸面观察信号、0手推荐。"),
+])
+def test_format_bark_observation_notice_appears_once_across_split_messages(
+    observation, zero_stake, notice,
+):
+    groups = [_confidence_group(i) for i in range(1, 5)]
+    messages = format_paper_automation_bark_messages(
+        groups=groups, recorded_count=5, has_observation_groups=observation,
+        has_zero_stake_groups=zero_stake,
+        summary_lines=["候选5 记录5 跳过0"], max_body_chars=130,
+    )
+    assert len(messages) > 1
+    assert all(len(message.body) <= 130 for message in messages)
+    combined = "\n".join(message.body for message in messages)
+    assert combined.count("本批已隐藏：") == 1
+    assert notice in combined
+    for i in range(1, 5):
+        assert combined.count(f"横滨水手{i}") == 1
+
+
+@pytest.mark.parametrize("include_observation", [False, True])
+@pytest.mark.parametrize("include_visible", [False, True])
+@pytest.mark.parametrize("filter_enabled", [False, True])
+def test_execute_task_hides_zero_stake_but_keeps_records_and_settlement(
+    include_observation, include_visible, filter_enabled, tmp_path, monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "paper_automation.yaml").write_text(
+        f"bark_observation_filter_enabled: {str(filter_enabled).lower()}\n", encoding="utf-8",
+    )
+    now = datetime(2026, 10, 1, 18, 21, tzinfo=BEIJING)
+    kickoff = datetime(2026, 10, 1, 18, 30, tzinfo=BEIJING)
+    sent_messages = []
+    with _session() as session:
+        match = _seed_match(session, kickoff)
+        task = _seed_running_task(
+            session, match_window_start=kickoff, match_window_end=kickoff, now=now,
+        )
+        zero_row = replace(
+            _queue_row(match), market_type="total_goals", side="under", line=Decimal("3.00"),
+            recommended_handicap="小球 3.00", edge=Decimal("0.0100"),
+            scoring_edge=Decimal("0.0100"), line_bucket="high_>=3.00", risk_tags=(),
+            strategy_key="total_goals_distribution_hgb_confirmed_under_high_300_v1",
+            strategy_display_name="分布小球",
+        )
+        rows = [zero_row]
+        if include_observation:
+            rows.append(replace(
+                _queue_row(match), side="home_cover", recommended_handicap="主队 -0.50",
+                strategy_key="asian_home_cover_hgb_favorite_bucket_v1",
+                line_bucket="home_favorite", risk_tags=("line_bucket:home_favorite",),
+            ))
+        if include_visible:
+            rows.append(replace(_queue_row(match), recommended_handicap="客队 +0.50"))
+        result = execute_paper_automation_task(
+            session, task.id, now=now,
+            odds_syncer=lambda match_ids: {"ok": match_ids},
+            queue_builder=lambda session_arg, task_arg: _queue_report(rows),
+            bark_push_url="https://example.com/bark/test",
+            bark_sender=lambda push_url, message: sent_messages.append(message)
+            or BarkPushResult(success=True),
+        )
+        assert result.status == "success"
+        body = "\n".join(message.body for message in sent_messages)
+        notice = ("本批已隐藏：仅纸面观察信号、0手推荐。" if include_observation
+                  else "本批已隐藏：0手推荐。")
+        if filter_enabled:
+            assert "小球 3.00" not in body
+            assert "主队 -0.50" not in body
+            assert body.count(notice) == 1
+            assert body.count("本批已隐藏：") == 1
+            if not include_visible:
+                assert body == notice
+        else:
+            assert "小球 3.00" in body
+            assert "推荐0.00手" in body
+            assert "本批已隐藏：" not in body
+            if include_observation:
+                assert "主队 -0.50" in body
+        if include_visible:
+            assert "客队 +0.50" in body
+        assert session.query(PaperRecommendationRecord).count() == len(rows)
+        snapshots = session.query(PaperRecommendationGroupSnapshot).all()
+        assert len(snapshots) == len(rows)
+        zero_snapshot = next(s for s in snapshots if s.market_type == "total_goals")
+        assert zero_snapshot.suggested_stake_units == Decimal("0.00")
+        payload = json.loads(session.get(PaperAutomationTask, task.id).result_payload)
+        audit = payload["bark"]["zero_stake_filter"]
+        assert audit["enabled"] is filter_enabled
+        assert audit["rule_id"] == "zero_stake_v1"
+        assert audit["snapshot_ids"] == ([zero_snapshot.id] if filter_enabled else [])
+        assert audit["group_keys"] == ([zero_snapshot.group_key] if filter_enabled else [])
+        assert zero_snapshot.id not in payload["bark"]["observation_filter"]["snapshot_ids"]
+        assert payload["snapshot_ids"] == [s.id for s in snapshots]
+        match.status, match.home_score, match.away_score = "finished", 0, 1
+        session.commit()
+        settle_paper_records(session, settled_at=kickoff + timedelta(hours=3))
+        zero_record = session.get(PaperRecommendationRecord, zero_snapshot.representative_record_id)
+        assert zero_record.status == "settled"
+        assert zero_record.profit_units == Decimal("0.900")
+        assert zero_snapshot.suggested_stake_units == Decimal("0.00")
+
+
+def test_bark_observation_filter_can_be_disabled_in_config(tmp_path):
+    config = tmp_path / "paper_automation.yaml"
+    config.write_text("bark_observation_filter_enabled: false\n", encoding="utf-8")
+    assert paper_automation_service.load_bark_observation_filter_enabled(config) is False
+    config.write_text("bark_observation_filter_enabled: true\n", encoding="utf-8")
+    assert paper_automation_service.load_bark_observation_filter_enabled(config) is True
 
 
 def test_execute_task_records_candidates_and_sends_bark_from_confidence_groups():

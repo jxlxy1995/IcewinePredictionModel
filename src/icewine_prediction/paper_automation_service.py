@@ -16,7 +16,10 @@ from sqlalchemy.orm.attributes import set_committed_value
 from icewine_prediction.bark_notification_service import (
     BarkMessage,
     BarkPushResult,
+    PAPER_OBSERVATION_RULE_ID,
+    ZERO_STAKE_RULE_ID,
     format_paper_automation_bark_messages,
+    is_paper_observation_group,
     load_bark_push_url,
     push_bark_message,
 )
@@ -100,6 +103,18 @@ def _normalize_excluded_source_league_ids(
     if excluded_source_league_ids is None:
         return load_paper_automation_excluded_source_league_ids()
     return {normalized for item in excluded_source_league_ids if (normalized := str(item).strip())}
+
+
+def load_bark_observation_filter_enabled(
+    config_path: Path = DEFAULT_PAPER_AUTOMATION_CONFIG_PATH,
+) -> bool:
+    if not config_path.exists():
+        return False
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    enabled = payload.get("bark_observation_filter_enabled", False)
+    if not isinstance(enabled, bool):
+        raise ValueError("bark_observation_filter_enabled must be a boolean")
+    return enabled
 
 
 def _exclude_source_league_ids(query, excluded_source_league_ids: set[str]):
@@ -476,6 +491,7 @@ def execute_paper_automation_task(
         raise PaperAutomationValidationError("只能执行运行中的自动任务")
 
     try:
+        observation_filter_enabled = load_bark_observation_filter_enabled()
         target_match_ids = _target_match_ids(
             session,
             task,
@@ -500,9 +516,22 @@ def execute_paper_automation_task(
         _require_running_task_ownership(session, task_id=task_id)
         groups = [result.group for result in snapshot_results]
         snapshot_ids = [result.snapshot.id for result in snapshot_results]
+        observation_results = [
+            result for result in snapshot_results
+            if observation_filter_enabled and is_paper_observation_group(result.group)
+        ]
+        zero_stake_results = [
+            result for result in snapshot_results
+            if observation_filter_enabled and result.group.suggested_stake_units == 0
+        ]
+        hidden_keys = {
+            result.group.group_key for result in [*observation_results, *zero_stake_results]
+        }
         messages = format_paper_automation_bark_messages(
-            groups=groups,
+            groups=[group for group in groups if group.group_key not in hidden_keys],
             recorded_count=len(created_record_ids),
+            has_observation_groups=bool(observation_results),
+            has_zero_stake_groups=bool(zero_stake_results),
             summary_lines=_execution_summary_lines(
                 odds_sync_result=odds_sync_result,
                 queue_report=queue_report,
@@ -524,6 +553,18 @@ def execute_paper_automation_task(
             "notification_status": notification_status,
             "notification_error": notification_error,
             "messages": [{"title": message.title, "body": message.body} for message in messages],
+            "observation_filter": {
+                "enabled": observation_filter_enabled,
+                "rule_id": PAPER_OBSERVATION_RULE_ID,
+                "snapshot_ids": [result.snapshot.id for result in observation_results],
+                "group_keys": [result.group.group_key for result in observation_results],
+            },
+            "zero_stake_filter": {
+                "enabled": observation_filter_enabled,
+                "rule_id": ZERO_STAKE_RULE_ID,
+                "snapshot_ids": [result.snapshot.id for result in zero_stake_results],
+                "group_keys": [result.group.group_key for result in zero_stake_results],
+            },
         }
         batch_record_payload = {
             "created_record_ids": created_record_ids,

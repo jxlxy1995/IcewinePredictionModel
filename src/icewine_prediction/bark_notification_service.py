@@ -15,6 +15,8 @@ from icewine_prediction.paper_confidence_service import PaperConfidenceGroup
 
 
 DEFAULT_MAX_BODY_CHARS = 3500
+PAPER_OBSERVATION_RULE_ID = "home_minus_050_single_stake_150_v1"
+ZERO_STAKE_RULE_ID = "zero_stake_v1"
 
 
 @dataclass(frozen=True)
@@ -65,22 +67,41 @@ def push_bark_message(
     return last_result
 
 
+def is_paper_observation_group(group: PaperConfidenceGroup) -> bool:
+    return (
+        group.market_type == "asian_handicap"
+        and group.logical_side == "home_cover"
+        and group.suggested_stake_units == Decimal("1.50")
+        and len(group.signal_record_ids) == 1
+        and group.representative_market_line == Decimal("-0.50")
+    )
+
+
 def format_paper_automation_bark_messages(
     *,
     groups: Iterable[PaperConfidenceGroup],
     recorded_count: int | None = None,
     summary_lines: Iterable[str] | None = None,
     max_body_chars: int = DEFAULT_MAX_BODY_CHARS,
+    has_observation_groups: bool = False,
+    has_zero_stake_groups: bool = False,
 ) -> list[BarkMessage]:
     group_list = list(groups)
     total_count = len(group_list) if recorded_count is None else recorded_count
     base_title = f"纸面自动任务：已记录 {total_count} 条"
     summary_text = "\n".join(line for line in (summary_lines or []) if line)
-    blocks = (
-        [_format_group_line(index, group) for index, group in enumerate(group_list, start=1)]
-        if group_list
-        else ["没有记录到候选"]
-    )
+    blocks = [_format_group_line(index, group) for index, group in enumerate(group_list, start=1)]
+    hidden_reasons = []
+    if has_observation_groups:
+        hidden_reasons.append("仅纸面观察信号")
+    if has_zero_stake_groups:
+        hidden_reasons.append("0手推荐")
+    if hidden_reasons:
+        blocks.append(f"本批已隐藏：{'、'.join(hidden_reasons)}。")
+        if not group_list:
+            summary_text = ""
+    elif not group_list:
+        blocks.append("没有记录到候选")
     if summary_text and len(summary_text) >= max_body_chars:
         chunks = [
             *_split_text(summary_text, max_body_chars=max_body_chars),

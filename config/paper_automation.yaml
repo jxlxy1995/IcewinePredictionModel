@@ -2,3 +2,6 @@ excluded_source_league_ids:
   - "2"    # UEFA Champions League 欧冠
   - "3"    # UEFA Europa League 欧联
   - "848"  # UEFA Europa Conference League 欧协联
+
+# Hide observation-rule and zero-stake Bark details; retain paper records and settlement.
+bark_observation_filter_enabled: true

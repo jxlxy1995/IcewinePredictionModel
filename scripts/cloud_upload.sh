@@ -15,6 +15,7 @@ Usage: bash scripts/cloud_upload.sh --remote-host HOST [options]
   --project-root PATH           Local project directory
   --output-dir PATH             Local handoff directory
   --env-file PATH               Local .env file
+  --code-only                   Sync code/configuration without touching cloud data
 EOF
 }
 
@@ -30,6 +31,7 @@ remote_stage_root="/opt/icewine-handoff"
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_dir=""
 env_file=""
+code_only=false
 
 while (($#)); do
   case "$1" in
@@ -49,6 +51,7 @@ while (($#)); do
         --env-file) env_file="$2" ;;
       esac
       shift 2 ;;
+    --code-only) code_only=true; shift ;;
     *) die "Unknown option: $1" ;;
   esac
 done
@@ -68,7 +71,9 @@ safe_remote_path "$remote_stage_root" || die "Invalid remote stage path: $remote
 project_root="$(cd "$project_root" && pwd)"
 output_dir="${output_dir:-$project_root/.web/cloud-handoff}"
 env_file="${env_file:-$project_root/.env}"
-[[ -f "$env_file" ]] || die "Missing .env file: $env_file"
+if [[ "$code_only" != true ]]; then
+  [[ -f "$env_file" ]] || die "Missing .env file: $env_file"
+fi
 [[ -z "$identity_file" || -f "$identity_file" ]] || die "Missing SSH identity file: $identity_file"
 
 ssh_args=(-p "$ssh_port")
@@ -94,13 +99,38 @@ assert_local_idle() {
   fi
 }
 
-assert_local_idle
+if [[ "$code_only" != true ]]; then
+  assert_local_idle
+fi
 python_bin="${PYTHON_BIN:-/c/ProgramData/anaconda3/python}"
 [[ -x "$python_bin" ]] || die "Missing required Python: $python_bin"
 handoff_cli="$project_root/scripts/cloud_handoff.py"
 [[ -f "$handoff_cli" ]] || die "Missing handoff tool: $handoff_cli"
 mkdir -p "$output_dir"
 export PYTHONPATH="$project_root/src" PYTHONIOENCODING=utf-8
+
+if [[ "$code_only" == true ]]; then
+  marker="$(mktemp "$output_dir/.code-start.XXXXXX")"
+  trap 'rm -f "$marker"' EXIT
+  "$python_bin" "$handoff_cli" prepare-code --project-root "$project_root" --output-dir "$output_dir"
+  bundle="$(find "$output_dir" -maxdepth 1 -type d -name 'code-*' -newer "$marker" -print | LC_ALL=C sort | tail -n 1)"
+  [[ -n "$bundle" ]] || die "New code bundle was not found"
+  "$python_bin" "$handoff_cli" verify --bundle-dir "$bundle"
+
+  remote_run "sudo install -d -o '$remote_user' -g '$remote_user' -m 0700 '$remote_stage_root'"
+  remote_copy "$bundle" "$remote:$remote_stage_root/"
+  remote_bundle="$remote_stage_root/$(basename "$bundle")"
+  remote_run "python3.11 '$remote_bundle/payload/scripts/cloud_handoff.py' verify --bundle-dir '$remote_bundle'"
+  remote_run "sudo systemctl stop icewine.service"
+  remote_run "sudo install -d -m 0755 '$remote_project_root' && sudo cp -a '$remote_bundle/payload/.' '$remote_project_root/' && sudo env PROJECT_ROOT='$remote_project_root' SERVICE_USER='$service_user' bash '$remote_project_root/scripts/cloud/setup.sh' && sudo systemctl is-active --quiet icewine.service && sudo systemctl is-active --quiet nginx"
+  remote_run "sudo rm -rf '$remote_bundle'"
+
+  printf 'Code-only bundle uploaded: %s\n' "$bundle"
+  printf 'Cloud database, training files, logs, .env, and credentials were preserved.\n'
+  printf 'Cloud entrypoint: HTTP 8081. The existing 8080 app was not changed.\n'
+  exit 0
+fi
+
 marker="$(mktemp "$output_dir/.initial-start.XXXXXX")"
 trap 'rm -f "$marker"' EXIT
 "$python_bin" "$handoff_cli" prepare-initial --project-root "$project_root" --output-dir "$output_dir"

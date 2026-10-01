@@ -6,6 +6,7 @@ import pytest
 
 from icewine_prediction.cloud_handoff import (
     HandoffError,
+    prepare_code,
     prepare_initial,
     prepare_return,
     restore_return,
@@ -97,6 +98,27 @@ def test_prepare_initial_uses_latest_successful_training_and_sqlite_backup(tmp_p
     connection = sqlite3.connect(copied_db)
     assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     connection.close()
+
+
+def test_prepare_code_contains_code_but_not_cloud_data_or_secrets(tmp_path):
+    root = _make_project(tmp_path)
+    (root / "local_data" / "icewine_prediction.sqlite3").write_bytes(b"not a database")
+    bundle = prepare_code(root, tmp_path / "code-out")
+
+    verify_bundle(bundle)
+    manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    paths = {item["path"] for item in manifest["files"]}
+
+    assert manifest["kind"] == "code"
+    assert "src/example.py" in paths
+    assert "deploy/cloud/nginx.conf.template" in paths
+    assert "web/dist/index.html" in paths
+    assert "pyproject.toml" in paths
+    assert "config/display_names.yaml" in paths
+    assert "local_data/icewine_prediction.sqlite3" not in paths
+    assert not any(path.startswith("local_data/") for path in paths)
+    assert not any(path.startswith("logs/") for path in paths)
+    assert ".env" not in paths
 
 
 def test_verify_bundle_rejects_tampered_file_and_traversal(tmp_path):

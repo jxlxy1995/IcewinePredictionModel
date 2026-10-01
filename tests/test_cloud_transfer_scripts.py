@@ -36,6 +36,19 @@ def test_transfer_script_explains_bash_options(name):
     assert "--ssh-port" in result.stdout
 
 
+def test_upload_exposes_explicit_code_only_mode():
+    result = subprocess.run(
+        [
+            str(BASH), _bash_path(ROOT / "scripts" / "cloud_upload.sh"), "--help"
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "--code-only" in result.stdout
+
+
 def test_upload_rejects_unsafe_remote_path_before_network():
     result = subprocess.run(
         [

@@ -66,6 +66,17 @@ def prepare_initial(project_root: Path, output_dir: Path) -> Path:
     return bundle
 
 
+def prepare_code(project_root: Path, output_dir: Path) -> Path:
+    """Build a code-only bundle without reading or copying business data."""
+    project_root = project_root.resolve()
+    bundle = _new_bundle(output_dir, "code")
+    files: list[dict[str, Any]] = []
+    for relative in _code_files(project_root):
+        _add_existing_file(project_root, bundle, files, relative, "code")
+    _write_manifest(bundle, "code", files)
+    return bundle
+
+
 def prepare_return(project_root: Path, output_dir: Path, initial_manifest: Path) -> Path:
     """Build a return bundle containing cloud data and files absent from the initial bundle."""
     project_root = project_root.resolve()

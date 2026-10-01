@@ -13,6 +13,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from icewine_prediction.cloud_handoff import (  # noqa: E402
     HandoffError,
+    prepare_code,
     prepare_initial,
     prepare_return,
     restore_return,
@@ -26,6 +27,9 @@ def main() -> int:
     initial = subparsers.add_parser("prepare-initial", help="制作首次上传包")
     initial.add_argument("--project-root", type=Path, default=PROJECT_ROOT)
     initial.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / ".web/cloud-handoff")
+    code = subparsers.add_parser("prepare-code", help="制作只包含代码和配置的上传包")
+    code.add_argument("--project-root", type=Path, default=PROJECT_ROOT)
+    code.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / ".web/cloud-handoff")
     returning = subparsers.add_parser("prepare-return", help="制作云端回迁包")
     returning.add_argument("--project-root", type=Path, default=PROJECT_ROOT)
     returning.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / ".web/cloud-handoff")
@@ -41,6 +45,8 @@ def main() -> int:
     try:
         if args.command == "prepare-initial":
             bundle = prepare_initial(args.project_root, args.output_dir)
+        elif args.command == "prepare-code":
+            bundle = prepare_code(args.project_root, args.output_dir)
         elif args.command == "prepare-return":
             bundle = prepare_return(args.project_root, args.output_dir, args.initial_manifest)
         elif args.command == "verify":

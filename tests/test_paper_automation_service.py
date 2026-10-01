@@ -381,12 +381,42 @@ def test_format_bark_messages_includes_all_confidence_groups():
     assert len(messages) == 1
     assert messages[0].title == "纸面自动任务：已记录 3 条"
     body = messages[0].body
-    assert "1. 18:30 日职联 横滨水手1 vs 神户胜利船1" in body
+    assert "2. 18:30 日职联 横滨水手1 vs 神户胜利船1" in body
     assert "   客队 +0.50  评分80 推荐1.50手" in body
-    assert "2. 18:30 日职联 横滨水手2 vs 神户胜利船2" in body
+    assert "1. 18:30 日职联 横滨水手2 vs 神户胜利船2" in body
     assert "   客队 +0.50  评分92 推荐2.50手" in body
     assert "3. 20:00 日职联 横滨水手3 vs 神户胜利船3" in body
     assert "   客队 +0.50  评分61 推荐0.75手" in body
+
+
+@pytest.mark.parametrize("max_body_chars", [3500, 130])
+def test_format_bark_sorts_by_stake_score_then_full_kickoff_before_splitting(max_body_chars):
+    groups = [
+        _confidence_group(1, confidence_score=95, suggested_stake_units=Decimal("0.50")),
+        _confidence_group(2, confidence_score=70, suggested_stake_units=Decimal("2.00")),
+        _confidence_group(3, confidence_score=80, kickoff=datetime(2026, 6, 16, 1, tzinfo=BEIJING)),
+        _confidence_group(4, confidence_score=75),
+        _confidence_group(5, confidence_score=80, kickoff=datetime(2026, 6, 15, 12, tzinfo=ZoneInfo("UTC"))),
+        _confidence_group(6, confidence_score=80, kickoff=datetime(2026, 6, 15, 11)),
+    ]
+    original = list(groups)
+    messages = format_paper_automation_bark_messages(
+        groups=groups, recorded_count=8, max_body_chars=max_body_chars,
+        has_observation_groups=True, has_zero_stake_groups=True,
+    )
+    body = "\n".join(message.body for message in messages)
+    # Naive database time is UTC: group 6 (19:00 Beijing) precedes group 5 (20:00).
+    order = [2, 6, 5, 3, 4, 1]
+    positions = [body.index(f"横滨水手{i} vs") for i in order]
+    assert positions == sorted(positions)
+    detail_lines = [line for line in body.splitlines() if " vs " in line]
+    assert [line.split(". ", 1)[0] for line in detail_lines] == ["1", "2", "3", "4", "5", "6"]
+    assert all(len(message.body) <= max_body_chars for message in messages)
+    assert body.endswith("本批已隐藏：仅纸面观察信号、0手推荐。")
+    assert body.count("本批已隐藏：") == 1
+    assert groups == original
+    if max_body_chars == 130:
+        assert len(messages) > 1
 
 
 def test_format_bark_messages_splits_without_dropping_groups():

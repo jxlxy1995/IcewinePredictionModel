@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Iterable
 from zoneinfo import ZoneInfo
@@ -86,7 +86,14 @@ def format_paper_automation_bark_messages(
     has_observation_groups: bool = False,
     has_zero_stake_groups: bool = False,
 ) -> list[BarkMessage]:
-    group_list = list(groups)
+    group_list = sorted(
+        groups,
+        key=lambda group: (
+            -group.suggested_stake_units,
+            -group.confidence_score,
+            _kickoff_sort_key(group.kickoff_time),
+        ),
+    )
     total_count = len(group_list) if recorded_count is None else recorded_count
     base_title = f"纸面自动任务：已记录 {total_count} 条"
     summary_text = "\n".join(line for line in (summary_lines or []) if line)
@@ -115,6 +122,15 @@ def format_paper_automation_bark_messages(
         for chunk in chunks
     ]
     return _messages_from_chunks(base_title, bodies)
+
+
+def _kickoff_sort_key(value: object) -> datetime:
+    if not isinstance(value, datetime):
+        return datetime.max
+    # Database datetimes are naive UTC; compare aware inputs on the same timeline.
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
 
 
 def _messages_from_chunks(base_title: str, chunks: list[str]) -> list[BarkMessage]:

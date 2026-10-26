@@ -1,5 +1,6 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import pytest
 
 from icewine_prediction.models import League, Match, Team
 from icewine_prediction.odds_source_match_service import (
@@ -40,6 +41,34 @@ def test_normalize_team_name_removes_common_suffixes_and_punctuation():
     assert normalize_team_name("RCD Mallorca") == "mallorca"
     assert normalize_team_name("Real Oviedo FC") == "real oviedo"
     assert normalize_team_name("Deportivo Alavés") == "deportivo alaves"
+
+
+@pytest.mark.parametrize(
+    "league_round,kickoff,expected",
+    [
+        ("Apertura - 14", datetime(2026, 10, 26, 9), 27464),
+        ("Clausura - Final", datetime(2026, 5, 25, 9), 27466),
+        ("Apertura - Final", datetime(2027, 1, 5, 9), 27464),
+        ("Clausura - 7", datetime(2026, 7, 5, 9), 27466),
+        (None, datetime(2026, 10, 26, 9), 27464),
+        (None, datetime(2026, 5, 25, 9), 27466),
+        (None, datetime(2026, 7, 1, 4, tzinfo=ZoneInfo("UTC")), 27466),
+        (None, datetime(2026, 7, 1, 8, tzinfo=ZoneInfo("UTC")), 27464),
+    ],
+)
+def test_mexico_matching_selects_competition_phase(session, league_round, kickoff, expected):
+    match = _match(session)
+    match.league.source_league_id = "262"
+    match.league_round = league_round
+    match.kickoff_time = kickoff
+    utc = kickoff.replace(tzinfo=ZoneInfo("Asia/Shanghai")) if kickoff.tzinfo is None else kickoff
+    fixtures = [
+        OddsPapiFixture(str(tid), tid, utc.astimezone(ZoneInfo("UTC")), "Mallorca", "Oviedo")
+        for tid in (27466, 27464)
+    ]
+    result = find_best_odds_source_match(match, fixtures, {"262": 27466})
+    assert result is not None
+    assert result.fixture.tournament_id == expected
 
 
 def test_find_best_odds_source_match_matches_league_time_and_team_names(session):

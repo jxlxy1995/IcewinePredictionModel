@@ -25,6 +25,7 @@ from icewine_prediction.odds_source_match_service import (
     ExternalAliasInput,
     OddsPapiFixture,
     find_best_odds_source_match,
+    resolve_oddspapi_tournament_id,
 )
 from icewine_prediction.settings import load_project_settings
 from icewine_prediction.team_alias_service import load_global_team_aliases
@@ -101,7 +102,7 @@ API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS = {
     "104": 22,
     "120": 47,
     "164": 188,
-    "262": 27466,
+    "262": 27466,  # Clausura default; resolve_oddspapi_tournament_id selects Apertura.
     "274": 1015,
     "357": 192,
     "358": 193,
@@ -690,8 +691,8 @@ def run_oddspapi_sync_for_session(
     for index, match in enumerate(matches, start=1):
         _emit_progress(progress_callback, _format_progress_start(index, total, match))
         try:
-            tournament_id = API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS.get(
-                str(match.league.source_league_id)
+            tournament_id = resolve_oddspapi_tournament_id(
+                match, API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS
             )
             if tournament_id is None:
                 _emit_progress(
@@ -910,8 +911,8 @@ def _resolve_source_fixture_id(
     cached_source_match = _get_reusable_odds_source_match(session, match.id)
     if cached_source_match is not None:
         return cached_source_match.source_fixture_id
-    tournament_id = API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS.get(
-        str(match.league.source_league_id)
+    tournament_id = resolve_oddspapi_tournament_id(
+        match, API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS
     )
     if tournament_id is None:
         return None

@@ -28,6 +28,7 @@ from icewine_prediction.oddspapi_sync_runner import (
 )
 from icewine_prediction.odds_source_match_service import ExternalAliasInput
 import icewine_prediction.oddspapi_sync_runner as oddspapi_sync_runner
+import pytest
 from icewine_prediction.sources.oddspapi_client import OddsPapiApiError
 from icewine_prediction.sources.oddspapi_client import OddsPapiRequestBudgetExceededError
 
@@ -992,6 +993,39 @@ def test_api_football_league_mappings_include_new_main_leagues():
     assert mappings["120"] == 47
     assert mappings["274"] == 1015
     assert mappings["262"] == 27466
+
+
+@pytest.mark.parametrize("phase,expected", [("Apertura - 14", 27464), ("Clausura - Final", 27466)])
+@pytest.mark.parametrize("operation", ["sync", "probe"])
+def test_mexico_phase_routes_fixture_lookup_and_matching(session, phase, expected, operation):
+    match = _match(session, source_league_id="262", league_name="Liga MX")
+    match.league_round = phase
+    session.commit()
+
+    class MexicoClient(FakeOddsPapiClient):
+        def get(self, endpoint, params=None):
+            payload = super().get(endpoint, params)
+            if endpoint == "fixtures":
+                payload[0]["tournamentId"] = expected
+            return payload
+
+    raw = MexicoClient()
+    client = OddsPapiSyncClient(raw, fixture_cooldown_seconds=0)
+    if operation == "sync":
+        session.add(OddsSourceMatch(
+            match_id=match.id, source_name="oddspapi", source_fixture_id="",
+            matched_at=match.kickoff_time, match_confidence=Decimal("0"),
+            match_reason="OddsPapi HTTP error: status=404", historical_odds_status="unavailable",
+        ))
+        session.commit()
+        run_oddspapi_sync_for_session(session=session, client=client, season=2025, max_matches=1, match_ids={match.id})
+        assert session.query(HistoricalOddsSnapshot).filter_by(match_id=match.id, source_name="oddspapi").count() > 0
+        assert session.query(OddsSourceMatch).filter_by(match_id=match.id, source_name="oddspapi").one().historical_odds_status == "success"
+    else:
+        report = build_oddspapi_probe_report_for_session(session=session, client=client, season=2025, max_matches=1)
+        assert report.available_match_count == 1
+    fixture_calls = [params for endpoint, params in raw.calls if endpoint == "fixtures"]
+    assert fixture_calls[0]["tournamentId"] == expected
 
 
 def test_sbobet_fallback_leagues_include_only_verified_historical_odds_targets():

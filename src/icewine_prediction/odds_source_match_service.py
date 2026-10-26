@@ -85,6 +85,26 @@ def normalize_team_name(name: str) -> str:
     return " ".join(tokens)
 
 
+def resolve_oddspapi_tournament_id(
+    match: Match,
+    api_football_to_oddspapi_tournament_ids: dict[str, int],
+) -> int | None:
+    league_id = str(match.league.source_league_id)
+    default = api_football_to_oddspapi_tournament_ids.get(league_id)
+    if league_id != "262" or default is None:
+        return default
+    # API-Football combines both phases; OddsPapi has separate competitions.
+    # Explicit round metadata wins over the date for postponed fixtures.
+    phase = (match.league_round or "").strip().casefold()
+    if phase.startswith("apertura"):
+        return 27464
+    if phase.startswith("clausura"):
+        return 27466
+    kickoff = _as_utc(match.kickoff_time, default_timezone=BEIJING_TIMEZONE)
+    local_month = kickoff.astimezone(ZoneInfo("America/Mexico_City")).month
+    return 27464 if local_month >= 7 else 27466
+
+
 def find_best_odds_source_match(
     match: Match,
     fixtures: list[OddsPapiFixture],
@@ -92,8 +112,8 @@ def find_best_odds_source_match(
     max_time_delta_seconds: int = 7200,
     team_aliases: list[ExternalAliasInput] | None = None,
 ) -> OddsSourceMatchCandidate | None:
-    expected_tournament_id = api_football_to_oddspapi_tournament_ids.get(
-        str(match.league.source_league_id)
+    expected_tournament_id = resolve_oddspapi_tournament_id(
+        match, api_football_to_oddspapi_tournament_ids
     )
     if expected_tournament_id is None:
         return None

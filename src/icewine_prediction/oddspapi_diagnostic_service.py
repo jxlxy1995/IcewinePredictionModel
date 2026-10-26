@@ -17,6 +17,7 @@ from icewine_prediction.odds_source_match_service import (
     ExternalAliasInput,
     OddsPapiFixture,
     _best_team_name_similarity,
+    resolve_oddspapi_tournament_id,
 )
 from icewine_prediction.oddspapi_sync_runner import (
     API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS,
@@ -317,7 +318,7 @@ def _diagnose_match(
     team_aliases: list[ExternalAliasInput],
     confidence_threshold: Decimal,
 ) -> OddsPapiFixtureDiagnosticMatch:
-    tournament_id = API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS.get(str(match.league.source_league_id))
+    tournament_id = resolve_oddspapi_tournament_id(match, API_FOOTBALL_TO_ODDSPAPI_TOURNAMENT_IDS)
     if tournament_id is None:
         return _build_empty_match(
             match=match,

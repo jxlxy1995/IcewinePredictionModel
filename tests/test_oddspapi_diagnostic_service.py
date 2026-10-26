@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import pytest
 
 from icewine_prediction.oddspapi_diagnostic_service import build_oddspapi_fixture_diagnostic_run_id
 from icewine_prediction.models import League, Match, Team
@@ -22,6 +23,23 @@ class FakeOddsPapiFixtureClient:
         if endpoint != "fixtures":
             raise AssertionError(f"unexpected endpoint: {endpoint}")
         return self.fixtures
+
+
+@pytest.mark.parametrize("phase,expected", [("Apertura - 14", 27464), ("Clausura - Final", 27466)])
+def test_mexico_diagnostics_uses_competition_phase(session, tmp_path, phase, expected):
+    _finished_match(session, source_league_id="262", league_round=phase)
+    raw = FakeOddsPapiFixtureClient([{
+        "fixtureId": "mexico-fixture", "tournamentId": expected,
+        "startTime": "2026-05-23T19:00:00Z",
+        "participant1Name": "Mallorca", "participant2Name": "Oviedo",
+    }])
+    report = run_oddspapi_fixture_diagnostics_for_session(
+        session=session, client=OddsPapiSyncClient(raw, fixture_cooldown_seconds=0),
+        season=2025, max_matches=1, request_budget=10, log_dir=tmp_path, run_id="mexico-phase",
+    )
+    assert report.matched_count == 1
+    assert report.matches[0].expected_tournament_id == expected
+    assert raw.calls[0][1]["tournamentId"] == expected
 
 
 def _finished_match(

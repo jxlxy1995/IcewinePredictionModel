@@ -8,6 +8,7 @@ from icewine_prediction.odds_source_match_service import (
     OddsPapiFixture,
     find_best_odds_source_match,
     normalize_team_name,
+    resolve_oddspapi_tournament_id,
 )
 
 
@@ -69,6 +70,55 @@ def test_mexico_matching_selects_competition_phase(session, league_round, kickof
     result = find_best_odds_source_match(match, fixtures, {"262": 27466})
     assert result is not None
     assert result.fixture.tournament_id == expected
+
+
+@pytest.mark.parametrize(
+    "home,away,source_home,source_away,fixture_id",
+    [
+        ("Bray Wanderers", "Kerry FC", "Bray Wanderers AFC", "Kerry FC", "id1000019275830770"),
+        ("UCD", "Longford Town", "University College Dublin", "Longford Town FC", "id1000019275830772"),
+        ("Longford Town", "UCD", "Longford Town FC", "University College Dublin", "id1000019275830766"),
+        ("Kerry FC", "Bray Wanderers", "Kerry FC", "Bray Wanderers AFC", "id1000019275830768"),
+    ],
+)
+def test_ireland_semifinals_match_premier_division_fixtures(
+    session, home, away, source_home, source_away, fixture_id
+):
+    match = _match(session, home=home, away=away)
+    match.league.source_league_id = "358"
+    match.league_round = "Semi-finals"
+    fixture = OddsPapiFixture(
+        fixture_id, 192, match.kickoff_time.astimezone(ZoneInfo("UTC")), source_home, source_away
+    )
+    result = find_best_odds_source_match(
+        match, [fixture], {"358": 193},
+        team_aliases=[ExternalAliasInput("UCD", "University College Dublin")],
+    )
+    assert result is not None
+    assert result.fixture.fixture_id == fixture_id
+    assert result.confidence == 1
+    assert result.reason == "league/time/team match; time_delta_seconds=0"
+
+
+@pytest.mark.parametrize(
+    "league_id,league_round,mapping,expected",
+    [
+        ("358", "  SEMI-FINALS  ", {"358": 193}, 192),
+        ("358", "Regular Season - 36", {"358": 193}, 193),
+        ("358", None, {"358": 193}, 193),
+        ("358", "Final", {"358": 193}, 193),
+        ("358", "Semi-finals", {}, None),
+        ("357", "Semi-finals", {"357": 192}, 192),
+        ("140", "Semi-finals", {"140": 8}, 8),
+    ],
+)
+def test_ireland_phase_override_is_limited_to_verified_round(
+    session, league_id, league_round, mapping, expected
+):
+    match = _match(session)
+    match.league.source_league_id = league_id
+    match.league_round = league_round
+    assert resolve_oddspapi_tournament_id(match, mapping) == expected
 
 
 def test_find_best_odds_source_match_matches_league_time_and_team_names(session):

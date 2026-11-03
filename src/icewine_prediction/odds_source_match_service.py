@@ -91,11 +91,17 @@ def resolve_oddspapi_tournament_id(
 ) -> int | None:
     league_id = str(match.league.source_league_id)
     default = api_football_to_oddspapi_tournament_ids.get(league_id)
-    if league_id != "262" or default is None:
+    if default is None:
+        return None
+    phase = (match.league_round or "").strip().casefold()
+    if league_id == "358" and phase == "semi-finals":
+        # Verified Irish First Division semi-finals are under Premier Division.
+        # Keep other rounds on the default until their placement is verified.
+        return 192
+    if league_id != "262":
         return default
     # API-Football combines both phases; OddsPapi has separate competitions.
     # Explicit round metadata wins over the date for postponed fixtures.
-    phase = (match.league_round or "").strip().casefold()
     if phase.startswith("apertura"):
         return 27464
     if phase.startswith("clausura"):

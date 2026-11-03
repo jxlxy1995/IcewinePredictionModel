@@ -25,17 +25,22 @@ class FakeOddsPapiFixtureClient:
         return self.fixtures
 
 
-@pytest.mark.parametrize("phase,expected", [("Apertura - 14", 27464), ("Clausura - Final", 27466)])
-def test_mexico_diagnostics_uses_competition_phase(session, tmp_path, phase, expected):
-    _finished_match(session, source_league_id="262", league_round=phase)
+@pytest.mark.parametrize("league_id,phase,expected", [
+    ("262", "Apertura - 14", 27464),
+    ("262", "Clausura - Final", 27466),
+    ("358", "Semi-finals", 192),
+    ("358", "Regular Season - 36", 193),
+])
+def test_diagnostics_uses_competition_phase(session, tmp_path, league_id, phase, expected):
+    _finished_match(session, source_league_id=league_id, league_round=phase)
     raw = FakeOddsPapiFixtureClient([{
-        "fixtureId": "mexico-fixture", "tournamentId": expected,
+        "fixtureId": "phase-fixture", "tournamentId": expected,
         "startTime": "2026-05-23T19:00:00Z",
         "participant1Name": "Mallorca", "participant2Name": "Oviedo",
     }])
     report = run_oddspapi_fixture_diagnostics_for_session(
         session=session, client=OddsPapiSyncClient(raw, fixture_cooldown_seconds=0),
-        season=2025, max_matches=1, request_budget=10, log_dir=tmp_path, run_id="mexico-phase",
+        season=2025, max_matches=1, request_budget=10, log_dir=tmp_path, run_id="competition-phase",
     )
     assert report.matched_count == 1
     assert report.matches[0].expected_tournament_id == expected

@@ -995,21 +995,26 @@ def test_api_football_league_mappings_include_new_main_leagues():
     assert mappings["262"] == 27466
 
 
-@pytest.mark.parametrize("phase,expected", [("Apertura - 14", 27464), ("Clausura - Final", 27466)])
+@pytest.mark.parametrize("league_id,phase,expected", [
+    ("262", "Apertura - 14", 27464),
+    ("262", "Clausura - Final", 27466),
+    ("358", "Semi-finals", 192),
+    ("358", "Regular Season - 36", 193),
+])
 @pytest.mark.parametrize("operation", ["sync", "probe"])
-def test_mexico_phase_routes_fixture_lookup_and_matching(session, phase, expected, operation):
-    match = _match(session, source_league_id="262", league_name="Liga MX")
+def test_competition_phase_routes_fixture_lookup_and_matching(session, league_id, phase, expected, operation):
+    match = _match(session, source_league_id=league_id)
     match.league_round = phase
     session.commit()
 
-    class MexicoClient(FakeOddsPapiClient):
+    class PhaseClient(FakeOddsPapiClient):
         def get(self, endpoint, params=None):
             payload = super().get(endpoint, params)
             if endpoint == "fixtures":
                 payload[0]["tournamentId"] = expected
             return payload
 
-    raw = MexicoClient()
+    raw = PhaseClient()
     client = OddsPapiSyncClient(raw, fixture_cooldown_seconds=0)
     if operation == "sync":
         session.add(OddsSourceMatch(

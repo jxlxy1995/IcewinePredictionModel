@@ -5,6 +5,8 @@ __pycache__/
 .worktrees/
 .worktrees
 .web/
+/.tmp/
+/.tmp-pytest/
 noti.txt
 *.pyc
 *.db

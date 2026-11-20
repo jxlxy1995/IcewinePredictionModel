@@ -534,7 +534,8 @@ export function PaperConfidenceSimulationTable({
 function formatCapReason(value: string): string {
   const labels: Record<string, string> = {
     same_family_cap: "同源信号封顶",
-    single_family_limited_history: "样本封顶"
+    single_family_limited_history: "样本封顶",
+    distribution_high_under_cap: "高盘分布小球上限 0.75 手"
   };
   return labels[value] ?? value;
 }

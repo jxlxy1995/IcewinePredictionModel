@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
@@ -24,6 +24,7 @@ PAPER_CONFIDENCE_SNAPSHOT_VERSION = "paper_confidence_v1"
 MONEY_QUANT = Decimal("0.001")
 RATIO_QUANT = Decimal("0.0000")
 STAKE_QUANT = Decimal("0.00")
+DISTRIBUTION_HIGH_UNDER_STAKE_CAP = Decimal("0.75")
 HISTORICAL_BACKFILL_SOURCE = "historical_backfill"
 SNAPSHOT_REVIEW_SOURCE_PRIORITY = {
     "automation": 0,
@@ -192,6 +193,22 @@ def create_group_snapshots_for_record_ids(
             if record.id in signal_record_id_set
         ]
         source_times = [record.created_at for record in group_records]
+        line_bucket = _line_bucket_for_group(group_records, group.representative_record_id)
+        if (
+            snapshot_source == "automation"
+            and not is_backfilled
+            and group.market_type == "total_goals"
+            and group.logical_side == "under"
+            and line_bucket == "high_>=3.00"
+            and "total_goals_distribution_hgb" in group.signal_families
+            and group.suggested_stake_units > DISTRIBUTION_HIGH_UNDER_STAKE_CAP
+        ):
+            group = replace(
+                group,
+                suggested_stake_units=DISTRIBUTION_HIGH_UNDER_STAKE_CAP,
+                stake_cap_reason="distribution_high_under_cap",
+                weighted_profit_units=_quantize(group.flat_profit_units * DISTRIBUTION_HIGH_UNDER_STAKE_CAP, MONEY_QUANT),
+            )
         snapshot = PaperRecommendationGroupSnapshot(
             created_at=created_at,
             snapshot_source=snapshot_source,
@@ -211,7 +228,7 @@ def create_group_snapshots_for_record_ids(
             recommendation_text=group.recommendation_text,
             representative_market_line=group.representative_market_line,
             representative_odds=group.representative_odds,
-            line_bucket=_line_bucket_for_group(group_records, group.representative_record_id),
+            line_bucket=line_bucket,
             status=group.status,
             settlement_result=group.settlement_result,
             flat_profit_units=group.flat_profit_units.quantize(MONEY_QUANT),

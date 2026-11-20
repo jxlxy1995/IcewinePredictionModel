@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from icewine_prediction.bark_notification_service import format_paper_automation_bark_messages
 from icewine_prediction.cli import _parse_cli_datetime_end, _parse_cli_datetime_start
 from icewine_prediction.models import (
     League,
@@ -30,6 +31,40 @@ from icewine_prediction.paper_recommendation_tracking_service import settle_pape
 
 
 BEIJING = ZoneInfo("Asia/Shanghai")
+
+
+@pytest.mark.parametrize("source,backfill,side,bucket,edge,expected,reason", [
+    ("automation", False, "under", "high_>=3.00", "0.30", "0.75", "distribution_high_under_cap"),
+    ("automation", False, "under", "high_>=3.00", "0.10", "0.75", "none"),
+    ("automation", False, "under", "high_>=3.00", "0.05", "0.50", "none"),
+    ("automation", False, "under", "high_>=3.00", "0.01", "0.00", "none"),
+    ("automation", False, "over", "high_>=3.00", "0.30", "1.50", "single_family_limited_history"),
+    ("automation", False, "under", "mid_2.75", "0.30", "1.50", "single_family_limited_history"),
+    ("manual_record", False, "under", "high_>=3.00", "0.30", "1.50", "single_family_limited_history"),
+    ("automation", True, "under", "high_>=3.00", "0.30", "1.50", "single_family_limited_history"),
+])
+def test_distribution_high_under_cap_at_freeze(session, source, backfill, side, bucket, edge, expected, reason):
+    record = _paper_record(
+        session, _seed_match(session), market_type="total_goals", side=side, line_bucket=bucket,
+        strategy_key="total_goals_distribution_hgb_confirmed_under_high_300_v1",
+        current_market_line=Decimal("2.75" if bucket == "mid_2.75" else "3.00"),
+        scoring_edge=Decimal(edge), status="settled", settlement_result="win", profit_units=Decimal("0.930"),
+    )
+    created, = create_group_snapshots_for_record_ids(
+        session, [record.id], snapshot_source=source, created_at=_now(), is_backfilled=backfill,
+    )
+    stake = Decimal(expected)
+    for item in (created.snapshot, created.group):
+        assert item.confidence_score == 50 + int(Decimal(edge) * 100)
+        assert item.suggested_stake_units == stake
+        assert item.stake_cap_reason == reason
+    message, = format_paper_automation_bark_messages(groups=[created.group])
+    assert f"推荐{expected}手" in message.body
+    report = build_snapshot_report(session, snapshot_source=source)
+    assert report.summary.suggested_stake_units == stake
+    assert report.summary.weighted_profit_units == created.snapshot.weighted_profit_units
+    if reason == "distribution_high_under_cap":
+        assert report.summary.weighted_profit_units == Decimal("0.698")
 
 
 def test_snapshot_model_can_be_inserted(session):

@@ -704,6 +704,45 @@ def test_execute_task_hides_zero_stake_but_keeps_records_and_settlement(
         assert zero_snapshot.suggested_stake_units == Decimal("0.00")
 
 
+@pytest.mark.parametrize("side,bucket,line,hidden", [
+    ("over", "mid_2.75", "2.75", True),
+    ("under", "mid_2.75", "2.75", False),
+    ("over", "mid_2.50", "2.50", False),
+])
+def test_auto_total_goals_observation_uses_frozen_bucket(
+    side, bucket, line, hidden, tmp_path, monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/paper_automation.yaml").write_text(
+        "bark_observation_filter_enabled: true\n", encoding="utf-8",
+    )
+    kickoff = datetime(2026, 11, 21, 18, 30, tzinfo=BEIJING)
+    now = kickoff - timedelta(minutes=9)
+    with _session() as session:
+        match = _seed_match(session, kickoff)
+        task = _seed_running_task(session, match_window_start=kickoff, match_window_end=kickoff, now=now)
+        label = ("大球 " if side == "over" else "小球 ") + line
+        row = replace(
+            _queue_row(match), market_type="total_goals", side=side, line=Decimal(line),
+            recommended_handicap=label, line_bucket=bucket, risk_tags=(),
+            strategy_key="total_goals_hgb_low_line_bucket_v3",
+        )
+        result = execute_paper_automation_task(
+            session, task.id, now=now, odds_syncer=lambda ids: {"ok": ids},
+            queue_builder=lambda *_: _queue_report([row]), bark_push_url=None,
+        )
+        snapshot = session.query(PaperRecommendationGroupSnapshot).one()
+        assert snapshot.line_bucket == bucket and snapshot.suggested_stake_units > 0
+        bark = result.result_payload["bark"]
+        body = bark["messages"][0]["body"]
+        assert (label not in body) is hidden
+        assert ("仅纸面观察信号" in body) is hidden
+        assert bark["over_275_filter"]["snapshot_ids"] == ([snapshot.id] if hidden else [])
+        assert bark["over_275_filter"]["group_keys"] == ([snapshot.group_key] if hidden else [])
+        assert bark["observation_filter"]["snapshot_ids"] == []
+
+
 def test_bark_observation_filter_can_be_disabled_in_config(tmp_path):
     config = tmp_path / "paper_automation.yaml"
     config.write_text("bark_observation_filter_enabled: false\n", encoding="utf-8")

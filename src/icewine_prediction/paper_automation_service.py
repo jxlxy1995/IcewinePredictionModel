@@ -520,17 +520,25 @@ def execute_paper_automation_task(
             result for result in snapshot_results
             if observation_filter_enabled and is_paper_observation_group(result.group)
         ]
+        over_275_results = [
+            result for result in snapshot_results
+            if observation_filter_enabled
+            and result.snapshot.market_type == "total_goals"
+            and result.snapshot.side == "over"
+            and result.snapshot.line_bucket == "mid_2.75"
+        ]
         zero_stake_results = [
             result for result in snapshot_results
             if observation_filter_enabled and result.group.suggested_stake_units == 0
         ]
         hidden_keys = {
-            result.group.group_key for result in [*observation_results, *zero_stake_results]
+            result.group.group_key
+            for result in [*observation_results, *over_275_results, *zero_stake_results]
         }
         messages = format_paper_automation_bark_messages(
             groups=[group for group in groups if group.group_key not in hidden_keys],
             recorded_count=len(created_record_ids),
-            has_observation_groups=bool(observation_results),
+            has_observation_groups=bool(observation_results or over_275_results),
             has_zero_stake_groups=bool(zero_stake_results),
             summary_lines=_execution_summary_lines(
                 odds_sync_result=odds_sync_result,
@@ -558,6 +566,12 @@ def execute_paper_automation_task(
                 "rule_id": PAPER_OBSERVATION_RULE_ID,
                 "snapshot_ids": [result.snapshot.id for result in observation_results],
                 "group_keys": [result.group.group_key for result in observation_results],
+            },
+            "over_275_filter": {
+                "enabled": observation_filter_enabled,
+                "rule_id": "total_goals_over_mid_275_v1",
+                "snapshot_ids": [result.snapshot.id for result in over_275_results],
+                "group_keys": [result.group.group_key for result in over_275_results],
             },
             "zero_stake_filter": {
                 "enabled": observation_filter_enabled,
